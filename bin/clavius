@@ -1,0 +1,8 @@
+#!/usr/bin/env luajit
+-- CLI entry point. Resolves src/ relative to this script so it runs from anywhere.
+local root = (arg[0]:match '^(.*)/bin/[^/]+$' or '.')
+package.path = root .. '/src/?.lua;' .. root .. '/src/?/init.lua;' .. package.path
+
+local clavius = require 'clavius'
+
+print(clavius.greet(arg[1]))

@@ -1,0 +1,12 @@
+# LuaRocks local tree
+/lua_modules/
+/.luarocks/
+*.rock
+
+# Build / editor artifacts
+*.o
+*.so
+*.dll
+*.exe
+luacov.*.out
+.DS_Store
