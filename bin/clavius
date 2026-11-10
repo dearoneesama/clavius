@@ -1,8 +1,18 @@
 #!/usr/bin/env luajit
--- CLI entry point. Resolves src/ relative to this script so it runs from anywhere.
-local root = (arg[0]:match '^(.*)/bin/[^/]+$' or '.')
-package.path = root .. '/src/?.lua;' .. root .. '/src/?/init.lua;' .. package.path
+-- CLI entry point.
 
-local clavius = require 'clavius'
+-- look for src/ and lua_modules/ next to this script, so a checkout runs from any directory;
+-- an installed copy has neither and uses the paths LuaRocks sets
+local root = arg[0]:match '^(.*)/bin/[^/]+$' or '.'
+package.path = table.concat({
+    ('%s/src/?.lua'):format(root),
+    ('%s/src/?/init.lua'):format(root),
+    ('%s/lua_modules/share/lua/5.1/?.lua'):format(root),
+    ('%s/lua_modules/share/lua/5.1/?/init.lua'):format(root),
+    package.path,
+}, ';')
+package.cpath = ('%s/lua_modules/lib/lua/5.1/?.so;%s'):format(root, package.cpath)
 
-print(clavius.greet(arg[1]))
+local cli = require 'clavius.cli'
+
+os.exit(cli.main({ ... }, io.stdout, io.stderr))

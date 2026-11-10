@@ -13,6 +13,7 @@ description = {
 
 dependencies = {
     'lua ~> 5.1', -- LuaJIT reports itself as Lua 5.1
+    'argparse == 0.7.2',
 }
 
 test_dependencies = {
