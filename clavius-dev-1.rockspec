@@ -7,7 +7,7 @@ source = {
 }
 
 description = {
-    summary = 'A LuaJIT project.',
+    summary = 'A deductive verifier for a subset of LuaJIT.',
     homepage = 'https://github.com/dearoneesama/clavius',
 }
 
@@ -17,21 +17,15 @@ dependencies = {
 
 test_dependencies = {
     'luacheck == 1.2.0',
+    'busted == 2.3.0',
+    'penlight == 1.15.0',
 }
 
 test = {
-    type = 'command',
-    command = 'luajit tests/run.lua',
+    type = 'busted',
 }
 
+-- No module list: LuaRocks installs every module under src/ and every script under bin/.
 build = {
     type = 'builtin',
-    modules = {
-        clavius = 'src/clavius/init.lua',
-    },
-    install = {
-        bin = {
-            clavius = 'bin/clavius',
-        },
-    },
 }
