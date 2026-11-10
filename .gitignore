@@ -9,4 +9,5 @@
 *.dll
 *.exe
 luacov.*.out
+luacov.report.html
 .DS_Store

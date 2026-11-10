@@ -20,6 +20,7 @@ test_dependencies = {
     'luacheck == 1.2.0',
     'busted == 2.3.0',
     'penlight == 1.15.0',
+    'luacov == 0.17.0',
 }
 
 test = {
