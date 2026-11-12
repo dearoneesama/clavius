@@ -2,7 +2,9 @@
 
 --- The part of a code after `E-` names its family: `syntax`, `misplaced` (an annotation in the wrong
 --- place), `unsupported` (a feature Clavius doesn't verify), `banned` (a feature verified code must not
---- use) or `internal` (a bug in Clavius).
+--- use) or `internal` (a bug in Clavius). The `internal` codes come from validating the core:
+--- `node` is a node where it doesn't belong, `check` a `Check` with no obligation of a known kind, and
+--- `assume` an `Assume` with no allowed justification.
 --- @alias DiagCode
 --- | 'E-syntax'
 --- | 'E-misplaced-directive'
@@ -13,7 +15,9 @@
 --- | 'E-banned-global'
 --- | 'E-banned-goto'
 --- | 'E-banned-call'
---- | 'E-internal'
+--- | 'E-internal-node'
+--- | 'E-internal-check'
+--- | 'E-internal-assume'
 
 --- @class Diag
 --- @field code DiagCode
