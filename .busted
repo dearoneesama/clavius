@@ -6,4 +6,7 @@ return {
     default = {
         ROOT = { 'tests/unit' },
     },
+    e2e = {
+        ROOT = { 'tests/e2e' },
+    },
 }

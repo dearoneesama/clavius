@@ -14,13 +14,17 @@ export LUA_CPATH := $(CURDIR)/$(TREE)/lib/lua/5.1/?.so;;
 # Every Lua file that luacheck and stylua look at.
 LUA_SOURCES = src tests schema bin/clavius
 
-.PHONY: run test coverage lint fmt gen dev
+.PHONY: run test e2e coverage lint fmt gen dev
 
 run:
 	@./bin/clavius $(ARGS)
 
 test:
 	busted --lua=$(LUA)
+
+# Needs Boogie and Z3
+e2e:
+	busted --lua=$(LUA) --run=e2e
 
 coverage:
 	@rm -f luacov.stats.out # so counts never pile up across runs
