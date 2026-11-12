@@ -1,5 +1,5 @@
 local dir = require 'pl.dir'
-local golden = require 'support.golden'
+local snapshot = require 'support.snapshot'
 local utils = require 'pl.utils'
 local read = require 'clavius.sexpr.read'
 local write = require 'clavius.sexpr.write'
@@ -204,16 +204,16 @@ describe('sexpr round trip', function()
     end)
 end)
 
-describe('sexpr layout goldens', function()
-    -- tests/golden/sexpr/NAME.sexp is read and written back at width 60 into NAME.pretty.sexp
-    local inputs = dir.getallfiles('tests/golden/sexpr', '*.sexp')
+describe('sexpr layout snapshots', function()
+    -- tests/snapshots/sexpr/NAME.sexp is read and written back at width 60 into NAME.pretty.sexp
+    local inputs = dir.getallfiles('tests/snapshots/sexpr', '*.sexp')
     table.sort(inputs)
     for _, input in ipairs(inputs) do
         if not input:match '%.pretty%.sexp$' then
             it(input, function()
                 local xs, err = read.read_all(assert(utils.readfile(input, true)))
                 assert(xs, err and read.format_error(err))
-                golden.check((input:gsub('%.sexp$', '.pretty.sexp')), write.write_all(xs, { width = 60 }))
+                snapshot.check((input:gsub('%.sexp$', '.pretty.sexp')), write.write_all(xs, { width = 60 }))
             end)
         end
     end
