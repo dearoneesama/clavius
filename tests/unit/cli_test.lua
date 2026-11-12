@@ -1,4 +1,6 @@
 local cli = require 'clavius.cli'
+local stringx = require 'pl.stringx'
+local utils = require 'pl.utils'
 
 --- @class CliRun
 --- @field status integer
@@ -23,16 +25,65 @@ local function run(argv)
 end
 
 describe('cli', function()
-    it('reports each subcommand as not implemented yet', function()
+    it('reports verifying Lua and dumping as not implemented', function()
         for _, argv in ipairs({
             { 'verify', 'f.lua' },
             { 'dump', '--after', 'parse', 'f.lua' },
-            { 'lower', 'f.core.sexp' },
         }) do
             local r = run(argv)
             assert.are.equal(cli.EXIT_NOT_IMPLEMENTED, r.status)
             assert.are.equal(('clavius %s: not implemented yet\n'):format(argv[1]), r.err)
             assert.are.equal('', r.out)
+        end
+    end)
+
+    it('lowers a core file to Boogie', function()
+        local r = run({ 'lower', 'tests/snapshots/boogie/control.core.sexp' })
+        assert.are.same({ cli.EXIT_OK, '' }, { r.status, r.err })
+        assert.are.equal(utils.readfile('tests/snapshots/boogie/control.bpl', true), r.out)
+    end)
+
+    it('reports a file it cannot read', function()
+        local r = run({ 'lower', 'tests/no-such-file.core.sexp' })
+        assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
+        assert.is_truthy(r.err:find('no-such-file.core.sexp', 1, true))
+    end)
+
+    --- Runs `clavius <command> FILE` on a temporary core file holding `text`.
+    --- @param command string
+    --- @param text string
+    --- @return CliRun
+    local function run_on(command, text)
+        local base = os.tmpname()
+        local file = base .. '.core.sexp'
+        assert(utils.writefile(file, text, true))
+        local r = run({ command, file })
+        os.remove(file)
+        os.remove(base)
+        r.err = stringx.replace(r.err, file, 'f.core.sexp')
+        return r
+    end
+
+    it('reports a malformed core file at its position', function()
+        for _, command in ipairs({ 'lower', 'verify' }) do
+            local r = run_on(command, '(Unit u\n  [] [(Havoc)])')
+            assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
+            assert.are.equal('f.core.sexp:2:7: Havoc takes 1 fields, found 0\n', r.err)
+        end
+    end)
+
+    it('reports every validation error at its node', function()
+        for _, command in ipairs({ 'lower', 'verify' }) do
+            local r = run_on(command, '(Unit u []\n  [(Check 1 (Bool true))\n   (Var x)])')
+            assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
+            assert.are.equal(
+                table.concat({
+                    'f.core.sexp:2:4: E-internal-check: Check O1 has no obligation of a known kind',
+                    'f.core.sexp:3:4: E-internal-node: Var where a statement belongs',
+                    '',
+                }, '\n'),
+                r.err
+            )
         end
     end)
 
