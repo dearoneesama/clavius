@@ -4,7 +4,9 @@
 --   statements are in statement lists;
 --   terms, which are pure, are everywhere else;
 --   every `Check` must refer to an obligation of a known kind;
---   every `Assume` must refer to an assumption with an allowed justification.
+--   every `Assume` must refer to an assumption with an allowed justification;
+--   every `Exit` must be inside a `Block` with its label;
+--   the `Block` labels in a unit must differ.
 -- A failure is a bug in Clavius, not in the program being verified.
 
 local diag = require 'clavius.ir.diag'
@@ -40,12 +42,19 @@ end
 --- @field obligations Obligation[]
 --- @field assumptions Assumption[]
 
+--- The `Block` labels of one unit.
+--- @class ValidateLabels
+--- @field open table<string, boolean> labels of the Blocks around the current statement
+--- @field used table<string, boolean> labels of the unit's Blocks so far
+
 --- @param core CoreArena
 --- @param ids NodeId[]
 --- @param tables ValidateTables
+--- @param labels ValidateLabels
 --- @param diags Diag[]
+--- @mut labels
 --- @mut diags
-local function check_statements(core, ids, tables, diags)
+local function check_statements(core, ids, tables, labels, diags)
     for i = 1, #ids do
         local id = ids[i]
         local n = core.nodes[id]
@@ -65,14 +74,26 @@ local function check_statements(core, ids, tables, diags)
             check_term(core, n.cond, diags)
         elseif n.tag == 'Branch' then
             check_term(core, n.cond, diags)
-            check_statements(core, n.then_body, tables, diags)
-            check_statements(core, n.else_body, tables, diags)
+            check_statements(core, n.then_body, tables, labels, diags)
+            check_statements(core, n.else_body, tables, labels, diags)
         elseif n.tag == 'Choice' then
-            check_statements(core, n.first, tables, diags)
-            check_statements(core, n.second, tables, diags)
+            check_statements(core, n.first, tables, labels, diags)
+            check_statements(core, n.second, tables, labels, diags)
         elseif n.tag == 'Block' then
-            check_statements(core, n.body, tables, diags)
-        elseif n.tag == 'Havoc' or n.tag == 'Exit' then -- luacheck: ignore 542
+            -- Boogie labels are per procedure, so a reused label would make an Exit ambiguous
+            if labels.used[n.label] then
+                diags[#diags + 1] = diag.at_node('E-internal-label', id, { n.label })
+            end
+            labels.used[n.label] = true
+            labels.open[n.label] = true
+            check_statements(core, n.body, tables, labels, diags)
+            labels.open[n.label] = nil
+        elseif n.tag == 'Exit' then
+            -- a goto to any other label could jump backwards or into a block
+            if not labels.open[n.label] then
+                diags[#diags + 1] = diag.at_node('E-internal-exit', id, { n.label })
+            end
+        elseif n.tag == 'Havoc' then -- luacheck: ignore 542
             -- nothing
         else
             diags[#diags + 1] = diag.at_node('E-internal-node', id, { n.tag, 'statement' })
@@ -80,8 +101,8 @@ local function check_statements(core, ids, tables, diags)
     end
 end
 
---- Returns a diagnostic for every misplaced node, unchecked `Check` and unjustified `Assume` in the
---- units in program order. The result is empty when the program is valid.
+--- Returns a diagnostic for every misplaced node, unchecked `Check`, unjustified `Assume`, stray
+--- `Exit` and reused `Block` label in the units in program order. The result is empty when the program is valid.
 --- @param core CoreArena
 --- @param units NodeId[]
 --- @param obligations Obligation[]
@@ -99,7 +120,7 @@ function M.run(core, units, obligations, assumptions)
                     diags[#diags + 1] = diag.at_node('E-internal-node', n.vars[j], { v.tag, 'variable declaration' })
                 end
             end
-            check_statements(core, n.body, tables, diags)
+            check_statements(core, n.body, tables, { open = {}, used = {} }, diags)
         else
             diags[#diags + 1] = diag.at_node('E-internal-node', units[i], { n.tag, 'unit' })
         end

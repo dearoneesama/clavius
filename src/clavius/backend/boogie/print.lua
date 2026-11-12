@@ -71,7 +71,7 @@ end
 --- @param depth integer
 --- @param out string[]
 --- @mut out
-local function stmts(core, ids, depth, out)
+local function statements(core, ids, depth, out)
     local pad = ('  '):rep(depth)
     --- @param s string
     local function emit(s)
@@ -98,12 +98,12 @@ local function stmts(core, ids, depth, out)
                     cond, first, second = term(core, b.cond), b.then_body, b.else_body
                 end
                 emit(('%sif (%s) {'):format(prefix, cond))
-                stmts(core, first, depth + 1, out)
+                statements(core, first, depth + 1, out)
                 local only = #second == 1 and core.nodes[second[1]]
                 if not only or (only.tag ~= 'Branch' and only.tag ~= 'Choice') then
                     if #second > 0 then
                         emit '} else {'
-                        stmts(core, second, depth + 1, out)
+                        statements(core, second, depth + 1, out)
                     end
                     emit '}'
                     break
@@ -111,8 +111,8 @@ local function stmts(core, ids, depth, out)
                 prefix, b = '} else ', only --[[@as CoreBranch|CoreChoice]]
             end
         elseif n.tag == 'Block' then
-            -- an Exit jumps to the label at the block's end
-            stmts(core, n.body, depth, out)
+            -- label comes after the body, so if there is a goto within stmts it will still be valid
+            statements(core, n.body, depth, out)
             emit(('%s:'):format(n.label))
         elseif n.tag == 'Exit' then
             emit(('goto %s;'):format(n.label))
@@ -151,7 +151,7 @@ function M.program(core, units, opts)
         if #u.vars > 0 and #u.body > 0 then
             out[#out + 1] = ''
         end
-        stmts(core, u.body, 1, out)
+        statements(core, u.body, 1, out)
         out[#out + 1] = '}'
     end
     return table.concat(out, '\n') .. (#out > 0 and '\n' or '')

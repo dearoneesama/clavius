@@ -10,6 +10,8 @@ local TEMPLATES = {
     ['E-internal-node'] = '%s where a %s belongs',
     ['E-internal-check'] = 'Check O%s has no obligation of a known kind',
     ['E-internal-assume'] = 'Assume A%s has no allowed justification',
+    ['E-internal-exit'] = 'Exit %s has no enclosing Block with that label',
+    ['E-internal-label'] = 'Block label %s is already used in this unit',
 }
 
 --- Formats a diagnostic as `line:col: code: message`.

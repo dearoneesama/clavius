@@ -61,6 +61,30 @@ describe('validate', function()
         }, diags(text))
     end)
 
+    it('reports an Exit that no Block with its label encloses', function()
+        local text = [=[
+            (Unit u []
+              [(Block a [(Exit a) (Block b [(Exit a) (Exit b)])])
+               (Exit b)
+               (Block c [])
+               (Branch (Bool true) [(Exit c)] [])])
+        ]=]
+        assert.are.same({
+            { code = 'E-internal-exit', tag = 'Exit', args = { 'b' } },
+            { code = 'E-internal-exit', tag = 'Exit', args = { 'c' } },
+        }, diags(text))
+    end)
+
+    it('reports a Block label used twice in a unit', function()
+        local text = [=[
+            (Unit u [] [(Block a []) (Block b [(Block a [(Exit a)])])])
+            (Unit v [] [(Block a [])])
+        ]=]
+        assert.are.same({
+            { code = 'E-internal-label', tag = 'Block', args = { 'a' } },
+        }, diags(text))
+    end)
+
     it('reports nodes out of place', function()
         local text = [=[
             (Unit u

@@ -74,12 +74,14 @@ describe('cli', function()
 
     it('reports every validation error at its node', function()
         for _, command in ipairs({ 'lower', 'verify' }) do
-            local r = run_on(command, '(Unit u []\n  [(Check 1 (Bool true))\n   (Var x)])')
+            local r = run_on(command, '(Unit u []\n  [(Check 1 (Bool true))\n   (Var x)\n   (Block l [])\n   (Block l [(Exit m)])])')
             assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
             assert.are.equal(
                 table.concat({
                     'f.core.sexp:2:4: E-internal-check: Check O1 has no obligation of a known kind',
                     'f.core.sexp:3:4: E-internal-node: Var where a statement belongs',
+                    'f.core.sexp:5:4: E-internal-label: Block label l is already used in this unit',
+                    'f.core.sexp:5:14: E-internal-exit: Exit m has no enclosing Block with that label',
                     '',
                 }, '\n'),
                 r.err
