@@ -18,11 +18,12 @@ local M = {}
 
 local SIMPLE_ESCAPES = { ['\\'] = '\\', ['"'] = '"', n = '\n', t = '\t', r = '\r' }
 
+--- Makes an error at a byte offset of `text`.
 --- @param text string
 --- @param offset integer
 --- @param message string
 --- @return SexpReadError
-local function read_error(text, offset, message)
+function M.error_at(text, offset, message)
     local line, col = arena.line_col(arena.line_starts(text), offset)
     return { message = message, offset = offset, line = line, col = col }
 end
@@ -38,7 +39,7 @@ local function read_string(text, start)
     while true do
         local j = text:find('["\\]', i)
         if not j then
-            return nil, read_error(text, start, 'unterminated string')
+            return nil, M.error_at(text, start, 'unterminated string')
         end
         parts[#parts + 1] = text:sub(i, j - 1)
         if text:sub(j, j) == '"' then
@@ -52,7 +53,7 @@ local function read_string(text, start)
             local digits = text:match('^%d%d?%d?', j + 1)
             local code = digits and tonumber(digits)
             if not code or code > 255 then
-                return nil, read_error(text, j, 'bad escape in string')
+                return nil, M.error_at(text, j, 'bad escape in string')
             end
             parts[#parts + 1] = string.char(code)
             i = j + 1 + #digits
@@ -96,12 +97,13 @@ function M.read_all(text)
         elseif c == ')' or c == ']' then
             local frame = stack[#stack]
             if not frame then
-                return nil, read_error(text, i, ('unexpected %s'):format(c))
+                return nil, M.error_at(text, i, ('unexpected %s'):format(c))
             end
             if frame.close ~= c then
-                return nil, read_error(text, i, ('expected %s, found %s'):format(frame.close, c))
+                return nil, M.error_at(text, i, ('expected %s, found %s'):format(frame.close, c))
             end
             stack[#stack] = nil
+            frame.node.finish = i
             push(frame.node)
             i = i + 1
         elseif c == '"' then
@@ -121,7 +123,7 @@ function M.read_all(text)
     end
     if #stack > 0 then
         local frame = stack[#stack]
-        return nil, read_error(text, frame.node.start or 1, ('unclosed %s'):format(frame.node.tag == 'List' and '(' or '['))
+        return nil, M.error_at(text, frame.node.start or 1, ('unclosed %s'):format(frame.node.tag == 'List' and '(' or '['))
     end
     return top, nil
 end

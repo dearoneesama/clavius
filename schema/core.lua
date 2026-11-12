@@ -1,5 +1,5 @@
--- Core node types. `schema/gen.lua` turns this into src/clavius/ir/core_nodes.lua.
--- The field format is described in schema/source.lua.
+-- Core node types. `schema/gen.lua` turns this into src/clavius/ir/core_nodes.lua and
+-- src/clavius/sexpr/schema.lua. The field format is described in schema/source.lua.
 
 local OPS = "'+' | '-' | '*' | '<' | '<=' | '>' | '>=' | '==' | '!=' | 'and' | 'or' | '=>'"
 

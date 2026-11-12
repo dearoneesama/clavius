@@ -9,11 +9,13 @@
 --- @field tag 'List'
 --- @field items Sexp[]
 --- @field start integer|nil offset of `(` in the text it was read from
+--- @field finish integer|nil offset of `)`
 
 --- @class SexpVec
 --- @field tag 'Vec'
 --- @field items Sexp[]
 --- @field start integer|nil offset of `[` in the text it was read from
+--- @field finish integer|nil offset of `]`
 
 --- @class SexpSym
 --- @field tag 'Sym'
