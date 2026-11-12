@@ -1,0 +1,112 @@
+-- Runs Boogie on a core program and collects the ids of the obligations that fail. All units go to
+-- one Boogie process. A unit that runs out of resources is checked again one assert at a time to name
+-- the asserts that fail.
+--
+-- The `BOOGIE` environment variable names the Boogie executable, and `Z3` the Z3 that Boogie runs.
+-- Each defaults to the program of that name on `PATH`.
+
+local boogie_output = require 'clavius.backend.boogie.output'
+local boogie_print = require 'clavius.backend.boogie.print'
+
+--- @class BoogieRunOptions
+--- @field rlimit integer|nil Z3 resource limit of each unit
+
+local M = {}
+
+--- @param s string
+--- @return string
+local function shell_quote(s)
+    return ("'%s'"):format((s:gsub("'", "'\\''")))
+end
+
+--- Runs Boogie on one program and returns everything it prints.
+--- @param bpl string
+--- @return string
+local function run_boogie(bpl)
+    -- Boogie only reads files whose name ends in .bpl
+    local base = os.tmpname()
+    local path = base .. '.bpl'
+    local f = assert(io.open(path, 'wb'))
+    f:write(bpl)
+    f:close()
+    local args = { shell_quote(os.getenv 'BOOGIE' or 'boogie'), '/errorLimit:0' }
+    local z3 = os.getenv 'Z3'
+    if z3 then
+        args[#args + 1] = shell_quote(('/proverOpt:PROVER_PATH=%s'):format(z3))
+    end
+    args[#args + 1] = shell_quote(path)
+    local pipe = assert(io.popen(('%s 2>&1'):format(table.concat(args, ' '))))
+    local text = pipe:read '*a'
+    pipe:close()
+    os.remove(path)
+    os.remove(base)
+    return text
+end
+
+--- Prints the units, runs Boogie on them and parses its output.
+--- @param core CoreArena
+--- @param units NodeId[]
+--- @param print_opts BoogiePrintOptions
+--- @return BoogieOutput|nil result
+--- @return string|nil err
+local function check_once(core, units, print_opts)
+    local text = run_boogie(boogie_print.program(core, units, print_opts))
+    local result, err = boogie_output.parse(text)
+    if not result then
+        return nil, ('%s:\n%s'):format(err, text)
+    end
+    return result, nil
+end
+
+--- Verifies the units of a valid core program. Returns the ids of the failing obligations in
+--- ascending order, or nil and an error with Boogie's output when there is no verdict.
+--- @param core CoreArena
+--- @param units NodeId[]
+--- @param opts BoogieRunOptions|nil
+--- @return integer[]|nil failed
+--- @return string|nil err
+function M.check(core, units, opts)
+    local rlimit = opts and opts.rlimit
+    local first, err = check_once(core, units, { rlimit = rlimit })
+    if not first then
+        return nil, err
+    end
+    local failed = first.failed
+    -- Boogie checks each unit as one query. When that query runs out of resources, Boogie reports
+    -- none of the unit's failing asserts. The rerun gives each assert of those units its own query and
+    -- resource limit, so it names every failing assert. An assert that runs out of resources on its
+    -- own counts as failing.
+    if #first.out_of_resource > 0 then
+        local split, rerun = {}, {}
+        for _, name in ipairs(first.out_of_resource) do
+            split[name] = true
+        end
+        for _, id in ipairs(units) do
+            local u = core.nodes[id]
+            if u.tag == 'Unit' and split[u.name] then
+                rerun[#rerun + 1] = id
+            end
+        end
+        local second, err2 = check_once(core, rerun, { rlimit = rlimit, split = split })
+        if not second then
+            return nil, err2
+        end
+        if #second.out_of_resource > 0 then
+            return nil, ('Boogie ran out of resources checking each assert of %s on its own'):format(second.out_of_resource[1])
+        end
+        for _, id in ipairs(second.failed) do
+            failed[#failed + 1] = id
+        end
+    end
+    -- one obligation id can label several asserts, and Boogie prints it once per failing assert
+    table.sort(failed)
+    local unique = {}
+    for _, id in ipairs(failed) do
+        if unique[#unique] ~= id then
+            unique[#unique + 1] = id
+        end
+    end
+    return unique, nil
+end
+
+return M
