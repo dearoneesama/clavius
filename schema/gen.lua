@@ -18,7 +18,7 @@
 
 --- @type Schema[]
 local SCHEMAS = {
-    { path = 'schema/source.lua', prefix = 'Src', module = 'src/clavius/ir/source_nodes.lua' },
+    { path = 'schema/source.lua', prefix = 'Src', module = 'src/clavius/ir/source_nodes.lua', family = 'source' },
     { path = 'schema/core.lua', prefix = 'Core', module = 'src/clavius/ir/core_nodes.lua', family = 'core' },
 }
 
@@ -34,6 +34,8 @@ local function lua_type(ty)
         return 'NodeId|nil'
     elseif ty == 'node[]' then
         return 'NodeId[]'
+    elseif ty == 'string?' then
+        return 'string|nil'
     end
     return ty
 end
@@ -113,8 +115,8 @@ local function node_module(schema, node_types)
                     emit(('            kids[#kids + 1] = n.%s'):format(name))
                     emit '        end'
                 elseif ty == 'node[]' then
-                    emit(('        for i = 1, #n.%s do'):format(name))
-                    emit(('            kids[#kids + 1] = n.%s[i]'):format(name))
+                    emit(('        for _, kid in ipairs(n.%s) do'):format(name))
+                    emit '            kids[#kids + 1] = kid'
                     emit '        end'
                 end
             end
@@ -135,7 +137,15 @@ end
 --- @return string shape
 --- @return string[]|nil values
 local function sexpr_shape(ty)
-    local shapes = { node = 'node', ['node?'] = 'opt', ['node[]'] = 'list', integer = 'int', boolean = 'bool', string = 'str' }
+    local shapes = {
+        node = 'node',
+        ['node?'] = 'opt',
+        ['node[]'] = 'list',
+        integer = 'int',
+        boolean = 'bool',
+        string = 'str',
+        ['string?'] = 'opt_str',
+    }
     if shapes[ty] then
         return shapes[ty], nil
     end
@@ -163,7 +173,7 @@ local function sexpr_module(families, node_types)
         '--- How one field of a node is written in an s-expression.',
         '--- @class SexpFieldSpec',
         '--- @field name string',
-        "--- @field shape 'node' | 'opt' | 'list' | 'int' | 'bool' | 'str' | 'enum'",
+        "--- @field shape 'node' | 'opt' | 'list' | 'int' | 'bool' | 'str' | 'opt_str' | 'enum'",
         '--- @field values string[]|nil the symbols an `enum` field allows',
         '',
         'local M = {}',
@@ -177,7 +187,11 @@ local function sexpr_module(families, node_types)
         emit '--- @type table<string, SexpFieldSpec[]>'
         emit(('M.%s = {'):format(schema.family))
         for _, t in ipairs(node_types[i]) do
-            emit(('    %s = {'):format(t.tag))
+            if #t.fields == 0 then
+                emit(('    %s = {},'):format(t.tag))
+            else
+                emit(('    %s = {'):format(t.tag))
+            end
             for _, f in ipairs(t.fields) do
                 local shape, values = sexpr_shape(f[2])
                 if values then
@@ -185,12 +199,25 @@ local function sexpr_module(families, node_types)
                     for j, v in ipairs(values) do
                         quoted[j] = ("'%s'"):format(v)
                     end
-                    emit(("        { name = '%s', shape = '%s', values = { %s } },"):format(f[1], shape, table.concat(quoted, ', ')))
+                    local list = table.concat(quoted, ', ')
+                    local line = ("        { name = '%s', shape = '%s', values = { %s } },"):format(f[1], shape, list)
+                    -- too wide for one line, so each field gets its own line like stylua writes it
+                    if #line > 150 then
+                        emit '        {'
+                        emit(("            name = '%s',"):format(f[1]))
+                        emit(("            shape = '%s',"):format(shape))
+                        emit(('            values = { %s },'):format(list))
+                        emit '        },'
+                    else
+                        emit(line)
+                    end
                 else
                     emit(("        { name = '%s', shape = '%s' },"):format(f[1], shape))
                 end
             end
-            emit '    },'
+            if #t.fields > 0 then
+                emit '    },'
+            end
         end
         emit '}'
     end

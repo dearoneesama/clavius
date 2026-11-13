@@ -138,11 +138,11 @@ local M = {}
 function M.children(n)
     local kids = {}
     if n.tag == 'Unit' then
-        for i = 1, #n.vars do
-            kids[#kids + 1] = n.vars[i]
+        for _, kid in ipairs(n.vars) do
+            kids[#kids + 1] = kid
         end
-        for i = 1, #n.body do
-            kids[#kids + 1] = n.body[i]
+        for _, kid in ipairs(n.body) do
+            kids[#kids + 1] = kid
         end
     elseif n.tag == 'Assign' then
         kids[#kids + 1] = n.value
@@ -152,22 +152,22 @@ function M.children(n)
         kids[#kids + 1] = n.cond
     elseif n.tag == 'Branch' then
         kids[#kids + 1] = n.cond
-        for i = 1, #n.then_body do
-            kids[#kids + 1] = n.then_body[i]
+        for _, kid in ipairs(n.then_body) do
+            kids[#kids + 1] = kid
         end
-        for i = 1, #n.else_body do
-            kids[#kids + 1] = n.else_body[i]
+        for _, kid in ipairs(n.else_body) do
+            kids[#kids + 1] = kid
         end
     elseif n.tag == 'Choice' then
-        for i = 1, #n.first do
-            kids[#kids + 1] = n.first[i]
+        for _, kid in ipairs(n.first) do
+            kids[#kids + 1] = kid
         end
-        for i = 1, #n.second do
-            kids[#kids + 1] = n.second[i]
+        for _, kid in ipairs(n.second) do
+            kids[#kids + 1] = kid
         end
     elseif n.tag == 'Block' then
-        for i = 1, #n.body do
-            kids[#kids + 1] = n.body[i]
+        for _, kid in ipairs(n.body) do
+            kids[#kids + 1] = kid
         end
     elseif n.tag == 'BinOp' then
         kids[#kids + 1] = n.lhs
