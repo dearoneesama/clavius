@@ -1,5 +1,6 @@
 local arena = require 'clavius.ir.arena'
 local dir = require 'pl.dir'
+local driver = require 'clavius.driver'
 local dump = require 'clavius.sexpr.dump'
 local read = require 'clavius.sexpr.read'
 local utils = require 'pl.utils'
@@ -106,11 +107,80 @@ describe('validate', function()
         local c = arena.new_core()
         local sp = arena.span(1, 1, 0)
         local src = arena.add_core(c, { tag = 'Literal', kind = 'nil', text = 'nil' } --[[@as CoreNode]], sp)
-        local stmt = arena.add_core(c, { tag = 'Assign', target = 'x', value = src }, sp)
-        local unit = arena.add_core(c, { tag = 'Unit', name = 'u', vars = {}, body = { stmt } }, sp)
+        local statement = arena.add_core(c, { tag = 'Assign', target = 'x', value = src }, sp)
+        local unit = arena.add_core(c, { tag = 'Unit', name = 'u', vars = {}, body = { statement } }, sp)
         assert.are.same({
             { code = 'E-internal-node', tag = 'Literal', args = { 'Literal', 'term' } },
             { code = 'E-internal-node', tag = 'Assign', args = { 'Assign', 'unit' } },
-        }, run({ core = c, units = { unit, stmt }, obligations = {}, assumptions = {} }))
+        }, run({ core = c, units = { unit, statement }, obligations = {}, assumptions = {} }))
+    end)
+
+    -- the obligations that elaborate emits, by id
+    local PROGRAM = [=[
+        ---@clavius begin
+        local x = 1
+        local y = x * 2 + 1 -- 1 (range): `x * 2` stays within ±2^53; 2 (range): so does `x * 2 + 1`
+        assert(y > x) -- 3 (assert): the assertion holds
+        if y > 2 then error() end -- 4 (unreachable): the `error` never runs
+        ---@clavius end
+        local z = x - 1 -- none: this line is outside the region
+    ]=]
+
+    --- Returns `body` without the `Check` statements of the obligations in `dropped`. The `then` lists of
+    --- its branches lose theirs too.
+    --- @param core CoreArena
+    --- @param body NodeId[]
+    --- @param dropped table<integer, boolean>
+    --- @return NodeId[]
+    local function without_checks(core, body, dropped)
+        local out = {}
+        for _, id in ipairs(body) do
+            local n = core.nodes[id]
+            if n.tag == 'Branch' then
+                n.then_body = without_checks(core, n.then_body, dropped)
+            end
+            if not (n.tag == 'Check' and dropped[n.obligation]) then
+                out[#out + 1] = id
+            end
+        end
+        return out
+    end
+
+    --- Elaborates `PROGRAM`, removes the checks of the obligations in `dropped`, and returns what validate
+    --- reports: each diagnostic's code, arguments and the source text of its span.
+    --- @param dropped table<integer, boolean>
+    --- @param relabel integer|nil an obligation whose kind becomes `assert`
+    --- @return string[][]
+    local function coverage(dropped, relabel)
+        local c = driver.run_until('elaborate', PROGRAM, 1)
+        local prog = assert(c.prog)
+        local unit = prog.core.nodes[prog.units[1]] --[[@as CoreUnit]]
+        unit.body = without_checks(prog.core, unit.body, dropped)
+        if relabel then
+            prog.obligations[relabel].kind = 'assert'
+        end
+        local out = {}
+        local source = { src = c.src, index = assert(c.index) }
+        for i, d in ipairs(validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, source)) do
+            local s = assert(d.span)
+            out[i] = { d.code, d.args[1], d.args[2], PROGRAM:sub(s.start, s.finish) }
+        end
+        return out
+    end
+
+    it('accepts the obligations that elaborate emits', function()
+        assert.are.same({}, coverage({}, nil))
+    end)
+
+    it('reports a node in a region whose obligation has no Check', function()
+        assert.are.same({
+            { 'E-internal-coverage', 'BinOp', 'range', 'x * 2' },
+            { 'E-internal-coverage', 'Call', 'assert', 'assert(y > x)' },
+            { 'E-internal-coverage', 'Call', 'unreachable', 'error()' },
+        }, coverage({ [1] = true, [3] = true, [4] = true }, nil))
+    end)
+
+    it('reports an obligation of the wrong kind', function()
+        assert.are.same({ { 'E-internal-coverage', 'BinOp', 'range', 'x * 2 + 1' } }, coverage({}, 2))
     end)
 end)

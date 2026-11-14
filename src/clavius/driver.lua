@@ -4,11 +4,13 @@
 local boogie_print = require 'clavius.backend.boogie.print'
 local boogie_run = require 'clavius.backend.boogie.run'
 local dump = require 'clavius.sexpr.dump'
+local elaborate = require 'clavius.elaborate'
 local index = require 'clavius.ir.index'
 local parse = require 'clavius.syntax.parse'
 local resolve = require 'clavius.passes.resolve'
 local types = require 'clavius.passes.types'
 local validate = require 'clavius.validate'
+local write = require 'clavius.sexpr.write'
 
 --- One Lua file on its way through the stages. Each stage fills in its fields.
 --- @class CompilerContext
@@ -19,6 +21,7 @@ local validate = require 'clavius.validate'
 --- @field index NodeIndex|nil
 --- @field res Resolution|nil
 --- @field info TypeInfo|nil
+--- @field prog CoreProgram|nil
 --- @field stage string the last stage that ran
 --- @field diags Diag[] the diagnostics of that stage
 --- @field spans Span[] the spans of the arena that the diagnostics' nodes are in
@@ -56,12 +59,28 @@ local function run_types(c)
     return diags
 end
 
+--- @param c CompilerContext
+--- @return Diag[]
+local function run_elaborate(c)
+    c.prog = elaborate.run(c.src, c.root, assert(c.res), assert(c.info))
+    return {}
+end
+
+--- @param c CompilerContext
+--- @return Diag[]
+local function run_validate(c)
+    local prog = assert(c.prog)
+    return validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, { src = c.src, index = assert(c.index) })
+end
+
 --- Each stage needs the results of every stage before it.
 --- @type Stage[]
 local STAGES = {
     { name = 'parse', run = run_parse },
     { name = 'resolve', run = run_resolve },
     { name = 'types', run = run_types },
+    { name = 'elaborate', run = run_elaborate },
+    { name = 'validate', run = run_validate },
 }
 
 --- The stage names in order.
@@ -83,12 +102,32 @@ function M.run_until(stage, text, file)
     for _, s in ipairs(STAGES) do
         c.stage = s.name
         c.diags = s.run(c)
-        c.spans = c.src.spans
+        -- validate reports on core nodes, and each carries the span of the source node it comes from
+        c.spans = s.name == 'validate' and assert(c.prog).core.spans or c.src.spans
         if #c.diags > 0 or s.name == stage then
             break
         end
     end
     return c
+end
+
+--- Prints the core program that `elaborate` produced: its units, its obligations and its assumptions, with
+--- a blank line between the groups.
+--- Not a coredump.
+--- @param c CompilerContext
+--- @return string
+function M.dump_core(c)
+    local prog = assert(c.prog)
+    local xs = dump.write_core(prog)
+    local groups = {}
+    local first = 1
+    for _, size in ipairs({ #prog.units, #prog.obligations, #prog.assumptions }) do
+        if size > 0 then
+            groups[#groups + 1] = write.write_all({ unpack(xs, first, first + size - 1) })
+        end
+        first = first + size
+    end
+    return table.concat(groups, '\n')
 end
 
 --- Reads a core program from s-expression text and validates it. Returns the program and the
@@ -103,7 +142,7 @@ function M.load_core(text, file)
     if not prog then
         return nil, err, {}
     end
-    return prog, nil, validate.run(prog.core, prog.units, prog.obligations, prog.assumptions)
+    return prog, nil, validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, nil)
 end
 
 --- Prints a valid core program as a Boogie file.

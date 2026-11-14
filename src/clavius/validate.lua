@@ -7,6 +7,8 @@
 --   every `Assume` must refer to an assumption with an allowed justification;
 --   every `Exit` must be inside a `Block` with its label;
 --   the `Block` labels in a unit must differ.
+-- For a core program elaborated from Lua, it also checks coverage: every source node in a region that
+-- can fail at runtime has a `Check` for each obligation it needs.
 -- A failure is a bug in Clavius, not in the program being verified.
 
 local diag = require 'clavius.ir.diag'
@@ -41,6 +43,12 @@ end
 --- @class ValidateTables
 --- @field obligations Obligation[]
 --- @field assumptions Assumption[]
+--- @field checked table<integer, boolean> the obligations that a `Check` in a unit names
+
+--- The source program that a core program was elaborated from.
+--- @class ValidateSource
+--- @field src SrcArena
+--- @field index NodeIndex
 
 --- The `Block` labels of one unit.
 --- @class ValidateLabels
@@ -55,8 +63,7 @@ end
 --- @mut labels
 --- @mut diags
 local function check_statements(core, ids, tables, labels, diags)
-    for i = 1, #ids do
-        local id = ids[i]
+    for _, id in ipairs(ids) do
         local n = core.nodes[id]
         if n.tag == 'Assign' then
             check_term(core, n.value, diags)
@@ -71,6 +78,7 @@ local function check_statements(core, ids, tables, labels, diags)
             if o == nil or not obligation.OBLIGATION_KINDS[o.kind] then
                 diags[#diags + 1] = diag.at_node('E-internal-check', id, { tostring(n.obligation) })
             end
+            tables.checked[n.obligation] = true
             check_term(core, n.cond, diags)
         elseif n.tag == 'Branch' then
             check_term(core, n.cond, diags)
@@ -101,29 +109,79 @@ local function check_statements(core, ids, tables, labels, diags)
     end
 end
 
---- Returns a diagnostic for every misplaced node, unchecked `Check`, unjustified `Assume`, stray
---- `Exit` and reused `Block` label in the units in program order. The result is empty when the program is valid.
+local RANGE_CHECKED = { add = true, sub = true, mul = true }
+
+--- Returns the obligation kind that a source node in a region needs, or nil. This follows from what
+--- `clavius.ir.support` lets regions use: every `+`, `-` and `*` is on `int53`, and every call is a
+--- statement call to `assert` or `error`.
+--- @param src SrcArena
+--- @param n SrcNode
+--- @return ObligationKind|nil
+local function needed_kind(src, n)
+    if n.tag == 'BinOp' and RANGE_CHECKED[n.op] then
+        return 'range'
+    elseif n.tag == 'Call' then
+        local callee = src.nodes[n.func] --[[@as SrcId]]
+        return callee.name == 'assert' and 'assert' or 'unreachable'
+    end
+    return nil
+end
+
+--- Reports each source node in a region that lacks a checked obligation it needs. No core node exists
+--- for it, so the diagnostic's span is the source node's.
+--- @param source ValidateSource
+--- @param tables ValidateTables
+--- @param diags Diag[]
+--- @mut diags
+local function check_coverage(source, tables, diags)
+    --- @type table<NodeId, table<string, boolean>>
+    local have = {}
+    for id, o in ipairs(tables.obligations) do
+        if tables.checked[id] then
+            have[o.node] = have[o.node] or {}
+            have[o.node][o.kind] = true
+        end
+    end
+    for _, tag in ipairs({ 'BinOp', 'Call' }) do
+        local ids = source.index.by_tag[tag] or {}
+        for _, id in ipairs(ids) do
+            local kind = source.index.region[id] ~= 0 and needed_kind(source.src, source.src.nodes[id])
+            if kind and not (have[id] and have[id][kind]) then
+                diags[#diags + 1] = diag.at_span('E-internal-coverage', source.src.spans[id], { tag, kind })
+            end
+        end
+    end
+end
+
+--- Returns a diagnostic for every misplaced node, unchecked `Check`, unjustified `Assume`, stray `Exit`
+--- and reused `Block` label in the units in program order. With the source program, it then reports
+--- the obligations missing from it. The result is empty when the program is valid.
 --- @param core CoreArena
 --- @param units NodeId[]
 --- @param obligations Obligation[]
 --- @param assumptions Assumption[]
+--- @param source ValidateSource|nil
 --- @return Diag[] diags
-function M.run(core, units, obligations, assumptions)
+function M.run(core, units, obligations, assumptions, source)
     local diags = {}
-    local tables = { obligations = obligations, assumptions = assumptions }
-    for i = 1, #units do
-        local n = core.nodes[units[i]]
+    --- @type ValidateTables
+    local tables = { obligations = obligations, assumptions = assumptions, checked = {} }
+    for _, unit in ipairs(units) do
+        local n = core.nodes[unit]
         if n.tag == 'Unit' then
-            for j = 1, #n.vars do
-                local v = core.nodes[n.vars[j]]
+            for _, var in ipairs(n.vars) do
+                local v = core.nodes[var]
                 if v.tag ~= 'VarDecl' then
-                    diags[#diags + 1] = diag.at_node('E-internal-node', n.vars[j], { v.tag, 'variable declaration' })
+                    diags[#diags + 1] = diag.at_node('E-internal-node', var, { v.tag, 'variable declaration' })
                 end
             end
             check_statements(core, n.body, tables, { open = {}, used = {} }, diags)
         else
-            diags[#diags + 1] = diag.at_node('E-internal-node', units[i], { n.tag, 'unit' })
+            diags[#diags + 1] = diag.at_node('E-internal-node', unit, { n.tag, 'unit' })
         end
+    end
+    if source ~= nil then
+        check_coverage(source, tables, diags)
     end
     return diags
 end

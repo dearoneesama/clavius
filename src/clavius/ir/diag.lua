@@ -14,11 +14,12 @@
 --- | 'E-banned-goto' # a `goto` or label in verified code
 --- | 'E-banned-call' # a library function that verified code must not use, such as `pcall`
 --- | 'E-type-mismatch' # an operand or value of the wrong type, such as `1 + true`
---- | 'E-internal-node' # a node where its kind doesn't belong, such as a statement among terms
+--- | 'E-internal-node' # a core node where its kind doesn't belong, such as a statement among terms
 --- | 'E-internal-check' # a `Check` with no obligation of a known kind
 --- | 'E-internal-assume' # an `Assume` with no allowed justification
 --- | 'E-internal-exit' # an `Exit` that no `Block` with its label encloses
 --- | 'E-internal-label' # a `Block` label that is already used in the unit
+--- | 'E-internal-coverage' # a source node with no obligation for a check it needs
 
 --- @class Diag
 --- @field code DiagCode
