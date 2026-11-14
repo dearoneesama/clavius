@@ -1,29 +1,189 @@
--- Turns diagnostics into messages.
+-- Turns diagnostics and failing obligations into messages in source order.
 
 local arena = require 'clavius.ir.arena'
 
 local M = {}
 
---- Message templates by code. Each is filled in with the diagnostic's arguments in order.
+local UNSUPPORTED = "%s isn't supported in this version; leave this code unmarked"
+
+--- Message templates by code. `PHRASES` first replaces the arguments it names, and the template is then
+--- filled in with the diagnostic's arguments in order.
 --- @type table<string, string>
 local TEMPLATES = {
+    ['E-syntax'] = '%s',
+    ['E-misplaced-directive'] = '%s',
+    ['E-unsupported-feature'] = UNSUPPORTED,
+    ['E-unsupported-type'] = "values of type %s aren't supported in this version; leave this code unmarked",
+    ['E-unsupported-directive'] = UNSUPPORTED:format '`---@%s`',
+    ['E-unsupported-call'] = UNSUPPORTED:format '`%s`',
+    ['E-banned-call'] = "`%s` can't be used in verified code",
+    ['E-banned-global'] = "the global `%s` can't be used in verified code",
+    ['E-banned-goto'] = "`goto` and labels can't be used in verified code",
+    ['E-type-mismatch'] = 'expected %s, found %s',
     ['E-internal-node'] = '%s where a %s belongs',
     ['E-internal-check'] = 'Check O%s has no obligation of a known kind',
     ['E-internal-assume'] = 'Assume A%s has no allowed justification',
     ['E-internal-exit'] = 'Exit %s has no enclosing Block with that label',
     ['E-internal-label'] = 'Block label %s is already used in this unit',
+    ['E-internal-coverage'] = '%s has no %s obligation',
 }
+
+--- The codes whose arguments are keys of `PHRASES`. The arguments of other codes are names from the
+--- program and must never be read as keys.
+--- @type table<string, boolean>
+local KEYED = { ['E-syntax'] = true, ['E-misplaced-directive'] = true, ['E-unsupported-feature'] = true }
+
+--- What the keys in diagnostic arguments stand for. An argument that isn't a key, such as one of
+--- luacheck's syntax errors, is used as it is.
+--- @type table<string, string>
+local PHRASES = {
+    -- syntax that luacheck accepts and LuaJIT rejects
+    ['lua53-operator'] = 'Lua 5.3 operators are not LuaJIT syntax',
+    ['compound-assignment'] = 'compound assignment is not LuaJIT syntax',
+    ['local-attribute'] = 'local attributes are not LuaJIT syntax',
+    ['malformed-number'] = 'malformed number',
+    ['empty-statement'] = 'an empty statement is not LuaJIT syntax',
+    ['break-not-last'] = '`break` must be the last statement of its block',
+    ['break-outside-loop'] = '`break` outside a loop',
+    ['vararg-outside-vararg-function'] = '`...` outside a vararg function',
+    ['clavius-args'] = '`---@clavius` takes `begin`, `end` or nothing',
+    -- region markers
+    ['marker-in-block'] = 'a region marker must sit between top-level statements',
+    ['nested-begin'] = "regions can't nest",
+    ['unpaired-end'] = '`---@clavius end` without a `begin`',
+    ['unpaired-begin'] = '`---@clavius begin` without an `end`',
+    -- node kinds
+    LocalFunction = '`local function`',
+    Function = 'a function',
+    Index = 'indexing',
+    Table = 'a table constructor',
+    Return = '`return`',
+    Break = '`break`',
+    While = 'a `while` loop',
+    Repeat = 'a `repeat` loop',
+    Fornum = 'a numeric `for` loop',
+    Forin = 'a generic `for` loop',
+    Dots = '`...`',
+    -- operators
+    div = 'the `/` operator',
+    mod = 'the `%` operator',
+    pow = 'the `^` operator',
+    concat = 'the `..` operator',
+    len = 'the `#` operator',
+    -- forms
+    ['local-values'] = 'a `local` whose names and values differ in number',
+    ['assign-values'] = 'an assignment whose targets and values differ in number',
+    ['repeated-target'] = 'assigning a local twice in one assignment',
+    ['call'] = 'a call to a function other than `assert` and `error`',
+    ['call-value'] = '`assert` or `error` used other than as a call statement',
+    ['assert-args'] = '`assert` with arguments other than a condition and a literal message',
+    ['error-args'] = '`error` with arguments that are not literals',
+    ['outer-local'] = 'a local declared outside this region',
+    ['truthiness'] = 'a condition or an operand of `and`, `or` or `not` that is not a boolean',
+    ['function-marker'] = '`---@clavius` without `begin` or `end`',
+    ['spec-block'] = 'a `--[[@spec` block',
+    ['lemma-block'] = 'a `--[[@lemma` block',
+    ['proof-block'] = 'a `--[[@proof` block',
+}
+
+--- What a failing obligation of each kind means. `%s` is the source text of its node.
+--- @type table<string, string>
+local FAILURES = {
+    range = '%s may leave ±2^53',
+    assert = 'this assertion may fail',
+    unreachable = 'this `error` may be reached',
+}
+
+--- @param text string
+--- @param offset integer
+--- @return string `line:col`
+local function position(text, offset)
+    local line, col = arena.line_col(text, arena.line_starts(text), offset)
+    return ('%d:%d'):format(line, col)
+end
 
 --- Formats a diagnostic as `line:col: code: message`.
 --- @param d Diag
 --- @param spans Span[] belong to the arena that the node is in
---- @param text string file that the spans point into
+--- @param text string the file that the spans point into
 --- @return string
 function M.diag(d, spans, text)
     local span = d.span or spans[d.node]
-    local line, col = arena.line_col(arena.line_starts(text), span.start)
     local template = assert(TEMPLATES[d.code], ('messages: no template for %s'):format(d.code))
-    return ('%d:%d: %s: %s'):format(line, col, d.code, template:format(unpack(d.args)))
+    local args = {}
+    for i, a in ipairs(d.args) do
+        args[i] = KEYED[d.code] and PHRASES[a] or a
+    end
+    return ('%s: %s: %s'):format(position(text, span.start), d.code, template:format(unpack(args)))
+end
+
+--- Formats the failing obligation `id` as `line:col: kind: message [O17]`.
+--- @param id integer
+--- @param o Obligation
+--- @param spans Span[] the source arena's
+--- @param text string
+--- @return string
+function M.failure(id, o, spans, text)
+    local span = spans[o.node]
+    local snippet = text:sub(span.start, span.finish):gsub('%s+', ' ')
+    local message = assert(FAILURES[o.kind], ('messages: no message for %s'):format(o.kind)):format(snippet)
+    return ('%s: %s: %s [O%d]'):format(position(text, span.start), o.kind, message, id)
+end
+
+--- A message with its sort key.
+--- @class SortedMessage
+--- @field start integer
+--- @field key string
+--- @field text string
+
+--- @param list SortedMessage[]
+--- @return string[]
+local function in_order(list)
+    --- @param a SortedMessage
+    --- @param b SortedMessage
+    --- @return boolean
+    local function before(a, b)
+        if a.start ~= b.start then
+            return a.start < b.start
+        end
+        return a.key < b.key
+    end
+    table.sort(list, before)
+    local out = {}
+    for i, m in ipairs(list) do
+        out[i] = m.text
+    end
+    return out
+end
+
+--- Formats diagnostics in source order: by span start, then code.
+--- @param diags Diag[]
+--- @param spans Span[]
+--- @param text string
+--- @return string[]
+function M.diags(diags, spans, text)
+    local list = {}
+    for i, d in ipairs(diags) do
+        local span = d.span or spans[d.node]
+        -- table.sort isn't stable, so the index keeps equal keys in order
+        list[i] = { start = span.start, key = ('%s %08d'):format(d.code, i), text = M.diag(d, spans, text) }
+    end
+    return in_order(list)
+end
+
+--- Formats failing obligations in source order: by span start, then kind.
+--- @param failed integer[] obligation ids
+--- @param obligations Obligation[]
+--- @param spans Span[] the source arena's
+--- @param text string
+--- @return string[]
+function M.failures(failed, obligations, spans, text)
+    local list = {}
+    for i, id in ipairs(failed) do
+        local o = obligations[id]
+        list[i] = { start = spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = M.failure(id, o, spans, text) }
+    end
+    return in_order(list)
 end
 
 return M

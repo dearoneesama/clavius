@@ -61,9 +61,8 @@ end
 --- @return NodeId id
 function M.add_src(a, node, span)
     local id = #a.nodes + 1
-    local kids = source_nodes.children(node)
-    for i = 1, #kids do
-        assert(kids[i] >= 1 and kids[i] < id, 'arena.add_src: child id must be smaller than the parent id')
+    for _, kid in ipairs(source_nodes.children(node)) do
+        assert(kid >= 1 and kid < id, 'arena.add_src: child id must be smaller than the parent id')
     end
     a.nodes[id] = node
     a.spans[id] = span
@@ -79,9 +78,8 @@ end
 --- @return NodeId id
 function M.add_core(a, node, span)
     local id = #a.nodes + 1
-    local kids = core_nodes.children(node)
-    for i = 1, #kids do
-        assert(kids[i] >= 1 and kids[i] < id, 'arena.add_core: child id must be smaller than the parent id')
+    for _, kid in ipairs(core_nodes.children(node)) do
+        assert(kid >= 1 and kid < id, 'arena.add_core: child id must be smaller than the parent id')
     end
     a.nodes[id] = node
     a.spans[id] = span
@@ -101,12 +99,14 @@ function M.line_starts(text)
     return starts
 end
 
---- Converts a byte offset to a 1-based line and column, using `line_starts(text)`.
+--- Converts a byte offset of `text` to a 1-based line and column, using `line_starts(text)`. The column
+--- counts only non-continuation bytes in UTF-8.
+--- @param text string
 --- @param starts integer[]
 --- @param offset integer
 --- @return integer line
 --- @return integer col
-function M.line_col(starts, offset)
+function M.line_col(text, starts, offset)
     local lo, hi = 1, #starts
     -- the last line whose start is <= offset
     while lo < hi do
@@ -117,7 +117,14 @@ function M.line_col(starts, offset)
             hi = mid - 1
         end
     end
-    return lo, offset - starts[lo] + 1
+    local col = 1
+    for i = starts[lo], offset - 1 do
+        local b = text:byte(i)
+        if b < 0x80 or b >= 0xC0 then
+            col = col + 1
+        end
+    end
+    return lo, col
 end
 
 return M

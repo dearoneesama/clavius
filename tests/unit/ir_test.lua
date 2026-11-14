@@ -50,8 +50,14 @@ describe('ir.arena', function()
         assert.are.same({ 1, 4, 5, 8 }, starts)
         local cases = { { 1, 1, 1 }, { 3, 1, 3 }, { 4, 2, 1 }, { 5, 3, 1 }, { 6, 3, 2 }, { 8, 4, 1 } }
         for _, c in ipairs(cases) do
-            assert.are.same({ c[2], c[3] }, { arena.line_col(starts, c[1]) })
+            assert.are.same({ c[2], c[3] }, { arena.line_col(text, starts, c[1]) })
         end
+    end)
+
+    it('counts columns in code points', function()
+        local text = "x\n'é你' y"
+        -- `y` is byte 11, after a 2-byte and a 3-byte character
+        assert.are.same({ 2, 6 }, { arena.line_col(text, arena.line_starts(text), 11) })
     end)
 end)
 

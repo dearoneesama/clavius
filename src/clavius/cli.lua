@@ -19,7 +19,6 @@ local M = {}
 M.EXIT_OK = 0
 M.EXIT_FAILED = 1 -- some obligation may fail
 M.EXIT_USAGE = 2
-M.EXIT_NOT_IMPLEMENTED = 3
 M.EXIT_ERROR = 4 -- no verdict: the input is unreadable or invalid, or the backend gave none
 
 --- Builds the parser. A `-h` on any command records that command's help text in `help` instead of
@@ -45,12 +44,79 @@ local function build_parser(help)
 
     local dump = with_help(parser:command('dump', 'Print the program as an s-expression after a stage.'))
     dump:argument('file', 'The .lua file to read.')
-    dump:option('--after', 'The stage to stop after.'):argname('<stage>'):count(1)
+    dump:option('--after', 'The stage to stop after.'):argname('<stage>'):choices(driver.STAGES):count(1)
 
     local lower = with_help(parser:command('lower', 'Print a Boogie file from a core s-expression file.'))
     lower:argument('file', 'The .core.sexp file to read.')
 
     return parser
+end
+
+--- Writes each message on its own line after the file name.
+--- @param stream file*
+--- @param file string
+--- @param lines string[]
+local function write_lines(stream, file, lines)
+    for _, line in ipairs(lines) do
+        stream:write(('%s:%s\n'):format(file, line))
+    end
+end
+
+--- Runs `lower` or `verify` on a core file.
+--- @param args CliArgs
+--- @param text string the file's contents
+--- @param out file*
+--- @param err file*
+--- @return integer status
+local function run_core(args, text, out, err)
+    local prog, read_err, diags = driver.load_core(text, 1)
+    if not prog then
+        err:write(('%s:%s\n'):format(args.file, read.format_error(assert(read_err))))
+        return M.EXIT_ERROR
+    end
+    if #diags > 0 then
+        write_lines(err, args.file, messages.diags(diags, prog.core.spans, text))
+        return M.EXIT_ERROR
+    end
+    if args.command == 'lower' then
+        out:write(driver.lower_core(prog))
+        return M.EXIT_OK
+    end
+    local failed, run_err = driver.verify_core(prog)
+    if not failed then
+        err:write(('clavius: %s\n'):format(run_err))
+        return M.EXIT_ERROR
+    end
+    for _, id in ipairs(failed) do
+        out:write(('O%d\n'):format(id))
+    end
+    return #failed > 0 and M.EXIT_FAILED or M.EXIT_OK
+end
+
+--- Runs `dump` or `verify` on a Lua file.
+--- @param args CliArgs
+--- @param text string the file's contents
+--- @param out file*
+--- @param err file*
+--- @return integer status
+local function run_lua(args, text, out, err)
+    local c = driver.run_until(args.after or 'validate', text, 1)
+    if #c.diags > 0 then
+        write_lines(err, args.file, messages.diags(c.diags, c.spans, text))
+        return M.EXIT_ERROR
+    end
+    if args.command == 'dump' then
+        out:write(driver.dump(c))
+        return M.EXIT_OK
+    end
+    local prog = assert(c.prog)
+    local failed, run_err = driver.verify_core(prog)
+    if not failed then
+        err:write(('clavius: %s\n'):format(run_err))
+        return M.EXIT_ERROR
+    end
+    write_lines(out, args.file, messages.failures(failed, prog.obligations, c.src.spans, text))
+    return #failed > 0 and M.EXIT_FAILED or M.EXIT_OK
 end
 
 --- Runs the command line. It takes its output streams and returns an exit status instead of exiting,
@@ -74,10 +140,6 @@ function M.main(argv, out, err)
     end
     --- @type CliArgs
     local args = result
-    if args.command == 'dump' or (args.command == 'verify' and not args.file:match '%.core%.sexp$') then
-        err:write(('clavius %s: not implemented yet\n'):format(args.command))
-        return M.EXIT_NOT_IMPLEMENTED
-    end
 
     local f, open_err = io.open(args.file, 'rb')
     if not f then
@@ -86,31 +148,10 @@ function M.main(argv, out, err)
     end
     local text = f:read '*a'
     f:close()
-    local prog, read_err, diags = driver.load_core(text, 1)
-    if not prog then
-        err:write(('%s:%s\n'):format(args.file, read.format_error(assert(read_err))))
-        return M.EXIT_ERROR
+    if args.command == 'lower' or (args.command == 'verify' and args.file:match '%.core%.sexp$') then
+        return run_core(args, text, out, err)
     end
-    if #diags > 0 then
-        for _, d in ipairs(diags) do
-            err:write(('%s:%s\n'):format(args.file, messages.diag(d, prog.core.spans, text)))
-        end
-        return M.EXIT_ERROR
-    end
-
-    if args.command == 'lower' then
-        out:write(driver.lower_core(prog))
-        return M.EXIT_OK
-    end
-    local failed, run_err = driver.verify_core(prog)
-    if not failed then
-        err:write(('clavius: %s\n'):format(run_err))
-        return M.EXIT_ERROR
-    end
-    for _, id in ipairs(failed) do
-        out:write(('O%d\n'):format(id))
-    end
-    return #failed > 0 and M.EXIT_FAILED or M.EXIT_OK
+    return run_lua(args, text, out, err)
 end
 
 return M

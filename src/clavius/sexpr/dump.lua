@@ -1,5 +1,5 @@
--- Converts between core programs and printable s-expressions. A node is written as its tag followed
--- by its fields in schema order:
+-- Converts between programs and printable s-expressions. A node is written as its tag followed by its
+-- fields in schema order:
 --
 --   (Unit main
 --     [(VarDecl x int)]
@@ -9,6 +9,10 @@
 --   (obligation 1 :kind range :node 0)
 --
 --   (assumption 1 :kind branch :node 0)
+--
+-- A source arena is written the same way. Side tables follow a node's fields:
+--
+--   (Local [(BinOp add (Id x$1 :type int53) (Literal number 1 :type int53) :type int53)] [(Binder y$2 :type int53)])
 
 local arena = require 'clavius.ir.arena'
 local read = require 'clavius.sexpr.read'
@@ -23,7 +27,12 @@ local write = require 'clavius.sexpr.write'
 --- @field assumptions Assumption[] indexed by assumption id
 
 --- A node field's value as read by the field's name.
---- @alias FieldValue NodeId|NodeId[]|string|integer|boolean
+--- @alias FieldValue NodeId|NodeId[]|string|integer|boolean|nil
+
+--- The side tables written with a source arena.
+--- @class SrcDumpTables
+--- @field names table<NodeId, string>|nil unique names, written in place of the names of Binder and Id nodes
+--- @field types table<NodeId, string>|nil types, written after a node's fields as `:type T`
 
 --- A shape error while reading. It's raised with `error` and caught in `read_core`.
 --- @class DumpError
@@ -32,36 +41,60 @@ local write = require 'clavius.sexpr.write'
 
 local M = {}
 
---- @param core CoreArena
+--- @param nodes (SrcNode|CoreNode)[]
+--- @param specs table<string, SexpFieldSpec[]> the fields of each kind
 --- @param id NodeId
+--- @param tables SrcDumpTables
 --- @return Sexp
-local function node_sexp(core, id)
-    local n = core.nodes[id]
+local function node_sexp(nodes, specs, id, tables)
+    local n = nodes[id]
     local fields = n --[[@as table<string, FieldValue>]]
     --- @type Sexp[]
     local items = { write.sym(n.tag) }
-    for _, f in ipairs(schema.core[n.tag]) do
+    for _, f in ipairs(specs[n.tag]) do
         local v = fields[f.name]
-        if f.shape == 'node' then
-            items[#items + 1] = node_sexp(core, v --[[@as NodeId]])
+        if f.name == 'name' and f.shape == 'str' and tables.names and tables.names[id] then
+            v = tables.names[id]
+        end
+        if v == nil then
+            items[#items + 1] = write.sym 'nil'
+        elseif f.shape == 'node' or f.shape == 'opt' then
+            items[#items + 1] = node_sexp(nodes, specs, v --[[@as NodeId]], tables)
         elseif f.shape == 'list' then
             local kids = {}
             for i, kid in
                 ipairs(v --[[@as NodeId[] ]])
             do
-                kids[i] = node_sexp(core, kid)
+                kids[i] = node_sexp(nodes, specs, kid, tables)
             end
             items[#items + 1] = write.vec(kids)
         elseif
-            f.shape == 'str' and not write.is_symbol_text(v --[[@as string]])
+            (f.shape == 'str' or f.shape == 'opt_str')
+            and (
+                not write.is_symbol_text(v --[[@as string]]) or (n.tag == 'Literal' and fields.kind == 'string')
+            )
         then
+            -- a string literal is always quoted, so `(Literal string "x")` differs from `(Id x)`
             items[#items + 1] = write.str(v --[[@as string]])
         else
             -- int, bool, enum, and strings that are valid symbols
             items[#items + 1] = write.sym(tostring(v))
         end
     end
+    if tables.types and tables.types[id] then
+        items[#items + 1] = write.sym ':type'
+        items[#items + 1] = write.sym(tables.types[id])
+    end
     return write.list(items)
+end
+
+--- Writes the tree under `root` of a source arena with the given side tables.
+--- @param src SrcArena
+--- @param root NodeId
+--- @param tables SrcDumpTables
+--- @return Sexp
+function M.write_src(src, root, tables)
+    return node_sexp(src.nodes, schema.source, root, tables)
 end
 
 --- @param head string `obligation` or `assumption`
@@ -86,7 +119,7 @@ end
 function M.write_core(prog)
     local out = {}
     for _, id in ipairs(prog.units) do
-        out[#out + 1] = node_sexp(prog.core, id)
+        out[#out + 1] = node_sexp(prog.core.nodes, schema.core, id, {})
     end
     for id, o in ipairs(prog.obligations) do
         out[#out + 1] = record_sexp('obligation', id, o)

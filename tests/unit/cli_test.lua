@@ -25,18 +25,6 @@ local function run(argv)
 end
 
 describe('cli', function()
-    it('reports verifying Lua and dumping as not implemented', function()
-        for _, argv in ipairs({
-            { 'verify', 'f.lua' },
-            { 'dump', '--after', 'parse', 'f.lua' },
-        }) do
-            local r = run(argv)
-            assert.are.equal(cli.EXIT_NOT_IMPLEMENTED, r.status)
-            assert.are.equal(('clavius %s: not implemented yet\n'):format(argv[1]), r.err)
-            assert.are.equal('', r.out)
-        end
-    end)
-
     it('lowers a core file to Boogie', function()
         local r = run({ 'lower', 'tests/snapshots/boogie/control.core.sexp' })
         assert.are.same({ cli.EXIT_OK, '' }, { r.status, r.err })
@@ -49,19 +37,31 @@ describe('cli', function()
         assert.is_truthy(r.err:find('no-such-file.core.sexp', 1, true))
     end)
 
+    --- Runs the CLI with `argv` and a temporary file holding `text` as its last argument. The file's name
+    --- ends in `ext`, and is `f<ext>` in the error output.
+    --- @param argv string[]
+    --- @param ext string
+    --- @param text string
+    --- @return CliRun
+    local function run_with_file(argv, ext, text)
+        local base = os.tmpname()
+        local file = base .. ext
+        assert(utils.writefile(file, text, true))
+        local args = { unpack(argv) }
+        args[#args + 1] = file
+        local r = run(args)
+        os.remove(file)
+        os.remove(base)
+        r.err = stringx.replace(r.err, file, 'f' .. ext)
+        return r
+    end
+
     --- Runs `clavius <command> FILE` on a temporary core file holding `text`.
     --- @param command string
     --- @param text string
     --- @return CliRun
     local function run_on(command, text)
-        local base = os.tmpname()
-        local file = base .. '.core.sexp'
-        assert(utils.writefile(file, text, true))
-        local r = run({ command, file })
-        os.remove(file)
-        os.remove(base)
-        r.err = stringx.replace(r.err, file, 'f.core.sexp')
-        return r
+        return run_with_file({ command }, '.core.sexp', text)
     end
 
     it('reports a malformed core file at its position', function()
@@ -89,6 +89,35 @@ describe('cli', function()
         end
     end)
 
+    it('dumps a Lua file after a stage', function()
+        local text = '---@clavius begin\nlocal x = 1\n---@clavius end\n'
+        local cases = {
+            { 'parse', '(Block [(ClvRegion [(Local [(Literal number 1)] [(Binder x)])])])\n' },
+            { 'types', '(Block [(ClvRegion [(Local [(Literal number 1 :type int53)] [(Binder x$1 :type int53)])])])\n' },
+            { 'validate', '(Unit main$1 [(VarDecl x$1 int)] [(Assign x$1 (Int 1))])\n' },
+        }
+        for _, c in ipairs(cases) do
+            local r = run_with_file({ 'dump', '--after', c[1] }, '.lua', text)
+            assert.are.same({ cli.EXIT_OK, c[2], '' }, { r.status, r.out, r.err })
+        end
+    end)
+
+    it('verifies a file with no region without running the backend', function()
+        local r = run_with_file({ 'verify' }, '.lua', 'local t = {}\nprint(#t)\n')
+        assert.are.same({ cli.EXIT_OK, '', '' }, { r.status, r.out, r.err })
+    end)
+
+    it('reports the diagnostics of the stage that fails, in source order', function()
+        local text = '---@clavius begin\nlocal x = 1 + true\nlocal y = print\n---@clavius end\n'
+        for _, argv in ipairs({ { 'verify' }, { 'dump', '--after', 'types' } }) do
+            local r = run_with_file(argv, '.lua', text)
+            assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
+            assert.are.equal("f.lua:3:11: E-unsupported-call: `print` isn't supported in this version; leave this code unmarked\n", r.err)
+        end
+        local r = run_with_file({ 'verify' }, '.lua', '---@clavius begin\nlocal x = 1 + true\n---@clavius end\n')
+        assert.are.equal('f.lua:2:15: E-type-mismatch: expected int53, found boolean\n', r.err)
+    end)
+
     it('prints help on stdout and succeeds', function()
         for _, argv in ipairs({ { '-h' }, { 'verify', '-h' }, { 'dump', '--help' }, { 'lower', '-h', 'f' } }) do
             local r = run(argv)
@@ -106,6 +135,7 @@ describe('cli', function()
             { 'verify' },
             { 'dump', 'f.lua' },
             { 'dump', '--after', 'parse', '--ids', 'f.lua' },
+            { 'dump', '--after', 'frob', 'f.lua' },
             { 'lower', '--backend', 'boogie', 'f.core.sexp' },
         }) do
             local r = run(argv)

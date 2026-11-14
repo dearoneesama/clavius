@@ -38,7 +38,7 @@ end
 --- @param offset integer
 --- @return integer
 local function line_of(text, offset)
-    return (arena.line_col(arena.line_starts(text), offset))
+    return (arena.line_col(text, arena.line_starts(text), offset))
 end
 
 --- Returns the markers in `text` ordered by line and name.

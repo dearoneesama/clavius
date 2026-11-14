@@ -130,6 +130,30 @@ function M.dump_core(c)
     return table.concat(groups, '\n')
 end
 
+--- Prints what the last stage run on a compiler context produced: the source arena with the side tables so
+--- far, or the core program from `elaborate` on.
+--- @param c CompilerContext
+--- @return string
+function M.dump(c)
+    if c.prog then
+        return M.dump_core(c)
+    end
+    --- @type SrcDumpTables
+    local tables = { names = nil, types = c.info and c.info.types }
+    if c.res then
+        -- an Id is written with the name of its Binder
+        local names = {}
+        for id, name in pairs(c.res.names) do
+            names[id] = name
+        end
+        for id, binder in pairs(c.res.decl) do
+            names[id] = c.res.names[binder]
+        end
+        tables.names = names
+    end
+    return write.write_all({ dump.write_src(c.src, c.root, tables) })
+end
+
 --- Reads a core program from s-expression text and validates it. Returns the program and the
 --- validation diagnostics, which are empty when it is valid, or nil and the read error.
 --- @param text string

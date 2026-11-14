@@ -24,7 +24,7 @@ local SIMPLE_ESCAPES = { ['\\'] = '\\', ['"'] = '"', n = '\n', t = '\t', r = '\r
 --- @param message string
 --- @return SexpReadError
 function M.error_at(text, offset, message)
-    local line, col = arena.line_col(arena.line_starts(text), offset)
+    local line, col = arena.line_col(text, arena.line_starts(text), offset)
     return { message = message, offset = offset, line = line, col = col }
 end
 

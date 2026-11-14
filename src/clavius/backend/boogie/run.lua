@@ -66,6 +66,10 @@ end
 --- @return integer[]|nil failed
 --- @return string|nil err
 function M.check(core, units, opts)
+    -- nothing to check
+    if #units == 0 then
+        return {}, nil
+    end
     local rlimit = opts and opts.rlimit
     local first, err = check_once(core, units, { rlimit = rlimit })
     if not first then
