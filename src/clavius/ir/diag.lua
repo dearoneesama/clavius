@@ -4,9 +4,9 @@
 --- place), `unsupported` (a feature Clavius doesn't verify), `banned` (a feature verified code must not
 --- use) or `internal` (a bug in Clavius).
 --- @alias DiagCode
---- | 'E-syntax' # the file doesn't parse
---- | 'E-misplaced-directive' # a directive where it can't apply, such as a `---@require` with no function below it
---- | 'E-unsupported-kind' # a node kind or operator that Clavius doesn't verify
+--- | 'E-syntax' # the file doesn't parse, or uses unsupported syntax
+--- | 'E-misplaced-directive' # a directive where it can't apply, such as an unpaired `---@clavius end`
+--- | 'E-unsupported-feature' # a node kind, operator or form that Clavius doesn't verify
 --- | 'E-unsupported-type' # a type that Clavius doesn't verify
 --- | 'E-unsupported-directive' # a directive that Clavius doesn't verify
 --- | 'E-unsupported-call' # a call to a library function that Clavius doesn't verify
@@ -21,7 +21,7 @@
 
 --- @class Diag
 --- @field code DiagCode
---- @field node NodeId primary node, or 0 when there is none (syntax errors)
+--- @field node NodeId primary node, or 0 when there is none
 --- @field span Span|nil the location of a diagnostic with no node
 --- @field args string[] message arguments, such as the unsupported name
 --- @field related NodeId[] other nodes the message points at

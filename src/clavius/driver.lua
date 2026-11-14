@@ -1,11 +1,73 @@
--- Connects the stages for the command line and the tests.
+-- Connects the stages for the command line and the tests. A Lua file goes through the stages in
+-- order, and the run stops after the first stage that reports a diagnostic.
 
 local boogie_print = require 'clavius.backend.boogie.print'
 local boogie_run = require 'clavius.backend.boogie.run'
 local dump = require 'clavius.sexpr.dump'
+local index = require 'clavius.ir.index'
+local parse = require 'clavius.syntax.parse'
 local validate = require 'clavius.validate'
 
+--- One Lua file on its way through the stages. Each stage fills in its fields.
+--- @class CompilerContext
+--- @field file FileId
+--- @field text string
+--- @field src SrcArena
+--- @field root NodeId
+--- @field index NodeIndex|nil
+--- @field stage string the last stage that ran
+--- @field diags Diag[] the diagnostics of that stage
+--- @field spans Span[] the spans of the arena that the diagnostics' nodes are in
+
+--- @class Stage
+--- @field name string
+--- @field run fun(c: CompilerContext): Diag[]
+
 local M = {}
+
+--- @param c CompilerContext
+--- @return Diag[]
+local function run_parse(c)
+    local p, diags = parse.run(c.text, c.file)
+    c.src, c.root = p.src, p.root
+    if #diags == 0 then
+        c.index = index.build(p.src)
+    end
+    return diags
+end
+
+--- Each stage needs the results of every stage before it.
+--- @type Stage[]
+local STAGES = {
+    { name = 'parse', run = run_parse },
+}
+
+--- The stage names in order.
+--- @type string[]
+M.STAGES = {}
+for i, s in ipairs(STAGES) do
+    M.STAGES[i] = s.name
+end
+
+--- Runs the stages on a Lua file up to and including `stage`, or up to the first one that reports a
+--- diagnostic.
+--- @param stage string one of `STAGES`
+--- @param text string
+--- @param file FileId
+--- @return CompilerContext
+function M.run_until(stage, text, file)
+    --- @type CompilerContext
+    local c = { file = file, text = text, src = { nodes = {}, spans = {} }, root = 0, stage = '', diags = {}, spans = {} }
+    for _, s in ipairs(STAGES) do
+        c.stage = s.name
+        c.diags = s.run(c)
+        c.spans = c.src.spans
+        if #c.diags > 0 or s.name == stage then
+            break
+        end
+    end
+    return c
+end
 
 --- Reads a core program from s-expression text and validates it. Returns the program and the
 --- validation diagnostics, which are empty when it is valid, or nil and the read error.
