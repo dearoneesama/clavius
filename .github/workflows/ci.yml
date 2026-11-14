@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request cancels the run in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BOOGIE_VERSION: 3.5.8
+  Z3_VERSION: 4.12.5
+
+# One job: its steps run in order and the first failure ends the run. The cheap checks come first,
+# and Boogie and Z3 are installed only once lint and the unit tests pass.
+jobs:
+  ci:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install LuaJIT and LuaRocks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luajit lua5.1 liblua5.1-0-dev luarocks
+
+      # `make dev` builds stylua from source, which takes minutes, so keep its output across runs.
+      - name: Cache lua_modules
+        id: lua-modules
+        uses: actions/cache@v6
+        with:
+          path: lua_modules
+          key: lua-modules-${{ runner.os }}-${{ hashFiles('*.rockspec', 'Makefile') }}
+
+      - name: Install dependencies
+        if: steps.lua-modules.outputs.cache-hit != 'true'
+        run: make dev
+
+      - name: Lint
+        run: make lint
+
+      - name: Unit tests
+        run: make test
+
+      # The runner comes with several .NET versions, and Boogie would run on the oldest one that it
+      # supports. Installing .NET 10 into a directory of its own makes it the only one Boogie finds.
+      # Boogie targets .NET 8, so it is installed with --allow-roll-forward to run on .NET 10.
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+
+      - name: Install Boogie and Z3
+        run: |
+          dotnet tool install --global boogie --version "$BOOGIE_VERSION" --allow-roll-forward
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          z3="z3-$Z3_VERSION-x64-glibc-2.35"
+          curl -fsSL -o "$RUNNER_TEMP/z3.zip" "https://github.com/Z3Prover/z3/releases/download/z3-$Z3_VERSION/$z3.zip"
+          unzip -q "$RUNNER_TEMP/z3.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$z3/bin" >> "$GITHUB_PATH"
+
+      - name: End-to-end tests
+        run: make e2e
