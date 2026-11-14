@@ -6,6 +6,8 @@ local boogie_run = require 'clavius.backend.boogie.run'
 local dump = require 'clavius.sexpr.dump'
 local index = require 'clavius.ir.index'
 local parse = require 'clavius.syntax.parse'
+local resolve = require 'clavius.passes.resolve'
+local types = require 'clavius.passes.types'
 local validate = require 'clavius.validate'
 
 --- One Lua file on its way through the stages. Each stage fills in its fields.
@@ -15,6 +17,8 @@ local validate = require 'clavius.validate'
 --- @field src SrcArena
 --- @field root NodeId
 --- @field index NodeIndex|nil
+--- @field res Resolution|nil
+--- @field info TypeInfo|nil
 --- @field stage string the last stage that ran
 --- @field diags Diag[] the diagnostics of that stage
 --- @field spans Span[] the spans of the arena that the diagnostics' nodes are in
@@ -36,10 +40,28 @@ local function run_parse(c)
     return diags
 end
 
+--- @param c CompilerContext
+--- @return Diag[]
+local function run_resolve(c)
+    local res, diags = resolve.run(c.src, c.root)
+    c.res = res
+    return diags
+end
+
+--- @param c CompilerContext
+--- @return Diag[]
+local function run_types(c)
+    local info, diags = types.run(c.src, c.root, assert(c.res))
+    c.info = info
+    return diags
+end
+
 --- Each stage needs the results of every stage before it.
 --- @type Stage[]
 local STAGES = {
     { name = 'parse', run = run_parse },
+    { name = 'resolve', run = run_resolve },
+    { name = 'types', run = run_types },
 }
 
 --- The stage names in order.

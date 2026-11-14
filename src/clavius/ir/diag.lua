@@ -1,18 +1,19 @@
 -- Diagnostic records: a code, a primary node, arguments and related nodes, but no message text.
 
 --- The part of a code after `E-` names its family: `syntax`, `misplaced` (an annotation in the wrong
---- place), `unsupported` (a feature Clavius doesn't verify), `banned` (a feature verified code must not
---- use) or `internal` (a bug in Clavius).
+--- place), `unsupported` (a feature Clavius doesn't verify), `banned` (a feature verified code must
+--- not use), `type` (legal Lua that the type rules reject) or `internal` (a bug in Clavius).
 --- @alias DiagCode
 --- | 'E-syntax' # the file doesn't parse, or uses unsupported syntax
 --- | 'E-misplaced-directive' # a directive where it can't apply, such as an unpaired `---@clavius end`
 --- | 'E-unsupported-feature' # a node kind, operator or form that Clavius doesn't verify
 --- | 'E-unsupported-type' # a type that Clavius doesn't verify
 --- | 'E-unsupported-directive' # a directive that Clavius doesn't verify
---- | 'E-unsupported-call' # a call to a library function that Clavius doesn't verify
+--- | 'E-unsupported-call' # a library name that Clavius doesn't verify
 --- | 'E-banned-global' # a global variable in verified code
 --- | 'E-banned-goto' # a `goto` or label in verified code
---- | 'E-banned-call' # a call to a function that verified code must not use, such as `pcall`
+--- | 'E-banned-call' # a library function that verified code must not use, such as `pcall`
+--- | 'E-type-mismatch' # an operand or value of the wrong type, such as `1 + true`
 --- | 'E-internal-node' # a node where its kind doesn't belong, such as a statement among terms
 --- | 'E-internal-check' # a `Check` with no obligation of a known kind
 --- | 'E-internal-assume' # an `Assume` with no allowed justification
