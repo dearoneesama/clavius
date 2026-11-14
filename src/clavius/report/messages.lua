@@ -37,12 +37,12 @@ local KEYED = { ['E-syntax'] = true, ['E-misplaced-directive'] = true, ['E-unsup
 --- luacheck's syntax errors, is used as it is.
 --- @type table<string, string>
 local PHRASES = {
-    -- syntax that luacheck accepts and LuaJIT rejects
-    ['lua53-operator'] = 'Lua 5.3 operators are not LuaJIT syntax',
-    ['compound-assignment'] = 'compound assignment is not LuaJIT syntax',
+    -- syntax that luacheck accepts and the LuaJIT 2.1 grammar rejects; recent LuaJIT releases accept some of it
+    ['lua53-operator'] = "`//` and bit operators aren't supported; use the `bit` library",
+    ['compound-assignment'] = "compound assignment isn't supported",
     ['local-attribute'] = 'local attributes are not LuaJIT syntax',
     ['malformed-number'] = 'malformed number',
-    ['empty-statement'] = 'an empty statement is not LuaJIT syntax',
+    ['empty-statement'] = "an empty statement isn't supported",
     ['break-not-last'] = '`break` must be the last statement of its block',
     ['break-outside-loop'] = '`break` outside a loop',
     ['vararg-outside-vararg-function'] = '`...` outside a vararg function',
