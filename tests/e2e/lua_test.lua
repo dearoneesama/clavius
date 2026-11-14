@@ -1,0 +1,44 @@
+local cli = require 'clavius.cli'
+local dir = require 'pl.dir'
+local driver = require 'clavius.driver'
+local markers = require 'support.markers'
+local utils = require 'pl.utils'
+
+-- Every Lua program under tests/e2e/ but the *_test.lua files. Its markers name exactly the
+-- diagnostics it gets or, when it gets none, the obligations that may fail.
+describe('lua programs', function()
+    local inputs = {}
+    for _, path in ipairs(dir.getallfiles('tests/e2e', '*.lua')) do
+        if not path:match '_test%.lua$' then
+            inputs[#inputs + 1] = path
+        end
+    end
+    table.sort(inputs)
+    for _, input in ipairs(inputs) do
+        it(input, function()
+            local text = assert(utils.readfile(input, true))
+            local c = driver.run_until('validate', text, 1)
+            if #c.diags > 0 then
+                assert.are.same(markers.read(text), markers.diags(c))
+                return
+            end
+            local failed, err = driver.verify_core(assert(c.prog))
+            assert(failed, err)
+            assert.are.same(markers.read(text), markers.failures(c, failed))
+            -- a program that verifies runs on LuaJIT without an error
+            if #failed == 0 then
+                assert(loadfile(input))()
+            end
+        end)
+    end
+
+    it('runs from the command line', function()
+        local out, err = assert(io.tmpfile()), assert(io.tmpfile())
+        local status = cli.main({ 'verify', 'tests/e2e/verify/assert.lua' }, out, err)
+        out:seek 'set'
+        err:seek 'set'
+        local message = 'tests/e2e/verify/assert.lua:9:1: assert: this assertion may fail [O3]\n'
+        assert.are.same({ cli.EXIT_FAILED, message, '' }, { status, out:read '*a', err:read '*a' })
+        assert.are.equal(cli.EXIT_OK, cli.main({ 'verify', 'tests/e2e/verify/assign.lua' }, out, err))
+    end)
+end)

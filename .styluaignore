@@ -1,2 +1,3 @@
 # the Lua programs that tests read are inputs, written for what they test
 tests/snapshots/
+tests/e2e/*/

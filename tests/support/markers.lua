@@ -70,6 +70,20 @@ function M.diags(c)
     return sorted(out)
 end
 
+--- Returns failing obligations as markers.
+--- @param c CompilerContext
+--- @param failed integer[] obligation ids
+--- @return Marker[]
+function M.failures(c, failed)
+    local prog = assert(c.prog)
+    local out = {}
+    for i, id in ipairs(failed) do
+        local o = prog.obligations[id]
+        out[i] = { line = line_of(c.text, c.src.spans[o.node].start), name = o.kind }
+    end
+    return sorted(out)
+end
+
 --- Dedents an indented Lua source, runs the stages up to `stage` on it, and checks that the diagnostics
 --- are exactly those its markers name. Returns the compiler context.
 --- @param stage string
