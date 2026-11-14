@@ -43,7 +43,6 @@ end
 --- @class ValidateTables
 --- @field obligations Obligation[]
 --- @field assumptions Assumption[]
---- @field checked table<integer, boolean> the obligations that a `Check` in a unit names
 
 --- The source program that a core program was elaborated from.
 --- @class ValidateSource
@@ -58,11 +57,13 @@ end
 --- @param core CoreArena
 --- @param ids NodeId[]
 --- @param tables ValidateTables
+--- @param checked table<integer, boolean> the obligations that a `Check` in a unit names
 --- @param labels ValidateLabels
 --- @param diags Diag[]
+--- @mut checked
 --- @mut labels
 --- @mut diags
-local function check_statements(core, ids, tables, labels, diags)
+local function check_statements(core, ids, tables, checked, labels, diags)
     for _, id in ipairs(ids) do
         local n = core.nodes[id]
         if n.tag == 'Assign' then
@@ -78,15 +79,15 @@ local function check_statements(core, ids, tables, labels, diags)
             if o == nil or not obligation.OBLIGATION_KINDS[o.kind] then
                 diags[#diags + 1] = diag.at_node('E-internal-check', id, { tostring(n.obligation) })
             end
-            tables.checked[n.obligation] = true
+            checked[n.obligation] = true
             check_term(core, n.cond, diags)
         elseif n.tag == 'Branch' then
             check_term(core, n.cond, diags)
-            check_statements(core, n.then_body, tables, labels, diags)
-            check_statements(core, n.else_body, tables, labels, diags)
+            check_statements(core, n.then_body, tables, checked, labels, diags)
+            check_statements(core, n.else_body, tables, checked, labels, diags)
         elseif n.tag == 'Choice' then
-            check_statements(core, n.first, tables, labels, diags)
-            check_statements(core, n.second, tables, labels, diags)
+            check_statements(core, n.first, tables, checked, labels, diags)
+            check_statements(core, n.second, tables, checked, labels, diags)
         elseif n.tag == 'Block' then
             -- Boogie labels are per procedure, so a reused label would make an Exit ambiguous
             if labels.used[n.label] then
@@ -94,7 +95,7 @@ local function check_statements(core, ids, tables, labels, diags)
             end
             labels.used[n.label] = true
             labels.open[n.label] = true
-            check_statements(core, n.body, tables, labels, diags)
+            check_statements(core, n.body, tables, checked, labels, diags)
             labels.open[n.label] = nil
         elseif n.tag == 'Exit' then
             -- a goto to any other label could jump backwards or into a block
@@ -111,13 +112,14 @@ end
 
 local RANGE_CHECKED = { add = true, sub = true, mul = true }
 
---- Returns the obligation kind that a source node in a region needs, or nil. This follows from what
---- `clavius.ir.support` lets regions use: every `+`, `-` and `*` is on `int53`, and every call is a
---- statement call to `assert` or `error`.
+--- Returns the obligation kind that the source node `id` in a region needs, or nil. This follows from
+--- what `clavius.ir.support` lets regions use: every `+`, `-` and `*` is on `int53`, and every call is
+--- a statement call to `assert` or `error`.
 --- @param src SrcArena
---- @param n SrcNode
+--- @param id NodeId
 --- @return ObligationKind|nil
-local function needed_kind(src, n)
+local function needed_kind(src, id)
+    local n = src.nodes[id]
     if n.tag == 'BinOp' and RANGE_CHECKED[n.op] then
         return 'range'
     elseif n.tag == 'Call' then
@@ -131,13 +133,14 @@ end
 --- for it, so the diagnostic's span is the source node's.
 --- @param source ValidateSource
 --- @param tables ValidateTables
+--- @param checked table<integer, boolean> the obligations that a `Check` in a unit names
 --- @param diags Diag[]
 --- @mut diags
-local function check_coverage(source, tables, diags)
+local function check_coverage(source, tables, checked, diags)
     --- @type table<NodeId, table<string, boolean>>
     local have = {}
     for id, o in ipairs(tables.obligations) do
-        if tables.checked[id] then
+        if checked[id] then
             have[o.node] = have[o.node] or {}
             have[o.node][o.kind] = true
         end
@@ -145,9 +148,11 @@ local function check_coverage(source, tables, diags)
     for _, tag in ipairs({ 'BinOp', 'Call' }) do
         local ids = source.index.by_tag[tag] or {}
         for _, id in ipairs(ids) do
-            local kind = source.index.region[id] ~= 0 and needed_kind(source.src, source.src.nodes[id])
-            if kind and not (have[id] and have[id][kind]) then
-                diags[#diags + 1] = diag.at_span('E-internal-coverage', source.src.spans[id], { tag, kind })
+            if source.index.region[id] ~= 0 then
+                local kind = needed_kind(source.src, id)
+                if kind ~= nil and not (have[id] and have[id][kind]) then
+                    diags[#diags + 1] = diag.at_span('E-internal-coverage', source.src.spans[id], { tag, kind })
+                end
             end
         end
     end
@@ -165,7 +170,9 @@ end
 function M.run(core, units, obligations, assumptions, source)
     local diags = {}
     --- @type ValidateTables
-    local tables = { obligations = obligations, assumptions = assumptions, checked = {} }
+    local tables = { obligations = obligations, assumptions = assumptions }
+    --- @type table<integer, boolean>
+    local checked = {}
     for _, unit in ipairs(units) do
         local n = core.nodes[unit]
         if n.tag == 'Unit' then
@@ -175,13 +182,13 @@ function M.run(core, units, obligations, assumptions, source)
                     diags[#diags + 1] = diag.at_node('E-internal-node', var, { v.tag, 'variable declaration' })
                 end
             end
-            check_statements(core, n.body, tables, { open = {}, used = {} }, diags)
+            check_statements(core, n.body, tables, checked, { open = {}, used = {} }, diags)
         else
             diags[#diags + 1] = diag.at_node('E-internal-node', unit, { n.tag, 'unit' })
         end
     end
     if source ~= nil then
-        check_coverage(source, tables, diags)
+        check_coverage(source, tables, checked, diags)
     end
     return diags
 end

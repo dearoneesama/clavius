@@ -110,7 +110,7 @@ function M.line_col(text, starts, offset)
     local lo, hi = 1, #starts
     -- the last line whose start is <= offset
     while lo < hi do
-        local mid = math.floor((lo + hi + 1) / 2)
+        local mid = lo + math.floor((hi - lo + 1) / 2) -- lo + hi + 1 could leave ±2^53
         if starts[mid] <= offset then
             lo = mid
         else
