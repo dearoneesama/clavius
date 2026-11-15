@@ -114,6 +114,175 @@ M.source = {
     Paren = {
         { name = 'expr', shape = 'node' },
     },
+    ClvTypeName = {
+        { name = 'name', shape = 'str' },
+    },
+    ClvTypeLiteral = {
+        { name = 'kind', shape = 'enum', values = { 'string', 'integer', 'boolean' } },
+        { name = 'text', shape = 'str' },
+    },
+    ClvTypeCode = {
+        { name = 'text', shape = 'str' },
+        { name = 'pattern', shape = 'opt_str' },
+    },
+    ClvTypeApply = {
+        { name = 'base', shape = 'node' },
+        { name = 'args', shape = 'list' },
+    },
+    ClvTypeArray = {
+        { name = 'elem', shape = 'node' },
+    },
+    ClvTypeUnion = {
+        { name = 'members', shape = 'list' },
+    },
+    ClvTypeOptional = {
+        { name = 'inner', shape = 'node' },
+    },
+    ClvTypeFun = {
+        { name = 'async', shape = 'bool' },
+        { name = 'generics', shape = 'list' },
+        { name = 'params', shape = 'list' },
+        { name = 'returns', shape = 'list' },
+    },
+    ClvTypeParam = {
+        { name = 'name', shape = 'str' },
+        { name = 'optional', shape = 'bool' },
+        { name = 'type', shape = 'opt' },
+    },
+    ClvTypeReturn = {
+        { name = 'name', shape = 'opt_str' },
+        { name = 'type', shape = 'node' },
+    },
+    ClvTypeTable = {
+        { name = 'fields', shape = 'list' },
+    },
+    ClvTypeField = {
+        { name = 'key', shape = 'opt' },
+        { name = 'name', shape = 'opt_str' },
+        { name = 'optional', shape = 'bool' },
+        { name = 'type', shape = 'node' },
+    },
+    ClvTypeTuple = {
+        { name = 'items', shape = 'list' },
+    },
+    ClvTypeGeneric = {
+        { name = 'name', shape = 'str' },
+    },
+    ClvMarker = {},
+    ClvUnsafe = {},
+    ClvPre = {
+        { name = 'cond', shape = 'node' },
+    },
+    ClvPost = {
+        { name = 'cond', shape = 'node' },
+    },
+    ClvParam = {
+        { name = 'name', shape = 'str' },
+        { name = 'optional', shape = 'bool' },
+        { name = 'type', shape = 'node' },
+    },
+    ClvReturn = {
+        { name = 'name', shape = 'opt_str' },
+        { name = 'type', shape = 'node' },
+    },
+    ClvDecrease = {
+        { name = 'measures', shape = 'list' },
+    },
+    ClvInvariant = {
+        { name = 'cond', shape = 'node' },
+    },
+    ClvMut = {
+        { name = 'name', shape = 'str' },
+    },
+    ClvMove = {
+        { name = 'name', shape = 'str' },
+    },
+    ClvFrozen = {
+        { name = 'name', shape = 'opt_str' },
+    },
+    ClvLen = {
+        { name = 'param', shape = 'str' },
+        { name = 'length', shape = 'str' },
+    },
+    ClvDisjoint = {
+        { name = 'first', shape = 'str' },
+        { name = 'second', shape = 'str' },
+    },
+    ClvEntry = {},
+    ClvExtern = {},
+    ClvNoCallback = {},
+    ClvMayRaise = {},
+    ClvRlimit = {
+        { name = 'limit', shape = 'int' },
+    },
+    ClvProofBy = {
+        { name = 'theory', shape = 'enum', values = { 'nonlinear_arith', 'bit_vector' } },
+    },
+    ClvRevealWithFuel = {
+        { name = 'name', shape = 'str' },
+        { name = 'fuel', shape = 'int' },
+    },
+    ClvModuleInvariant = {
+        { name = 'cond', shape = 'node' },
+    },
+    ClvClosureInvariant = {
+        { name = 'cond', shape = 'node' },
+    },
+    ClvType = {
+        { name = 'types', shape = 'list' },
+    },
+    ClvClass = {
+        { name = 'exact', shape = 'bool' },
+        { name = 'partial', shape = 'bool' },
+        { name = 'name', shape = 'str' },
+        { name = 'generics', shape = 'list' },
+        { name = 'parents', shape = 'list' },
+    },
+    ClvField = {
+        { name = 'key', shape = 'opt' },
+        { name = 'name', shape = 'opt_str' },
+        { name = 'optional', shape = 'bool' },
+        { name = 'type', shape = 'node' },
+    },
+    ClvAlias = {
+        { name = 'name', shape = 'str' },
+        { name = 'generics', shape = 'list' },
+        { name = 'type', shape = 'node' },
+    },
+    ClvEnum = {
+        { name = 'key', shape = 'bool' },
+        { name = 'partial', shape = 'bool' },
+        { name = 'name', shape = 'str' },
+    },
+    ClvGeneric = {
+        { name = 'name', shape = 'str' },
+        { name = 'bound', shape = 'opt' },
+    },
+    ClvCast = {
+        { name = 'name', shape = 'str' },
+        { name = 'mode', shape = 'enum', values = { 'set', 'add', 'remove' } },
+        { name = 'type', shape = 'opt' },
+    },
+    ClvAs = {
+        { name = 'type', shape = 'node' },
+    },
+    ClvVararg = {
+        { name = 'type', shape = 'node' },
+    },
+    ClvOverload = {
+        { name = 'type', shape = 'node' },
+    },
+    ClvOperator = {
+        { name = 'op', shape = 'str' },
+        { name = 'operand', shape = 'opt' },
+        { name = 'result', shape = 'node' },
+    },
+    ClvMeta = {
+        { name = 'name', shape = 'opt_str' },
+    },
+    ClvModule = {
+        { name = 'name', shape = 'str' },
+    },
 }
 
 --- @type table<string, SexpFieldSpec[]>

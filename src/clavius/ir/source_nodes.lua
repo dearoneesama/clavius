@@ -149,6 +149,279 @@
 --- @field tag 'Paren'
 --- @field expr NodeId
 
+--- A named type in an annotation, such as `int53`, `Seq` or `a.b`.
+--- @class SrcClvTypeName
+--- @field tag 'ClvTypeName'
+--- @field name string
+
+--- A literal type: `'circle'`, `1` or `true`.
+--- @class SrcClvTypeLiteral
+--- @field tag 'ClvTypeLiteral'
+--- @field kind 'string' | 'integer' | 'boolean'
+--- @field text string a string's value, or the spelling
+
+--- A backtick type such as `` `T` ``, which LuaLS names after a string argument.
+--- @class SrcClvTypeCode
+--- @field tag 'ClvTypeCode'
+--- @field text string
+--- @field pattern string|nil the name around it with `%s` in its place, as in `Foo.%s`
+
+--- `base<args>`, such as `Seq<int53>`.
+--- @class SrcClvTypeApply
+--- @field tag 'ClvTypeApply'
+--- @field base NodeId
+--- @field args NodeId[]
+
+--- `elem[]`.
+--- @class SrcClvTypeArray
+--- @field tag 'ClvTypeArray'
+--- @field elem NodeId
+
+--- `A | B`, with two members or more.
+--- @class SrcClvTypeUnion
+--- @field tag 'ClvTypeUnion'
+--- @field members NodeId[]
+
+--- `T?`.
+--- @class SrcClvTypeOptional
+--- @field tag 'ClvTypeOptional'
+--- @field inner NodeId
+
+--- `fun<generics>(params): returns`, or `async fun…`.
+--- @class SrcClvTypeFun
+--- @field tag 'ClvTypeFun'
+--- @field async boolean
+--- @field generics NodeId[] ClvTypeGeneric nodes
+--- @field params NodeId[] ClvTypeParam nodes
+--- @field returns NodeId[] ClvTypeReturn nodes
+
+--- A parameter of a function type: `name?: type`. The type may be left out.
+--- @class SrcClvTypeParam
+--- @field tag 'ClvTypeParam'
+--- @field name string a name or `...`
+--- @field optional boolean
+--- @field type NodeId|nil
+
+--- A result of a function type: `type`, or `name: type`.
+--- @class SrcClvTypeReturn
+--- @field tag 'ClvTypeReturn'
+--- @field name string|nil
+--- @field type NodeId
+
+--- A table type such as `{ x: T, [K]: V }`.
+--- @class SrcClvTypeTable
+--- @field tag 'ClvTypeTable'
+--- @field fields NodeId[] ClvTypeField nodes
+
+--- A field of a table type, with a name or a key type in brackets.
+--- @class SrcClvTypeField
+--- @field tag 'ClvTypeField'
+--- @field key NodeId|nil
+--- @field name string|nil
+--- @field optional boolean
+--- @field type NodeId
+
+--- A tuple type such as `[A, B]`.
+--- @class SrcClvTypeTuple
+--- @field tag 'ClvTypeTuple'
+--- @field items NodeId[]
+
+--- A type parameter of a function type, class or alias: the `T` of `fun<T>`.
+--- @class SrcClvTypeGeneric
+--- @field tag 'ClvTypeGeneric'
+--- @field name string
+
+--- `---@clavius` above a function: the function is verified.
+--- @class SrcClvMarker
+--- @field tag 'ClvMarker'
+
+--- `---@unsafe`: the function is trusted to meet its contract.
+--- @class SrcClvUnsafe
+--- @field tag 'ClvUnsafe'
+
+--- `---@pre cond`.
+--- @class SrcClvPre
+--- @field tag 'ClvPre'
+--- @field cond NodeId
+
+--- `---@post cond`.
+--- @class SrcClvPost
+--- @field tag 'ClvPost'
+--- @field cond NodeId
+
+--- `---@param name type`, `name?` or `...`.
+--- @class SrcClvParam
+--- @field tag 'ClvParam'
+--- @field name string
+--- @field optional boolean
+--- @field type NodeId
+
+--- One value of a `---@return`, with its name if it has one.
+--- @class SrcClvReturn
+--- @field tag 'ClvReturn'
+--- @field name string|nil
+--- @field type NodeId
+
+--- `---@decrease a, b`, compared lexicographically.
+--- @class SrcClvDecrease
+--- @field tag 'ClvDecrease'
+--- @field measures NodeId[]
+
+--- `---@invariant cond`.
+--- @class SrcClvInvariant
+--- @field tag 'ClvInvariant'
+--- @field cond NodeId
+
+--- `---@mut p`.
+--- @class SrcClvMut
+--- @field tag 'ClvMut'
+--- @field name string
+
+--- `---@move p`.
+--- @class SrcClvMove
+--- @field tag 'ClvMove'
+--- @field name string
+
+--- `---@frozen p` on a parameter, or `---@frozen` on a class or local declaration.
+--- @class SrcClvFrozen
+--- @field tag 'ClvFrozen'
+--- @field name string|nil
+
+--- `---@len p n`: the slice parameter `p` holds `n` elements.
+--- @class SrcClvLen
+--- @field tag 'ClvLen'
+--- @field param string
+--- @field length string
+
+--- `---@disjoint a, b`.
+--- @class SrcClvDisjoint
+--- @field tag 'ClvDisjoint'
+--- @field first string
+--- @field second string
+
+--- `---@entry`: the host calls the function.
+--- @class SrcClvEntry
+--- @field tag 'ClvEntry'
+
+--- `---@extern`: a host function or global in a `---@meta` file.
+--- @class SrcClvExtern
+--- @field tag 'ClvExtern'
+
+--- `---@no_callback`.
+--- @class SrcClvNoCallback
+--- @field tag 'ClvNoCallback'
+
+--- `---@may_raise`.
+--- @class SrcClvMayRaise
+--- @field tag 'ClvMayRaise'
+
+--- `---@rlimit N`.
+--- @class SrcClvRlimit
+--- @field tag 'ClvRlimit'
+--- @field limit integer
+
+--- `---@proof_by(theory)`.
+--- @class SrcClvProofBy
+--- @field tag 'ClvProofBy'
+--- @field theory 'nonlinear_arith' | 'bit_vector'
+
+--- `---@reveal_with_fuel(f, n)`.
+--- @class SrcClvRevealWithFuel
+--- @field tag 'ClvRevealWithFuel'
+--- @field name string
+--- @field fuel integer
+
+--- `---@module_invariant cond`.
+--- @class SrcClvModuleInvariant
+--- @field tag 'ClvModuleInvariant'
+--- @field cond NodeId
+
+--- `---@closure_invariant cond`.
+--- @class SrcClvClosureInvariant
+--- @field tag 'ClvClosureInvariant'
+--- @field cond NodeId
+
+--- `---@type T1, T2`.
+--- @class SrcClvType
+--- @field tag 'ClvType'
+--- @field types NodeId[]
+
+--- `---@class (attrs) Name<T>: Parent, …`.
+--- @class SrcClvClass
+--- @field tag 'ClvClass'
+--- @field exact boolean
+--- @field partial boolean
+--- @field name string
+--- @field generics NodeId[] ClvTypeGeneric nodes
+--- @field parents NodeId[]
+
+--- `---@field name T`, `name? T` or `[K] V`. LuaLS visibilities such as `private` are dropped.
+--- @class SrcClvField
+--- @field tag 'ClvField'
+--- @field key NodeId|nil
+--- @field name string|nil
+--- @field optional boolean
+--- @field type NodeId
+
+--- `---@alias Name<T> type`.
+--- @class SrcClvAlias
+--- @field tag 'ClvAlias'
+--- @field name string
+--- @field generics NodeId[] ClvTypeGeneric nodes
+--- @field type NodeId
+
+--- `---@enum (attrs) Name`.
+--- @class SrcClvEnum
+--- @field tag 'ClvEnum'
+--- @field key boolean
+--- @field partial boolean
+--- @field name string
+
+--- One type parameter of `---@generic`, with an optional bound as in `T : value`.
+--- @class SrcClvGeneric
+--- @field tag 'ClvGeneric'
+--- @field name string
+--- @field bound NodeId|nil
+
+--- One step of `---@cast name …`: `T` sets the type, `+T` adds a member and `-T` removes one. No type stands for `?`.
+--- @class SrcClvCast
+--- @field tag 'ClvCast'
+--- @field name string
+--- @field mode 'set' | 'add' | 'remove'
+--- @field type NodeId|nil
+
+--- The cast `--[[@as T]]`.
+--- @class SrcClvAs
+--- @field tag 'ClvAs'
+--- @field type NodeId
+
+--- `---@vararg T`.
+--- @class SrcClvVararg
+--- @field tag 'ClvVararg'
+--- @field type NodeId
+
+--- `---@overload fun(…)`.
+--- @class SrcClvOverload
+--- @field tag 'ClvOverload'
+--- @field type NodeId
+
+--- `---@operator add(Vec): Vec`, or `unm: Vec` with no operand.
+--- @class SrcClvOperator
+--- @field tag 'ClvOperator'
+--- @field op string
+--- @field operand NodeId|nil
+--- @field result NodeId
+
+--- `---@meta name`, where the name may be left out.
+--- @class SrcClvMeta
+--- @field tag 'ClvMeta'
+--- @field name string|nil
+
+--- `---@module 'name'`.
+--- @class SrcClvModule
+--- @field tag 'ClvModule'
+--- @field name string
+
 --- @alias SrcTag
 --- | 'Block'
 --- | 'ClvRegion'
@@ -177,6 +450,55 @@
 --- | 'BinOp'
 --- | 'UnOp'
 --- | 'Paren'
+--- | 'ClvTypeName'
+--- | 'ClvTypeLiteral'
+--- | 'ClvTypeCode'
+--- | 'ClvTypeApply'
+--- | 'ClvTypeArray'
+--- | 'ClvTypeUnion'
+--- | 'ClvTypeOptional'
+--- | 'ClvTypeFun'
+--- | 'ClvTypeParam'
+--- | 'ClvTypeReturn'
+--- | 'ClvTypeTable'
+--- | 'ClvTypeField'
+--- | 'ClvTypeTuple'
+--- | 'ClvTypeGeneric'
+--- | 'ClvMarker'
+--- | 'ClvUnsafe'
+--- | 'ClvPre'
+--- | 'ClvPost'
+--- | 'ClvParam'
+--- | 'ClvReturn'
+--- | 'ClvDecrease'
+--- | 'ClvInvariant'
+--- | 'ClvMut'
+--- | 'ClvMove'
+--- | 'ClvFrozen'
+--- | 'ClvLen'
+--- | 'ClvDisjoint'
+--- | 'ClvEntry'
+--- | 'ClvExtern'
+--- | 'ClvNoCallback'
+--- | 'ClvMayRaise'
+--- | 'ClvRlimit'
+--- | 'ClvProofBy'
+--- | 'ClvRevealWithFuel'
+--- | 'ClvModuleInvariant'
+--- | 'ClvClosureInvariant'
+--- | 'ClvType'
+--- | 'ClvClass'
+--- | 'ClvField'
+--- | 'ClvAlias'
+--- | 'ClvEnum'
+--- | 'ClvGeneric'
+--- | 'ClvCast'
+--- | 'ClvAs'
+--- | 'ClvVararg'
+--- | 'ClvOverload'
+--- | 'ClvOperator'
+--- | 'ClvMeta'
+--- | 'ClvModule'
 
 --- @alias SrcNode
 --- | SrcBlock
@@ -206,6 +528,55 @@
 --- | SrcBinOp
 --- | SrcUnOp
 --- | SrcParen
+--- | SrcClvTypeName
+--- | SrcClvTypeLiteral
+--- | SrcClvTypeCode
+--- | SrcClvTypeApply
+--- | SrcClvTypeArray
+--- | SrcClvTypeUnion
+--- | SrcClvTypeOptional
+--- | SrcClvTypeFun
+--- | SrcClvTypeParam
+--- | SrcClvTypeReturn
+--- | SrcClvTypeTable
+--- | SrcClvTypeField
+--- | SrcClvTypeTuple
+--- | SrcClvTypeGeneric
+--- | SrcClvMarker
+--- | SrcClvUnsafe
+--- | SrcClvPre
+--- | SrcClvPost
+--- | SrcClvParam
+--- | SrcClvReturn
+--- | SrcClvDecrease
+--- | SrcClvInvariant
+--- | SrcClvMut
+--- | SrcClvMove
+--- | SrcClvFrozen
+--- | SrcClvLen
+--- | SrcClvDisjoint
+--- | SrcClvEntry
+--- | SrcClvExtern
+--- | SrcClvNoCallback
+--- | SrcClvMayRaise
+--- | SrcClvRlimit
+--- | SrcClvProofBy
+--- | SrcClvRevealWithFuel
+--- | SrcClvModuleInvariant
+--- | SrcClvClosureInvariant
+--- | SrcClvType
+--- | SrcClvClass
+--- | SrcClvField
+--- | SrcClvAlias
+--- | SrcClvEnum
+--- | SrcClvGeneric
+--- | SrcClvCast
+--- | SrcClvAs
+--- | SrcClvVararg
+--- | SrcClvOverload
+--- | SrcClvOperator
+--- | SrcClvMeta
+--- | SrcClvModule
 
 local M = {}
 
@@ -304,6 +675,106 @@ function M.children(n)
         kids[#kids + 1] = n.arg
     elseif n.tag == 'Paren' then
         kids[#kids + 1] = n.expr
+    elseif n.tag == 'ClvTypeApply' then
+        kids[#kids + 1] = n.base
+        for _, kid in ipairs(n.args) do
+            kids[#kids + 1] = kid
+        end
+    elseif n.tag == 'ClvTypeArray' then
+        kids[#kids + 1] = n.elem
+    elseif n.tag == 'ClvTypeUnion' then
+        for _, kid in ipairs(n.members) do
+            kids[#kids + 1] = kid
+        end
+    elseif n.tag == 'ClvTypeOptional' then
+        kids[#kids + 1] = n.inner
+    elseif n.tag == 'ClvTypeFun' then
+        for _, kid in ipairs(n.generics) do
+            kids[#kids + 1] = kid
+        end
+        for _, kid in ipairs(n.params) do
+            kids[#kids + 1] = kid
+        end
+        for _, kid in ipairs(n.returns) do
+            kids[#kids + 1] = kid
+        end
+    elseif n.tag == 'ClvTypeParam' then
+        if n.type ~= nil then
+            kids[#kids + 1] = n.type
+        end
+    elseif n.tag == 'ClvTypeReturn' then
+        kids[#kids + 1] = n.type
+    elseif n.tag == 'ClvTypeTable' then
+        for _, kid in ipairs(n.fields) do
+            kids[#kids + 1] = kid
+        end
+    elseif n.tag == 'ClvTypeField' then
+        if n.key ~= nil then
+            kids[#kids + 1] = n.key
+        end
+        kids[#kids + 1] = n.type
+    elseif n.tag == 'ClvTypeTuple' then
+        for _, kid in ipairs(n.items) do
+            kids[#kids + 1] = kid
+        end
+    elseif n.tag == 'ClvPre' then
+        kids[#kids + 1] = n.cond
+    elseif n.tag == 'ClvPost' then
+        kids[#kids + 1] = n.cond
+    elseif n.tag == 'ClvParam' then
+        kids[#kids + 1] = n.type
+    elseif n.tag == 'ClvReturn' then
+        kids[#kids + 1] = n.type
+    elseif n.tag == 'ClvDecrease' then
+        for _, kid in ipairs(n.measures) do
+            kids[#kids + 1] = kid
+        end
+    elseif n.tag == 'ClvInvariant' then
+        kids[#kids + 1] = n.cond
+    elseif n.tag == 'ClvModuleInvariant' then
+        kids[#kids + 1] = n.cond
+    elseif n.tag == 'ClvClosureInvariant' then
+        kids[#kids + 1] = n.cond
+    elseif n.tag == 'ClvType' then
+        for _, kid in ipairs(n.types) do
+            kids[#kids + 1] = kid
+        end
+    elseif n.tag == 'ClvClass' then
+        for _, kid in ipairs(n.generics) do
+            kids[#kids + 1] = kid
+        end
+        for _, kid in ipairs(n.parents) do
+            kids[#kids + 1] = kid
+        end
+    elseif n.tag == 'ClvField' then
+        if n.key ~= nil then
+            kids[#kids + 1] = n.key
+        end
+        kids[#kids + 1] = n.type
+    elseif n.tag == 'ClvAlias' then
+        for _, kid in ipairs(n.generics) do
+            kids[#kids + 1] = kid
+        end
+        kids[#kids + 1] = n.type
+    elseif n.tag == 'ClvGeneric' then
+        if n.bound ~= nil then
+            kids[#kids + 1] = n.bound
+        end
+    elseif n.tag == 'ClvCast' then
+        if n.type ~= nil then
+            kids[#kids + 1] = n.type
+        end
+    elseif n.tag == 'ClvAs' then
+        kids[#kids + 1] = n.type
+    elseif n.tag == 'ClvVararg' then
+        kids[#kids + 1] = n.type
+    elseif n.tag == 'ClvOverload' then
+        kids[#kids + 1] = n.type
+    elseif n.tag == 'ClvOperator' then
+        if n.operand ~= nil then
+            kids[#kids + 1] = n.operand
+        end
+        kids[#kids + 1] = n.result
     end
     return kids
 end
