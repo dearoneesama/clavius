@@ -102,7 +102,7 @@ describe('syntax.luacheck', function()
     end)
 
     it('rejects some syntax that LuaJIT accepts', function()
-        for _, text in ipairs({ 'local x = 0b101', 'local café = 1' }) do
+        for _, text in ipairs { 'local x = 0b101', 'local café = 1' } do
             assert.is_function(loadstring(text))
             assert.are.equal('E-syntax', diags_of(text)[1][1])
         end
@@ -124,14 +124,14 @@ describe('syntax.comments', function()
     end
 
     it('reads directives in both spellings', function()
-        local found = comments.directives({
+        local found = comments.directives {
             comment '-@clavius begin',
             comment '- @param x integer the count  ',
             comment '-@proof_by(bit_vector)',
             comment ' plain comment',
             comment '--@clavius begin',
             comment '-',
-        })
+        }
         assert.are.same({
             { 'clavius', 'begin' },
             { 'param', 'x integer the count' },
@@ -145,7 +145,7 @@ describe('syntax.comments', function()
     end)
 
     it('reads annotation blocks', function()
-        local found = comments.blocks({ comment '@spec\nlocal x', comment '@proof x', comment '@specs', comment ' @lemma' })
+        local found = comments.blocks { comment '@spec\nlocal x', comment '@proof x', comment '@specs', comment ' @lemma' }
         assert.are.same({ 'spec', 'proof' }, { found[1].kind, found[2].kind })
         assert.are.equal(2, #found)
     end)

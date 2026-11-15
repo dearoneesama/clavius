@@ -113,11 +113,11 @@ function M.read_all(text)
                 return nil, after
             end
             --- @cast after integer
-            push({ tag = 'Str', text = value, start = i })
+            push { tag = 'Str', text = value, start = i }
             i = after
         else
             local j = (text:find('[%s%(%)%[%]";]', i) or n + 1)
-            push({ tag = 'Sym', text = text:sub(i, j - 1), start = i })
+            push { tag = 'Sym', text = text:sub(i, j - 1), start = i }
             i = j
         end
     end

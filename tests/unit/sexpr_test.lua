@@ -41,20 +41,20 @@ end
 describe('sexpr.read', function()
     it('reads lists, vectors, symbols and strings', function()
         assert.are.same(
-            write.list({
+            write.list {
                 write.sym 'Local',
-                write.vec({ write.list({ write.sym 'Binder', write.sym 'y$2' }) }),
+                write.vec { write.list { write.sym 'Binder', write.sym 'y$2' } },
                 write.str 'x y',
                 write.sym ':rec',
                 write.sym 'false',
-            }),
+            },
             read_one '(Local [(Binder y$2)] "x y" :rec false)'
         )
     end)
 
     it('skips whitespace and comments', function()
         local xs = assert(read.read_all '; header\n(a) ; trailing\n\n  b ;; end')
-        assert.are.same({ write.list({ write.sym 'a' }), write.sym 'b' }, { strip(xs[1]), strip(xs[2]) })
+        assert.are.same({ write.list { write.sym 'a' }, write.sym 'b' }, { strip(xs[1]), strip(xs[2]) })
     end)
 
     it('records start offsets', function()
@@ -70,7 +70,7 @@ describe('sexpr.read', function()
     end)
 
     it('ends a symbol at a delimiter', function()
-        assert.are.same(write.list({ write.sym 'a', write.str 'b', write.vec({ write.sym 'c' }) }), read_one '(a"b"[c])')
+        assert.are.same(write.list { write.sym 'a', write.str 'b', write.vec { write.sym 'c' } }, read_one '(a"b"[c])')
     end)
 
     it('reports errors with line and column', function()
@@ -94,23 +94,23 @@ describe('sexpr.write', function()
     it('writes flat when it fits', function()
         assert.are.equal(
             '(Id x$1 :type int53)',
-            write.write_one(write.list({ write.sym 'Id', write.sym 'x$1', write.sym ':type', write.sym 'int53' }))
+            write.write_one(write.list { write.sym 'Id', write.sym 'x$1', write.sym ':type', write.sym 'int53' })
         )
     end)
 
     it('breaks wide lists after their leading atoms, keeping :keyword pairs together', function()
-        local x = write.list({
+        local x = write.list {
             write.sym 'Unit',
             write.sym 'main',
-            write.list({ write.sym 'Assume', write.sym 'A1', write.list({ write.sym 'is_int53', write.sym 'x$1' }) }),
-            write.list({
+            write.list { write.sym 'Assume', write.sym 'A1', write.list { write.sym 'is_int53', write.sym 'x$1' } },
+            write.list {
                 write.sym 'Check',
                 write.sym 'O1',
-                write.list({ write.sym 'is_int53', write.list({ write.sym '+', write.sym 'x$1', write.sym '1' }) }),
-            }),
+                write.list { write.sym 'is_int53', write.list { write.sym '+', write.sym 'x$1', write.sym '1' } },
+            },
             write.sym ':rec',
             write.sym 'false',
-        })
+        }
         assert.are.equal(
             table.concat({
                 '(Unit main',
@@ -123,17 +123,17 @@ describe('sexpr.write', function()
     end)
 
     it('puts the first item after the bracket when there are no leading atoms', function()
-        local x = write.vec({
-            write.list({ write.sym 'a', write.sym 'bbbbbbbb' }),
-            write.list({ write.sym 'c', write.sym 'dddddddd' }),
-            write.list({ write.sym 'e', write.sym 'ffffffff' }),
-        })
+        local x = write.vec {
+            write.list { write.sym 'a', write.sym 'bbbbbbbb' },
+            write.list { write.sym 'c', write.sym 'dddddddd' },
+            write.list { write.sym 'e', write.sym 'ffffffff' },
+        }
         assert.are.equal('[(a bbbbbbbb)\n (c dddddddd)\n (e ffffffff)]', write.write_one(x, { width = 20 }))
     end)
 
     it('counts closing brackets against the width', function()
         -- flat, the inner list fits in 14 columns but not with the outer `)`
-        local x = write.list({ write.sym 'a', write.list({ write.sym 'bbbbb', write.sym 'cccc' }) })
+        local x = write.list { write.sym 'a', write.list { write.sym 'bbbbb', write.sym 'cccc' } }
         assert.are.equal('(a (bbbbb cccc))', write.write_one(x, { width = 16 }))
         assert.are.equal('(a\n  (bbbbb cccc))', write.write_one(x, { width = 15 }))
     end)
@@ -143,7 +143,7 @@ describe('sexpr.write', function()
     end)
 
     it('rejects symbols that would not read back', function()
-        for _, bad in ipairs({ '', 'a b', 'a(', '"', 'a;b', 'a]' }) do
+        for _, bad in ipairs { '', 'a b', 'a(', '"', 'a;b', 'a]' } do
             assert.has_error(function()
                 write.write_one(write.sym(bad))
             end)
@@ -151,7 +151,7 @@ describe('sexpr.write', function()
     end)
 
     it('write_all ends every value with a newline', function()
-        assert.are.equal('a\n(b)\n', write.write_all({ write.sym 'a', write.list({ write.sym 'b' }) }))
+        assert.are.equal('a\n(b)\n', write.write_all { write.sym 'a', write.list { write.sym 'b' } })
     end)
 end)
 

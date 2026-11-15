@@ -112,7 +112,7 @@ describe('validate', function()
         assert.are.same({
             { code = 'E-internal-node', tag = 'Literal', args = { 'Literal', 'term' } },
             { code = 'E-internal-node', tag = 'Assign', args = { 'Assign', 'unit' } },
-        }, run({ core = c, units = { unit, statement }, obligations = {}, assumptions = {} }))
+        }, run { core = c, units = { unit, statement }, obligations = {}, assumptions = {} })
     end)
 
     -- the obligations that elaborate emits, by id

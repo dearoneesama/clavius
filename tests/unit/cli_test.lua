@@ -26,13 +26,13 @@ end
 
 describe('cli', function()
     it('lowers a core file to Boogie', function()
-        local r = run({ 'lower', 'tests/snapshots/boogie/control.core.sexp' })
+        local r = run { 'lower', 'tests/snapshots/boogie/control.core.sexp' }
         assert.are.same({ cli.EXIT_OK, '' }, { r.status, r.err })
         assert.are.equal(utils.readfile('tests/snapshots/boogie/control.bpl', true), r.out)
     end)
 
     it('reports a file it cannot read', function()
-        local r = run({ 'lower', 'tests/no-such-file.core.sexp' })
+        local r = run { 'lower', 'tests/no-such-file.core.sexp' }
         assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
         assert.is_truthy(r.err:find('no-such-file.core.sexp', 1, true))
     end)
@@ -65,7 +65,7 @@ describe('cli', function()
     end
 
     it('reports a malformed core file at its position', function()
-        for _, command in ipairs({ 'lower', 'verify' }) do
+        for _, command in ipairs { 'lower', 'verify' } do
             local r = run_on(command, '(Unit u\n  [] [(Havoc)])')
             assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
             assert.are.equal('f.core.sexp:2:7: Havoc takes 1 fields, found 0\n', r.err)
@@ -73,7 +73,7 @@ describe('cli', function()
     end)
 
     it('reports every validation error at its node', function()
-        for _, command in ipairs({ 'lower', 'verify' }) do
+        for _, command in ipairs { 'lower', 'verify' } do
             local r = run_on(command, '(Unit u []\n  [(Check 1 (Bool true))\n   (Var x)\n   (Block l [])\n   (Block l [(Exit m)])])')
             assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
             assert.are.equal(
@@ -109,7 +109,7 @@ describe('cli', function()
 
     it('reports the diagnostics of the stage that fails, in source order', function()
         local text = '---@clavius begin\nlocal x = 1 + true\nlocal y = print\n---@clavius end\n'
-        for _, argv in ipairs({ { 'verify' }, { 'dump', '--after', 'types' } }) do
+        for _, argv in ipairs { { 'verify' }, { 'dump', '--after', 'types' } } do
             local r = run_with_file(argv, '.lua', text)
             assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
             assert.are.equal("f.lua:3:11: E-unsupported-call: `print` isn't supported in this version; leave this code unmarked\n", r.err)
@@ -119,7 +119,7 @@ describe('cli', function()
     end)
 
     it('prints help on stdout and succeeds', function()
-        for _, argv in ipairs({ { '-h' }, { 'verify', '-h' }, { 'dump', '--help' }, { 'lower', '-h', 'f' } }) do
+        for _, argv in ipairs { { '-h' }, { 'verify', '-h' }, { 'dump', '--help' }, { 'lower', '-h', 'f' } } do
             local r = run(argv)
             assert.are.equal(cli.EXIT_OK, r.status)
             assert.is_truthy(r.out:find('Usage: clavius', 1, true))
@@ -129,7 +129,7 @@ describe('cli', function()
     end)
 
     it('rejects bad usage', function()
-        for _, argv in ipairs({
+        for _, argv in ipairs {
             {},
             { 'frobnicate' },
             { 'verify' },
@@ -137,7 +137,7 @@ describe('cli', function()
             { 'dump', '--after', 'parse', '--ids', 'f.lua' },
             { 'dump', '--after', 'frob', 'f.lua' },
             { 'lower', '--backend', 'boogie', 'f.core.sexp' },
-        }) do
+        } do
             local r = run(argv)
             assert.are.equal(cli.EXIT_USAGE, r.status)
             assert.is_truthy(r.err:find('Error: ', 1, true))

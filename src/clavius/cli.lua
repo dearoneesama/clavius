@@ -33,7 +33,7 @@ local function build_parser(help)
         local function record_help()
             help[#help + 1] = cmd:get_help()
         end
-        return cmd:add_help({ action = record_help })
+        return cmd:add_help { action = record_help }
     end
 
     local parser = with_help(argparse('clavius', 'A deductive verifier for a subset of LuaJIT.'))

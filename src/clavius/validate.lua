@@ -145,7 +145,7 @@ local function check_coverage(source, tables, checked, diags)
             have[o.node][o.kind] = true
         end
     end
-    for _, tag in ipairs({ 'BinOp', 'Call' }) do
+    for _, tag in ipairs { 'BinOp', 'Call' } do
         local ids = source.index.by_tag[tag] or {}
         for _, id in ipairs(ids) do
             if source.index.region[id] ~= 0 then

@@ -102,14 +102,14 @@ end
 --- @param record Obligation|Assumption
 --- @return Sexp
 local function record_sexp(head, id, record)
-    return write.list({
+    return write.list {
         write.sym(head),
         write.sym(tostring(id)),
         write.sym ':kind',
         write.sym(record.kind),
         write.sym ':node',
         write.sym(tostring(record.node)),
-    })
+    }
 end
 
 --- Writes a program as s-expressions: its units as trees, then its obligations and assumptions. A

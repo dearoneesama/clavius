@@ -99,7 +99,7 @@ describe('boogie.output', function()
 
             Boogie program verifier finished with 0 verified, 1 error, 1 out of resource
         ]=]
-        for _, t in ipairs({ text, stringx.replace(text, '\n', '\r\n') }) do
+        for _, t in ipairs { text, stringx.replace(text, '\n', '\r\n') } do
             assert.are.same({ failed = { 2 }, out_of_resource = { 'cubes' } }, boogie_output.parse(t))
         end
     end)

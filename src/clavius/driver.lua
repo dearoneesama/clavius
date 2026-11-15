@@ -121,9 +121,9 @@ function M.dump_core(c)
     local xs = dump.write_core(prog)
     local groups = {}
     local first = 1
-    for _, size in ipairs({ #prog.units, #prog.obligations, #prog.assumptions }) do
+    for _, size in ipairs { #prog.units, #prog.obligations, #prog.assumptions } do
         if size > 0 then
-            groups[#groups + 1] = write.write_all({ unpack(xs, first, first + size - 1) })
+            groups[#groups + 1] = write.write_all { unpack(xs, first, first + size - 1) }
         end
         first = first + size
     end
@@ -151,7 +151,7 @@ function M.dump(c)
         end
         tables.names = names
     end
-    return write.write_all({ dump.write_src(c.src, c.root, tables) })
+    return write.write_all { dump.write_src(c.src, c.root, tables) }
 end
 
 --- Reads a core program from s-expression text and validates it. Returns the program and the
