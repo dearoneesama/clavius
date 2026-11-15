@@ -71,7 +71,8 @@ local function node_sexp(nodes, specs, id, tables)
         elseif
             (f.shape == 'str' or f.shape == 'opt_str')
             and (
-                not write.is_symbol_text(v --[[@as string]]) or (n.tag == 'Literal' and fields.kind == 'string')
+                not write.is_symbol_text(v --[[@as string]])
+                or ((n.tag == 'Literal' or n.tag == 'ClvTypeLiteral') and fields.kind == 'string')
             )
         then
             -- a string literal is always quoted, so `(Literal string "x")` differs from `(Id x)`
