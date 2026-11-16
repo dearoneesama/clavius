@@ -69,6 +69,20 @@ function M.add_src(a, node, span)
     return id
 end
 
+--- Returns whether a source function has a directive of kind `tag`, such as `ClvUnsafe`.
+--- @param a SrcArena
+--- @param fn SrcFunction
+--- @param tag SrcTag
+--- @return boolean
+function M.has_directive(a, fn, tag)
+    for _, d in ipairs(fn.directives) do
+        if a.nodes[d].tag == tag then
+            return true
+        end
+    end
+    return false
+end
+
 --- Adds a core node whose children are already in the arena and returns its id. Raises an error if a
 --- child id isn't smaller than the new id.
 --- @param a CoreArena

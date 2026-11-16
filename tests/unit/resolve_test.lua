@@ -60,7 +60,6 @@ describe('resolve', function()
             local e = #t --! E-unsupported-feature
             local f = {} --! E-unsupported-feature
             local g = function() end --! E-unsupported-feature
-            local function h() end --! E-unsupported-feature
             while t < 2 do t = t + 1 end --! E-unsupported-feature
             repeat t = t + 1 until t > 2 --! E-unsupported-feature
             for i = 1, 2 do t = i end --! E-unsupported-feature
@@ -146,11 +145,142 @@ describe('resolve', function()
             'resolve',
             [=[
             ---@clavius begin
-            local x = 1
+            local x = 1 + 1
             ---@clavius end
             ---@clavius begin
             local y = x --! E-unsupported-feature
             ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('lets marked code read constants: top-level literals that are never assigned', function()
+        local c = markers.expect_diags(
+            'resolve',
+            [=[
+            local MAX, NEG, FLAG = 10, -5, true
+            local CHANGED = 1
+            CHANGED = 2
+            ---@clavius begin
+            local a = MAX + NEG
+            local b = FLAG
+            local d = CHANGED --! E-unsupported-feature
+            ---@clavius end
+            ]=]
+        )
+        local found = {}
+        for b, value in pairs(assert(c.res).constants) do
+            found[#found + 1] = ('%s %s'):format(c.src.nodes[b].name, c.src.nodes[value].tag)
+        end
+        table.sort(found)
+        assert.are.same({ 'FLAG Literal', 'MAX Literal', 'NEG UnOp' }, found)
+    end)
+
+    it('resolves a contract over the parameters, and the value in a `---@post`', function()
+        local text = [=[
+            ---@clavius
+            ---@param n integer
+            ---@pre n > 0
+            ---@post sum > n
+            ---@return integer sum
+            local function f(n)
+                local sum = n + 1
+                return sum
+            end
+            ---@clavius
+            ---@post result
+            ---@return boolean
+            local function g()
+                return true
+            end
+            ---@clavius
+            ---@param result integer
+            ---@post value > result
+            ---@return integer value
+            local function h(result)
+                local value = result + 1
+                local sum = value * 2
+                local result = sum
+                return result
+            end
+        ]=]
+        assert.are.same({
+            'n n$2',
+            'sum sum$3',
+            'n n$2',
+            'n n$2',
+            'sum sum$4',
+            'result result$6',
+            'value value$9',
+            'result result$8',
+            'result result$8',
+            'value value$10',
+            'sum sum$11',
+            'result result$12',
+        }, refs(text))
+    end)
+
+    it('rejects calls that functions in this version may not make', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            local function unmarked(x) return x end
+            ---@unsafe
+            ---@param x integer
+            local function trusted(x) return x end
+            ---@unsafe
+            local function swapped() end
+            swapped = nil
+            ---@clavius
+            ---@param n integer
+            local function f(n)
+                local a = f(n) --! E-unsupported-feature
+                local b = unmarked(n) --! E-unsupported-feature
+                local c = trusted(n, n) --! E-unsupported-feature
+                local d = trusted(n)
+                swapped() --! E-unsupported-feature
+                local g = trusted --! E-unsupported-feature
+                local function h() end --! E-unsupported-feature
+                return a, b --! E-unsupported-feature
+            end
+            ---@clavius
+            ---@param m integer
+            ---@pre trusted(m) > 0
+            --! E-unsupported-feature
+            local function k(m) end
+            ]=]
+        )
+    end)
+
+    it('checks the directives of a function', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius
+            ---@param y integer
+            --! E-misplaced-directive
+            ---@param x integer
+            ---@param x integer
+            --! E-misplaced-directive
+            ---@return integer x
+            --! E-misplaced-directive
+            ---@mut x
+            --! E-unsupported-directive
+            local function f(x) return x end
+            ---@clavius
+            ---@unsafe
+            --! E-misplaced-directive
+            local function g() end
+            ---@clavius
+            ---@return integer
+            ---@return integer
+            --! E-unsupported-feature
+            local function h() return 1 end
+            ---@clavius
+            ---@param result integer
+            ---@return integer
+            --! E-misplaced-directive
+            local function k(result) return result end
             ]=]
         )
     end)

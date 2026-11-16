@@ -40,7 +40,8 @@ describe('types', function()
             1
         )
         assert.are.same({}, c.diags)
-        local info, res = assert(c.info), assert(c.res)
+        local info = assert(c.info)
+        local res = assert(c.res)
         local found = {}
         for id, n in ipairs(c.src.nodes) do
             if n.tag == 'Binder' then
@@ -68,7 +69,7 @@ describe('types', function()
         )
     end)
 
-    it('reports operands and values of the wrong type', function()
+    it('checks operands and values against their types', function()
         markers.expect_diags(
             'types',
             [=[
@@ -80,6 +81,11 @@ describe('types', function()
             local d = x == p --! E-type-mismatch
             x = p --! E-type-mismatch
             p = 1 --! E-type-mismatch
+            local e = x * 2 - -x
+            local f = x <= 3 and not p or x ~= 0
+            local g = p == (x > 1)
+            x = e
+            p = f
             ---@clavius end
             ]=]
         )
@@ -126,6 +132,75 @@ describe('types', function()
             local a = 1.5 --! E-unsupported-type
             local b = a + 1
             local c = b < 2 and true
+            ---@clavius end
+            ]=]
+        )
+    end)
+    it('types parameters and values from `---@param` and `---@return`', function()
+        local c = driver.run_until(
+            'types',
+            [=[
+            ---@clavius
+            ---@param n integer
+            ---@param on boolean
+            ---@return int53 sum
+            local function f(n, on)
+                return n
+            end
+            ]=],
+            1
+        )
+        assert.are.same({}, c.diags)
+        local found = {}
+        for id, ty in pairs(assert(c.info).types) do
+            local n = c.src.nodes[id]
+            if n.tag == 'Binder' or n.tag == 'ClvReturn' then
+                found[#found + 1] = ('%s %s'):format(n.name, ty)
+            end
+        end
+        table.sort(found)
+        assert.are.same({ 'n int53', 'on boolean', 'sum int53' }, found)
+    end)
+
+    it('rejects types in signatures that this version does not support', function()
+        markers.expect_diags(
+            'types',
+            [=[
+            ---@clavius
+            ---@param s string
+            --! E-unsupported-type
+            ---@return Seq<int53>
+            --! E-unsupported-type
+            local function f(s, untyped) --! E-unsupported-type
+                return 1
+            end
+            ]=]
+        )
+    end)
+
+    it('checks returns, clauses and calls against the contracts', function()
+        markers.expect_diags(
+            'types',
+            [=[
+            ---@clavius
+            ---@param n integer
+            ---@pre n
+            --! E-unsupported-feature
+            local function none(n)
+                return n --! E-type-mismatch
+            end
+            ---@clavius
+            ---@return boolean
+            local function flag()
+                if true then
+                    return --! E-type-mismatch
+                end
+                return 1 --! E-type-mismatch
+            end
+            ---@clavius begin
+            none(true) --! E-type-mismatch
+            local x = none(1) --! E-type-mismatch
+            local y = flag()
             ---@clavius end
             ]=]
         )

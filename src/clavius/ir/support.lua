@@ -1,15 +1,19 @@
--- What Clavius verifies: the node kinds, operators, types, directives and library functions that the
--- code in a `---@clavius begin` … `end` region may use. Anything else is reported as unsupported, or as banned
--- when it is listed here among the features that verified code must never use.
+-- What Clavius verifies: the node kinds, operators, types, directives and library functions that marked
+-- code may use. Marked code is a `---@clavius begin` … `end` region or a function marked `---@clavius`.
+-- Anything else is reported as unsupported, or as banned when it is listed here among the features that
+-- verified code must never use.
 
 local M = {}
 
---- Source kinds that regions may use.
+--- Source kinds that marked code may use.
 --- @type table<string, boolean>
 M.KINDS = {
     ClvRegion = true,
     Block = true,
     Local = true,
+    LocalFunction = true,
+    Function = true,
+    Return = true,
     Set = true,
     Call = true,
     If = true,
@@ -22,11 +26,11 @@ M.KINDS = {
     Paren = true,
 }
 
---- Source kinds that regions must never use.
+--- Source kinds that marked code must never use.
 --- @type table<string, boolean>
 M.BANNED_KINDS = { Goto = true, Label = true }
 
---- Binary operators that regions may use.
+--- Binary operators that marked code may use.
 --- @type table<string, boolean>
 M.BINOPS = {
     add = true,
@@ -42,21 +46,21 @@ M.BINOPS = {
     ['or'] = true,
 }
 
---- Unary operators that regions may use.
+--- Unary operators that marked code may use.
 --- @type table<string, boolean>
 M.UNOPS = { unm = true, ['not'] = true }
 
---- Types that regions may use.
+--- Types that marked code may use.
 --- @type table<string, boolean>
 M.TYPES = { int53 = true, boolean = true }
 
---- Library functions that regions may call.
+--- Library functions that marked code may call.
 --- @type table<string, boolean>
 M.CALLS = { assert = true, error = true }
 
 --- Directive kinds that marked code may use.
 --- @type table<string, boolean>
-M.DIRECTIVES = {}
+M.DIRECTIVES = { ClvMarker = true, ClvUnsafe = true, ClvPre = true, ClvPost = true, ClvParam = true, ClvReturn = true }
 
 --- The tag after `---@` of each directive kind.
 --- @type table<string, string>
@@ -98,7 +102,7 @@ M.DIRECTIVE_TAGS = {
     ClvModule = 'module',
 }
 
---- Globals that regions must never use. For a library table, that covers every field in it.
+--- Globals that marked code must never use. For a library table, that covers every field in it.
 --- @type table<string, boolean>
 M.BANNED = {
     pcall = true,
@@ -168,14 +172,14 @@ M.GLOBALS = {
     xpcall = true,
 }
 
---- What a global name is to a region:
+--- What a global name is to marked code:
 --- - `supported`: a library function in `CALLS`;
 --- - `banned`: a feature that verified code must never use, such as `pcall` or `debug.traceback`;
 --- - `library`: a part of the library that Clavius has no rule for, such as `print` or `math.floor`;
 --- - `global`: a global outside the library. Verified code must never use one.
 --- @alias GlobalUse 'supported' | 'banned' | 'library' | 'global'
 
---- Says what a global, or a field of one, is to a region.
+--- Says what a global, or a field of one, is to marked code.
 --- @param base string the global's name
 --- @param path string `base`, or `base.field` for a field such as `math.floor`
 --- @return GlobalUse
