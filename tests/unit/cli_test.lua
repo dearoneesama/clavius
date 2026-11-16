@@ -11,7 +11,8 @@ local utils = require 'pl.utils'
 --- @param argv string[]
 --- @return CliRun
 local function run(argv)
-    local out, err = assert(io.tmpfile()), assert(io.tmpfile())
+    local out = assert(io.tmpfile())
+    local err = assert(io.tmpfile())
     local status = cli.main(argv, out, err)
     --- @param f file*
     --- @return string

@@ -378,7 +378,9 @@ end
 --- @return NodeId[]
 local function field(g)
     local lx = g.lx
-    local t, after, last = typeexpr.peek(lx), typeexpr.peek(lx, 2), typeexpr.peek(lx, 3)
+    local t = typeexpr.peek(lx)
+    local after = typeexpr.peek(lx, 2)
+    local last = typeexpr.peek(lx, 3)
     -- a visibility changes only what an editor shows; `---@field private integer` is a field named `private`
     if t and t.kind == 'name' and VISIBILITY[t.text] and after and not (after.kind == 'name' and not last) then
         typeexpr.next(lx)

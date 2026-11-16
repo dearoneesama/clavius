@@ -279,7 +279,8 @@ function expression(st, node)
         for _, item in ipairs(node) do
             local key, value
             if item.tag == 'Pair' then
-                key, value = expression(st, item[1]), expression(st, item[2])
+                key = expression(st, item[1])
+                value = expression(st, item[2])
             else
                 value = expression(st, item)
             end
@@ -384,7 +385,8 @@ local function statement(st, node, above)
         st.loops = st.loops - 1
         return add(st, { tag = 'Repeat', body = body, cond = expression(st, node[2]) }, s)
     elseif tag == 'Fornum' then
-        local start, limit = expression(st, node[2]), expression(st, node[3])
+        local start = expression(st, node[2])
+        local limit = expression(st, node[3])
         local step = nil
         if #node == 5 then
             step = expression(st, node[4])

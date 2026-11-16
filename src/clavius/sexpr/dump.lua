@@ -225,7 +225,8 @@ local function read_record(x, expected_id)
     local attrs = {}
     local i = 3
     while i <= #x.items do
-        local key, value = x.items[i], x.items[i + 1]
+        local key = x.items[i]
+        local value = x.items[i + 1]
         if key.tag ~= 'Sym' or (key.text ~= ':kind' and key.text ~= ':node') or not value then
             fail(key, 'expected :kind or :node with a value')
         end
@@ -236,7 +237,8 @@ local function read_record(x, expected_id)
         attrs[key.text] = value
         i = i + 2
     end
-    local kind, node = attrs[':kind'], attrs[':node']
+    local kind = attrs[':kind']
+    local node = attrs[':node']
     if not kind or kind.tag ~= 'Sym' or not node then
         fail(x, ('%s needs :kind with a symbol and :node'):format(head.text))
     end

@@ -93,9 +93,13 @@ local function statements(core, ids, depth, out)
             local b = n --[[@as CoreBranch|CoreChoice]]
             local prefix = ''
             while true do
-                local cond, first, second = '*', b.first, b.second
+                local cond = '*'
+                local first = b.first
+                local second = b.second
                 if b.tag == 'Branch' then
-                    cond, first, second = term(core, b.cond), b.then_body, b.else_body
+                    cond = term(core, b.cond)
+                    first = b.then_body
+                    second = b.else_body
                 end
                 emit(('%sif (%s) {'):format(prefix, cond))
                 statements(core, first, depth + 1, out)
@@ -108,7 +112,8 @@ local function statements(core, ids, depth, out)
                     emit '}'
                     break
                 end
-                prefix, b = '} else ', only --[[@as CoreBranch|CoreChoice]]
+                prefix = '} else '
+                b = only --[[@as CoreBranch|CoreChoice]]
             end
         elseif n.tag == 'Block' then
             -- label comes after the body, so if there is a goto within stmts it will still be valid
