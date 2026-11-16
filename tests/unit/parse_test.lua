@@ -1,11 +1,14 @@
 local arena = require 'clavius.ir.arena'
 local comments = require 'clavius.syntax.comments'
+local dump = require 'clavius.sexpr.dump'
 local index = require 'clavius.ir.index'
 local luacheck = require 'clavius.syntax.luacheck'
 local markers = require 'support.markers'
 local parse = require 'clavius.syntax.parse'
 local source_nodes = require 'clavius.ir.source_nodes'
+local stringx = require 'pl.stringx'
 local utils = require 'pl.utils'
+local write = require 'clavius.sexpr.write'
 
 --- Returns each diagnostic as `code arg` with the text its span covers.
 --- @param text string
@@ -77,6 +80,8 @@ describe('syntax.luacheck', function()
 
     it('reports what luacheck rejects at its position', function()
         assert.are.same({ { 'E-syntax', "expected condition near 'then'", 'then' } }, diags_of 'if then end')
+        -- a byte that can't be printed is quoted as an escape
+        assert.are.same({ { 'E-syntax', "expected expression near '\\001'", '\1' } }, diags_of 'x = \1')
     end)
 
     it('reports each form that luacheck accepts and LuaJIT rejects', function()
@@ -163,10 +168,10 @@ describe('syntax.comments', function()
         assert.are.same({ { 'alias', 'A  x', { '-| 1', '- text' } }, { 'type', 'A', { '-| 2' } } }, found)
     end)
 
-    it('reads annotation blocks', function()
-        local found = comments.blocks { comment '@spec\nlocal x', comment '@proof x', comment '@specs', comment ' @lemma' }
-        assert.are.same({ 'spec', 'proof' }, { found[1].kind, found[2].kind })
-        assert.are.equal(2, #found)
+    it('reads the long comments that start with a tag', function()
+        local found = comments.annotations { comment '@spec\nlocal x', comment '@proof_by(x)', comment ' @as T', comment '@ x', comment 'x' }
+        assert.are.same({ 'spec', 'proof_by', 'as' }, { found[1].tag, found[2].tag, found[3].tag })
+        assert.are.equal(3, #found)
     end)
 end)
 
@@ -218,26 +223,203 @@ describe('syntax.splice', function()
         )
     end)
 
-    it('reports unsupported annotations', function()
+    it('places the directives above a function that is marked or in a region', function()
+        local p = parse.run(
+            stringx.dedent [=[
+            ---@param n integer
+            ---@clavius
+            ---@pre n > 0
+            local function f(n) end
+            ---@param x integer
+            ---@frob
+            local function g(x) end
+            ---@unsafe
+            ---@post true
+            function h() end
+            ---@clavius begin
+            ---@return boolean
+            local k = function() end
+            ---@clavius end
+            ---@clavius
+            ---@pre true
+            local l = function() end
+            ]=],
+            1
+        )
+        local found = {}
+        for i, id in ipairs(index.build(p.src).by_tag.Function) do
+            local n = p.src.nodes[id] --[[@as SrcFunction]]
+            found[i] = {}
+            for j, d in ipairs(n.directives) do
+                found[i][j] = p.src.nodes[d].tag
+            end
+        end
+        assert.are.same({
+            { 'ClvParam', 'ClvMarker', 'ClvPre' },
+            {},
+            { 'ClvUnsafe', 'ClvPost' },
+            { 'ClvReturn' },
+            { 'ClvMarker', 'ClvPre' },
+        }, found)
+    end)
+
+    it('parses the directives above functions in a region into the functions', function()
+        local text = stringx.dedent [=[
+            ---@clavius begin
+            ---@param n integer
+            ---@pre n > 0
+            local function f(n) return n end
+
+            ---@param m integer
+            ---@return integer
+            local g = function(m) return m + 1 end
+            ---@clavius end
+        ]=]
+        local p, diags = parse.run(text, 1)
+        assert.are.same({}, diags)
+        assert.are.equal(
+            '(Block [(ClvRegion [(LocalFunction (Binder f) (Function '
+                .. '[(ClvParam n false (ClvTypeName integer)) (ClvPre (BinOp gt (Id n) (Literal number 0)))] '
+                .. '[(Binder n)] false (Block [(Return [(Id n)])]))) '
+                .. '(Local [(Function '
+                .. '[(ClvParam m false (ClvTypeName integer)) (ClvReturn nil (ClvTypeName integer))] '
+                .. '[(Binder m)] false (Block [(Return [(BinOp add (Id m) (Literal number 1))])]))] [(Binder g)])])])',
+            write.flat(dump.write_src(p.src, p.root, {}))
+        )
+    end)
+
+    it('reports misplaced directives in marked code', function()
         markers.expect_diags(
             'parse',
             [=[
             ---@param x integer
+            ---@frob
+            local y = 1
             ---@clavius
-            --! E-unsupported-feature
-            local function f(x) end
+            --! E-misplaced-directive
+            local z = 1
+            ---@clavius begin
+            ---@pre x > 0
+            --! E-misplaced-directive
+            local a = 1
+            local b = { 1,
+                ---@type integer
+                --! E-misplaced-directive
+                2 }
+            ---@frob
+            local c = 1
+            ---@invariant c > 0
+            --! E-unsupported-directive
+            local d = c ---@type integer
+            --! E-unsupported-directive
+            ---@pre d > 0
+            --! E-misplaced-directive
+            ---@clavius end
+            ---@clavius
+            local function f(n)
+                local m = n
+                ---@pre m > 0
+                --! E-misplaced-directive
+            end
+            ---@unsafe
+            local function g()
+                ---@frob
+                local h = 1
+            end
+            ]=]
+        )
+    end)
+
+    it('reports what it places but does not accept', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            ---@clavius begin
+            local a = 1 ---@type integer
+            --! E-unsupported-directive
+            local b = 2
+            ---@ghost local s = 0
+            --! E-unsupported-directive
+            local c = 3
+            ---@param x
+            --! E-syntax
+            local function f(x)
+                ---@type integer
+                --! E-unsupported-directive
+                local m = x
+                ---@pre m > 0
+                --! E-misplaced-directive
+                local n = m
+            end
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('reports a directive in a parameter list, and function marks above nothing anywhere', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            local t = {
+                ---@type integer
+                ---@unsafe
+                --! E-misplaced-directive
+                1 }
+            ---@clavius begin
+            local function f(a,
+                ---@param a integer
+                --! E-misplaced-directive
+                b)
+            end
+            ---@clavius end
+            local u = 1
+            ---@clavius
+            --! E-misplaced-directive
+            ]=]
+        )
+    end)
+
+    it('leaves a directive that a blank line separates from the statement above none', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            ---@clavius
+            --! E-misplaced-directive
+
+            local function f() end
+            ---@param x integer
+
+            local function g(x) end
+            ---@clavius begin
+            ---@pre x > 0
+            --! E-misplaced-directive
+
+            -- a comment line keeps the next directive above its statement
+            ---@param y integer
+            -- the parameter
+            local function h(y) end
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('reports annotation blocks, and long-comment directives in marked code', function()
+        markers.expect_diags(
+            'parse',
+            [=[
             --[[@proof x ]]
+            local x = 1 --[[@as integer]]
             --[[@spec local function s() end ]] --! E-unsupported-feature
             ---@clavius begin
-            ---@require x > 0
-            --! E-unsupported-directive
-            --- @type integer
-            --! E-unsupported-directive
-            local y = 1
+            local y = 1 --[[@as integer]] --! E-unsupported-directive
             if y > 0 then
                 --[[@proof assert(y > 0) ]] --! E-unsupported-feature
             end
             ---@clavius end
+            ---@clavius
+            local function f()
+                --[[@proof assert(true) ]] --! E-unsupported-feature
+            end
             ---@clavius frob
             --! E-syntax
             ]=]

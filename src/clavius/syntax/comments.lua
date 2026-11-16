@@ -1,5 +1,5 @@
--- Clavius annotations in comments: `---@tag args` directives from short comments, and `--[[@spec`,
--- `--[[@lemma` and `--[[@proof` blocks from long comments.
+-- Annotations in comments: `---@tag args` directives from short comments, and long comments that
+-- start with a tag, such as `--[[@spec` blocks.
 
 --- A directive such as `---@clavius begin`, or its LuaLS spelling `--- @clavius begin`.
 --- @class Directive
@@ -8,11 +8,6 @@
 --- @field args_span Span where `args` is in the file
 --- @field span Span the whole comment
 --- @field next_lines Comment[] the `---` lines right below it that start no directive, e.g. `---| 'a'`
-
---- An annotation block such as `--[[@spec … ]]`.
---- @class AnnotationBlock
---- @field kind 'spec' | 'lemma' | 'proof'
---- @field span Span the whole comment
 
 --- A long comment that starts with a tag: an annotation block such as `--[[@spec … ]]`, or a LuaLS
 --- directive such as `--[[@as T]]`.
@@ -23,8 +18,6 @@
 local arena = require 'clavius.ir.arena'
 
 local M = {}
-
-local BLOCK_KINDS = { spec = true, lemma = true, proof = true }
 
 -- the text follows the comment's `--`, so `---@tag` arrives as `-@tag`; LuaLS allows any spaces before `@`
 local HEAD = '^%-%s*@'
@@ -58,20 +51,6 @@ function M.directives(comments)
                 span = c.span,
                 next_lines = next_lines,
             }
-        end
-    end
-    return out
-end
-
---- Returns the annotation blocks among long comments in their order.
---- @param long_comments Comment[]
---- @return AnnotationBlock[]
-function M.blocks(long_comments)
-    local out = {}
-    for _, c in ipairs(long_comments) do
-        local kind = c.text:match '^@([%a_][%w_]*)'
-        if kind and BLOCK_KINDS[kind] then
-            out[#out + 1] = { kind = kind, span = c.span }
         end
     end
     return out

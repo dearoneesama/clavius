@@ -17,6 +17,7 @@
    (LocalFunction
      (Binder fact)
      (Function
+       []
        [(Binder k)]
        false
        (Block
@@ -31,12 +32,13 @@
    (Set
      [(Index (Id tbl) (Literal string "add"))]
      [(Function
+        []
         [(Binder a) (Binder b)]
         true
         (Block [(Return [(BinOp add (Id a) (Id b)) (Dots)])]))])
    (Set
      [(Index (Id tbl) (Literal string "len"))]
-     [(Function [(Binder self)] false (Block [(Return [(UnOp len (Id self))])]))])
+     [(Function [] [(Binder self)] false (Block [(Return [(UnOp len (Id self))])]))])
    (Set
      [(Index (Id tbl) (Literal string "x")) (Index (Id tbl) (Literal number 1))]
      [(UnOp unm (Id n)) (UnOp not (Id t))])

@@ -5,6 +5,7 @@
    (LocalFunction
      (Binder f$5)
      (Function
+       []
        [(Binder n$6)]
        false
        (Block
@@ -12,7 +13,7 @@
             [(BinOp add
                (Call (Id f$5) nil [(BinOp sub (Id n$6) (Literal number 1))])
                (Id x$2))])])))
-   (Local [(Function [(Binder n$7)] false (Block [(Return [(Id g)])]))] [(Binder g$8)])
+   (Local [(Function [] [(Binder n$7)] false (Block [(Return [(Id g)])]))] [(Binder g$8)])
    (Fornum
      (Id x$2)
      (Literal number 10)

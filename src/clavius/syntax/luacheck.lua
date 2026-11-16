@@ -6,6 +6,7 @@ local comments = require 'clavius.syntax.comments'
 local diag = require 'clavius.ir.diag'
 local lexer = require 'luacheck.lexer'
 local parser = require 'luacheck.parser'
+local splice = require 'clavius.syntax.splice'
 
 --- A node of luacheck's AST: a tag, a range and its children in the array part. Blocks and
 --- expression lists are arrays with no tag.
@@ -48,7 +49,9 @@ local parser = require 'luacheck.parser'
 --- @class Chunk
 --- @field statements NodeId[] the top-level statements
 --- @field comments Comment[] short comments in source order
---- @field long_comments Comment[] long comments in source order
+--- @field regions SpliceRegion[]
+--- @field annotations LongAnnotation[] the long comments that start with a tag
+--- @field marked Span[] the regions and the functions marked outside them
 
 --- @class ConvertState
 --- @field src SrcArena
@@ -57,6 +60,9 @@ local parser = require 'luacheck.parser'
 --- @field diags Diag[]
 --- @field vararg boolean whether the function being converted takes `...`
 --- @field loops integer the loops around the code being converted, inside its function
+--- @field cursor SpliceCursor|nil the directives, when converting a whole file
+--- @field marked boolean whether the code being converted is marked
+--- @field marked_spans Span[]
 
 local M = {}
 
@@ -173,25 +179,58 @@ local function binder(st, node)
     return add(st, { tag = 'Binder', name = node[1] }, node_span(st, node))
 end
 
---- Converts a `Function` node: `{ params, body }`.
+--- Converts a `Function` node: `{ params, body }`. A function that a statement defines comes with the
+--- placement of the directives above that statement; any other one has no directives, and its body is
+--- marked when the code around it is.
 --- @param st ConvertState
 --- @param node LcNode
+--- @param placed Placement|nil
 --- @mut st
 --- @return NodeId
-local function func(st, node)
+local function func(st, node, placed)
     local params, vararg = {}, false
+    local header_end = assert(node.offset)
     for _, p in ipairs(node[1]) do
         if p.tag == 'Dots' then
             vararg = true
         else
             params[#params + 1] = binder(st, p)
         end
+        header_end = p.end_offset or header_end
     end
-    local outer_vararg, outer_loops = st.vararg, st.loops
-    st.vararg, st.loops = vararg, 0
+    local marked = st.marked
+    if placed then
+        marked = placed.marked
+    end
+    if st.cursor then
+        -- a directive in the parameter list is above no statement
+        splice.dangle(st.cursor, header_end, st.marked)
+        if marked and not st.marked then
+            st.marked_spans[#st.marked_spans + 1] = node_span(st, node)
+        end
+    end
+    local outer_vararg, outer_loops, outer_marked = st.vararg, st.loops, st.marked
+    st.vararg, st.loops, st.marked = vararg, 0, marked
     local body = block(st, node[2], assert(node.offset))
-    st.vararg, st.loops = outer_vararg, outer_loops
-    return add(st, { tag = 'Function', params = params, vararg = vararg, body = body }, node_span(st, node))
+    if st.cursor then
+        splice.dangle(st.cursor, assert(node.end_offset), marked)
+    end
+    st.vararg, st.loops, st.marked = outer_vararg, outer_loops, outer_marked
+    local directives = placed and placed.directives or {}
+    return add(st, { tag = 'Function', directives = directives, params = params, vararg = vararg, body = body }, node_span(st, node))
+end
+
+--- Returns the function that a statement defines: `local function f`, `function t.f`, or a `local` or
+--- assignment of one function value to one name.
+--- @param node LcNode
+--- @return LcNode|nil
+local function defined_function(node)
+    if node.tag == 'Localrec' then
+        return node[2][1]
+    elseif (node.tag == 'Local' or node.tag == 'Set') and #node[1] == 1 and node[2] and #node[2] == 1 and node[2][1].tag == 'Function' then
+        return node[2][1]
+    end
+    return nil
 end
 
 --- @param st ConvertState
@@ -266,15 +305,42 @@ function expression(st, node)
     error(('luacheck adapter: unhandled expression %s'):format(tostring(tag)))
 end
 
+--- Converts the values of a `local` or an assignment. The one that the statement defines as a function
+--- gets the placement of the directives above it.
+--- @param st ConvertState
+--- @param list LcNode[]
+--- @param fn LcNode|nil
+--- @param placed Placement|nil
+--- @mut st
+--- @return NodeId[]
+local function values_of(st, list, fn, placed)
+    local ids = {}
+    for i, node in ipairs(list) do
+        if node == fn then
+            ids[i] = func(st, node, placed)
+        else
+            ids[i] = expression(st, node)
+        end
+    end
+    return ids
+end
+
+--- Converts a statement. `above` holds the directives above it.
 --- @param st ConvertState
 --- @param node LcNode
+--- @param above Directive[]
 --- @mut st
 --- @return NodeId
-local function statement(st, node)
+local function statement(st, node, above)
     local tag = node.tag
     local s = node_span(st, node)
+    local fn = defined_function(node)
+    local placed = nil
+    if st.cursor then
+        placed = splice.place(st.cursor, above, fn ~= nil, st.marked)
+    end
     if tag == 'Local' then
-        local values = expression_list(st, node[2] or {})
+        local values = values_of(st, node[2] or {}, fn, placed)
         local names = {}
         for i, id in ipairs(node[1]) do
             names[i] = binder(st, id)
@@ -282,13 +348,13 @@ local function statement(st, node)
         return add(st, { tag = 'Local', values = values, names = names }, s)
     elseif tag == 'Localrec' then
         local b = binder(st, node[1][1])
-        return add(st, { tag = 'LocalFunction', binder = b, func = func(st, node[2][1]) }, s)
+        return add(st, { tag = 'LocalFunction', binder = b, func = func(st, node[2][1], placed) }, s)
     elseif tag == 'Set' or tag == 'OpSet' then
         if tag == 'OpSet' then
             reject(st, s, 'compound-assignment')
         end
         local targets = expression_list(st, node[1])
-        return add(st, { tag = 'Set', targets = targets, values = expression_list(st, node[2]) }, s)
+        return add(st, { tag = 'Set', targets = targets, values = values_of(st, node[2], fn, placed) }, s)
     elseif tag == 'Call' or tag == 'Invoke' then
         return expression(st, node)
     elseif tag == 'Do' then
@@ -353,19 +419,31 @@ local function statement(st, node)
     error(('luacheck adapter: unhandled statement %s'):format(tostring(tag)))
 end
 
---- Converts a statement list.
+--- Converts a statement list. At the top level, `regions` tells which statements are marked.
 --- @param st ConvertState
 --- @param list LcNode[]
+--- @param regions SpliceRegion[]|nil
 --- @mut st
 --- @return NodeId[]
-function statement_list(st, list)
+function statement_list(st, list, regions)
     local ids = {}
     for i, node in ipairs(list) do
         -- LuaJIT, like Lua 5.1, wants `break` to end its block; luacheck doesn't
         if i > 1 and list[i - 1].tag == 'Break' then
             reject(st, node_span(st, node), 'break-not-last')
         end
-        ids[i] = statement(st, node)
+        if regions then
+            st.marked = splice.in_region(regions, i)
+        end
+        local above = {}
+        if st.cursor then
+            above = splice.take(st.cursor, assert(node.offset), regions ~= nil, st.marked)
+        end
+        ids[i] = statement(st, node, above)
+        if st.cursor then
+            -- what the statement holds but its own statements don't take, such as a directive in an expression
+            splice.dangle(st.cursor, assert(node.end_offset), st.marked)
+        end
     end
     return ids
 end
@@ -428,8 +506,36 @@ local function scan_tokens(st, source)
     return long
 end
 
---- Parses `text` and adds its nodes to `src`. Returns the converted file and the syntax errors. When
---- luacheck can't parse the text, the result is nil and the one error luacheck raised.
+--- @param src SrcArena
+--- @param file FileId
+--- @param shift integer
+--- @return ConvertState
+local function new_state(src, file, shift)
+    return { src = src, file = file, shift = shift, diags = {}, vararg = true, loops = 0, cursor = nil, marked = false, marked_spans = {} }
+end
+
+--- Runs luacheck's parser. Returns its AST, comments and hanging semicolons, or nil and the one syntax
+--- error it raised.
+--- @param st ConvertState
+--- @param source LcSource
+--- @return LcNode[]|nil ast
+--- @return LcComment[]|Diag comments
+--- @return LcNode[]|nil hanging
+local function run_parser(st, source)
+    local ok, ast, comments_list, _, _, hanging = pcall(parser.parse, source)
+    if not ok then
+        if type(ast) ~= 'table' then
+            error(ast, 0)
+        end
+        local e = ast --[[@as LcSyntaxError]]
+        return nil, diag.at_span('E-syntax', span(st, e.offset, e.end_offset), { e.msg }), nil
+    end
+    return ast, comments_list, hanging
+end
+
+--- Parses `text` and adds its nodes to `src`, with the directives placed. Returns the converted file
+--- and the syntax and placement errors. When luacheck can't parse the text, the result is nil and the
+--- one error luacheck raised.
 --- @param src SrcArena
 --- @param text string
 --- @param file FileId
@@ -437,31 +543,43 @@ end
 --- @return Chunk|nil chunk
 --- @return Diag[] diags
 function M.convert(src, text, file)
-    --- @type ConvertState
-    local st = { src = src, file = file, shift = 0, diags = {}, vararg = true, loops = 0 }
+    local st = new_state(src, file, 0)
     local source = byte_source(text)
-    local ok, ast, found, _, _, hanging = pcall(parser.parse, source)
-    if not ok then
-        if type(ast) ~= 'table' then
-            error(ast, 0)
-        end
-        local e = ast --[[@as LcSyntaxError]]
-        return nil, { diag.at_span('E-syntax', span(st, e.offset, e.end_offset), { e.msg }) }
+    local ast, found, hanging = run_parser(st, source)
+    if not ast then
+        return nil, {
+            found --[[@as Diag]],
+        }
     end
-    --- @cast ast LcNode[]
     --- @cast found LcComment[]
     --- @cast hanging LcNode[]
-    local statements = statement_list(st, ast)
-    -- a `;` at the start of a block or after another `;`: Lua 5.1 has no empty statement
-    for _, r in ipairs(hanging) do
-        reject(st, node_span(st, r), 'empty-statement')
-    end
     local short = {}
     for i, c in ipairs(found) do
         short[i] = { text = c.contents, span = span(st, c.offset, c.end_offset), line = c.line }
     end
+    local directives = comments.directives(short)
+    local top_spans = {}
+    for i, node in ipairs(ast) do
+        top_spans[i] = node_span(st, node)
+    end
+    local regions = splice.regions(top_spans, directives, st.diags)
+    for _, r in ipairs(regions) do
+        st.marked_spans[#st.marked_spans + 1] = r.span
+    end
+    --- @type CodeParser
+    local function code(text_of_code, start)
+        return M.expressions(src, file, text_of_code, start)
+    end
+    st.cursor = splice.cursor(src, text, directives, code, st.diags)
+    local statements = statement_list(st, ast, regions)
+    splice.finish(st.cursor)
+    -- a `;` at the start of a block or after another `;`: Lua 5.1 has no empty statement
+    for _, r in ipairs(hanging) do
+        reject(st, node_span(st, r), 'empty-statement')
+    end
     local long = scan_tokens(st, source)
-    return { statements = statements, comments = short, long_comments = long }, st.diags
+    local chunk = { statements = statements, comments = short, regions = regions, annotations = comments.annotations(long), marked = st.marked_spans }
+    return chunk, st.diags
 end
 
 --- Parses Lua code that sits at offset `start` of a file, such as the `n > 0` of `---@pre n > 0`, as the
@@ -476,18 +594,14 @@ end
 --- @return Diag[] diags
 function M.expressions(src, file, code, start)
     local prefix = 'return '
-    --- @type ConvertState
-    local st = { src = src, file = file, shift = start - 1 - #prefix, diags = {}, vararg = true, loops = 0 }
+    local st = new_state(src, file, start - 1 - #prefix)
     local source = byte_source(prefix .. code)
-    local ok, ast = pcall(parser.parse, source)
-    if not ok then
-        if type(ast) ~= 'table' then
-            error(ast, 0)
-        end
-        local e = ast --[[@as LcSyntaxError]]
-        return {}, { diag.at_span('E-syntax', span(st, e.offset, e.end_offset), { e.msg }) }
+    local ast, err = run_parser(st, source)
+    if not ast then
+        return {}, {
+            err --[[@as Diag]],
+        }
     end
-    --- @cast ast LcNode[]
     -- `return` must be the last statement, so it is the only one
     local values = expression_list(st, ast[1])
     for _, a in ipairs(comments.annotations(scan_tokens(st, source))) do

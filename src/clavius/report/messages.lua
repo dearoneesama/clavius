@@ -71,6 +71,9 @@ local PHRASES = {
     ['nested-begin'] = "regions can't nest",
     ['unpaired-end'] = '`---@clavius end` without a `begin`',
     ['unpaired-begin'] = '`---@clavius begin` without an `end`',
+    -- directive placement
+    ['no-function-below'] = 'this directive belongs right above a function definition',
+    ['not-above-statement'] = 'a directive must sit on its own line above a statement',
     -- node kinds
     LocalFunction = '`local function`',
     Function = 'a function',
@@ -99,7 +102,6 @@ local PHRASES = {
     ['error-args'] = '`error` with arguments that are not literals',
     ['outer-local'] = 'a local declared outside this region',
     ['truthiness'] = 'a condition or an operand of `and`, `or` or `not` that is not a boolean',
-    ['function-marker'] = '`---@clavius` without `begin` or `end`',
     ['spec-block'] = 'a `--[[@spec` block',
     ['lemma-block'] = 'a `--[[@lemma` block',
     ['proof-block'] = 'a `--[[@proof` block',

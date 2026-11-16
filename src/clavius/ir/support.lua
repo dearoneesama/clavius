@@ -1,5 +1,5 @@
--- What Clavius verifies: the node kinds, operators, types and library functions that the code in a
--- `---@clavius begin` … `end` region may use. Anything else is reported as unsupported, or as banned
+-- What Clavius verifies: the node kinds, operators, types, directives and library functions that the
+-- code in a `---@clavius begin` … `end` region may use. Anything else is reported as unsupported, or as banned
 -- when it is listed here among the features that verified code must never use.
 
 local M = {}
@@ -53,6 +53,50 @@ M.TYPES = { int53 = true, boolean = true }
 --- Library functions that regions may call.
 --- @type table<string, boolean>
 M.CALLS = { assert = true, error = true }
+
+--- Directive kinds that marked code may use.
+--- @type table<string, boolean>
+M.DIRECTIVES = {}
+
+--- The tag after `---@` of each directive kind.
+--- @type table<string, string>
+M.DIRECTIVE_TAGS = {
+    ClvMarker = 'clavius',
+    ClvUnsafe = 'unsafe',
+    ClvPre = 'pre',
+    ClvPost = 'post',
+    ClvParam = 'param',
+    ClvReturn = 'return',
+    ClvDecrease = 'decrease',
+    ClvInvariant = 'invariant',
+    ClvMut = 'mut',
+    ClvMove = 'move',
+    ClvFrozen = 'frozen',
+    ClvLen = 'len',
+    ClvDisjoint = 'disjoint',
+    ClvEntry = 'entry',
+    ClvExtern = 'extern',
+    ClvNoCallback = 'no_callback',
+    ClvMayRaise = 'may_raise',
+    ClvRlimit = 'rlimit',
+    ClvProofBy = 'proof_by',
+    ClvRevealWithFuel = 'reveal_with_fuel',
+    ClvModuleInvariant = 'module_invariant',
+    ClvClosureInvariant = 'closure_invariant',
+    ClvType = 'type',
+    ClvClass = 'class',
+    ClvField = 'field',
+    ClvAlias = 'alias',
+    ClvEnum = 'enum',
+    ClvGeneric = 'generic',
+    ClvCast = 'cast',
+    ClvAs = 'as',
+    ClvVararg = 'vararg',
+    ClvOverload = 'overload',
+    ClvOperator = 'operator',
+    ClvMeta = 'meta',
+    ClvModule = 'module',
+}
 
 --- Globals that regions must never use. For a library table, that covers every field in it.
 --- @type table<string, boolean>

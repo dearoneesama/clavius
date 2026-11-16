@@ -228,8 +228,22 @@ local function visit_statements(st, statements, scope, region)
     end
 end
 
---- Visits a node with `scope` as its scope. `region` is the ClvRegion that the node is in, or 0 when the
---- node is outside every region or inside a construct that has already been reported.
+--- Returns whether a function is marked `---@clavius`.
+--- @param st ResolveState
+--- @param n SrcFunction
+--- @return boolean
+local function is_marked(st, n)
+    for _, d in ipairs(n.directives) do
+        if st.src.nodes[d].tag == 'ClvMarker' then
+            return true
+        end
+    end
+    return false
+end
+
+--- Visits a node with `scope` as its scope. `region` is the ClvRegion or the marked Function whose rules
+--- apply to the node, or 0 when the node is unmarked code or inside a construct that has already been
+--- reported.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param scope integer
@@ -239,6 +253,10 @@ end
 function visit(st, id, scope, region)
     local n = st.src.nodes[id]
     local tag = n.tag
+    if region == 0 and n.tag == 'Function' and is_marked(st, n) then
+        region = id
+    end
+    local gated = region ~= 0
     -- what a region may use
     if region ~= 0 then
         local base, path = nil, nil
@@ -296,6 +314,21 @@ function visit(st, id, scope, region)
 
     if n.tag == 'Block' or n.tag == 'ClvRegion' then
         visit_statements(st, n.statements, child_scope, child_region)
+        return
+    elseif n.tag == 'Function' then
+        -- directives exist only in marked code and on `---@unsafe` functions; a reported function's aren't
+        if not (gated and region == 0) then
+            for _, d in ipairs(n.directives) do
+                local kind = st.src.nodes[d].tag
+                if not support.DIRECTIVES[kind] then
+                    report(st, 'E-unsupported-directive', d, { support.DIRECTIVE_TAGS[kind] })
+                end
+            end
+        end
+        for _, p in ipairs(n.params) do
+            visit(st, p, child_scope, child_region)
+        end
+        visit(st, n.body, child_scope, child_region)
         return
     end
     for _, kid in ipairs(source_nodes.children(n)) do

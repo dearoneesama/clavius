@@ -83,6 +83,7 @@ M.source = {
     },
     Dots = {},
     Function = {
+        { name = 'directives', shape = 'list' },
         { name = 'params', shape = 'list' },
         { name = 'vararg', shape = 'bool' },
         { name = 'body', shape = 'node' },

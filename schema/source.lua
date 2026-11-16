@@ -78,7 +78,12 @@ return {
     {
         tag = 'Function',
         doc = 'A function body. A method defined with `:` has an explicit `self` parameter.',
-        fields = { { 'params', 'node[]', 'Binder nodes' }, { 'vararg', 'boolean', 'whether `...` ends the parameters' }, { 'body', 'node' } },
+        fields = {
+            { 'directives', 'node[]', 'the directives above its definition, such as ClvPre' },
+            { 'params', 'node[]', 'Binder nodes' },
+            { 'vararg', 'boolean', 'whether `...` ends the parameters' },
+            { 'body', 'node' },
+        },
     },
     { tag = 'Table', doc = 'A table constructor.', fields = { { 'fields', 'node[]', 'TableField nodes' } } },
     {

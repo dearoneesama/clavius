@@ -112,6 +112,7 @@
 --- A function body. A method defined with `:` has an explicit `self` parameter.
 --- @class SrcFunction
 --- @field tag 'Function'
+--- @field directives NodeId[] the directives above its definition, such as ClvPre
 --- @field params NodeId[] Binder nodes
 --- @field vararg boolean whether `...` ends the parameters
 --- @field body NodeId
@@ -652,6 +653,9 @@ function M.children(n)
             kids[#kids + 1] = kid
         end
     elseif n.tag == 'Function' then
+        for _, kid in ipairs(n.directives) do
+            kids[#kids + 1] = kid
+        end
         for _, kid in ipairs(n.params) do
             kids[#kids + 1] = kid
         end
