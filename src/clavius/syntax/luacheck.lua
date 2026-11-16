@@ -2,6 +2,7 @@
 -- only module that requires luacheck, and nothing in luacheck's own format leaves it.
 
 local arena = require 'clavius.ir.arena'
+local comments = require 'clavius.syntax.comments'
 local diag = require 'clavius.ir.diag'
 local lexer = require 'luacheck.lexer'
 local parser = require 'luacheck.parser'
@@ -18,6 +19,7 @@ local parser = require 'luacheck.parser'
 --- A short comment as luacheck's parser returns it.
 --- @class LcComment
 --- @field contents string
+--- @field line integer
 --- @field offset integer
 --- @field end_offset integer
 
@@ -40,6 +42,7 @@ local parser = require 'luacheck.parser'
 --- @class Comment
 --- @field text string
 --- @field span Span
+--- @field line integer the line it starts on
 
 --- A converted file.
 --- @class Chunk
@@ -50,6 +53,7 @@ local parser = require 'luacheck.parser'
 --- @class ConvertState
 --- @field src SrcArena
 --- @field file FileId
+--- @field shift integer added to luacheck's offsets to get the file's
 --- @field diags Diag[]
 --- @field vararg boolean whether the function being converted takes `...`
 --- @field loops integer the loops around the code being converted, inside its function
@@ -118,7 +122,7 @@ end
 --- @param finish integer
 --- @return Span
 local function span(st, start, finish)
-    return arena.span(st.file, start, finish)
+    return arena.span(st.file, start + st.shift, finish + st.shift)
 end
 
 --- @param st ConvertState
@@ -395,13 +399,13 @@ local function scan_tokens(st, source)
     -- in a `local` name list: 'name' when a name comes next, 'after' right after one
     local names = nil
     while true do
-        local token, value, _, offset = lexer.next_token(ls)
+        local token, value, line, offset = lexer.next_token(ls)
         if token == nil or token == 'eof' then
             break
         end
         local finish = ls.offset - 1
         if token == 'long_comment' then
-            long[#long + 1] = { text = value, span = span(st, offset, finish) }
+            long[#long + 1] = { text = value, span = span(st, offset, finish), line = line }
         elseif token ~= 'short_comment' then
             if token == 'local' then
                 names = 'name'
@@ -434,9 +438,9 @@ end
 --- @return Diag[] diags
 function M.convert(src, text, file)
     --- @type ConvertState
-    local st = { src = src, file = file, diags = {}, vararg = true, loops = 0 }
+    local st = { src = src, file = file, shift = 0, diags = {}, vararg = true, loops = 0 }
     local source = byte_source(text)
-    local ok, ast, comments, _, _, hanging = pcall(parser.parse, source)
+    local ok, ast, found, _, _, hanging = pcall(parser.parse, source)
     if not ok then
         if type(ast) ~= 'table' then
             error(ast, 0)
@@ -445,7 +449,7 @@ function M.convert(src, text, file)
         return nil, { diag.at_span('E-syntax', span(st, e.offset, e.end_offset), { e.msg }) }
     end
     --- @cast ast LcNode[]
-    --- @cast comments LcComment[]
+    --- @cast found LcComment[]
     --- @cast hanging LcNode[]
     local statements = statement_list(st, ast)
     -- a `;` at the start of a block or after another `;`: Lua 5.1 has no empty statement
@@ -453,11 +457,43 @@ function M.convert(src, text, file)
         reject(st, node_span(st, r), 'empty-statement')
     end
     local short = {}
-    for i, c in ipairs(comments) do
-        short[i] = { text = c.contents, span = span(st, c.offset, c.end_offset) }
+    for i, c in ipairs(found) do
+        short[i] = { text = c.contents, span = span(st, c.offset, c.end_offset), line = c.line }
     end
     local long = scan_tokens(st, source)
     return { statements = statements, comments = short, long_comments = long }, st.diags
+end
+
+--- Parses Lua code that sits at offset `start` of a file, such as the `n > 0` of `---@pre n > 0`, as the
+--- values of `return code`, and adds their nodes to `src`. Returns the nodes and the syntax errors. Every
+--- long-comment annotation in the code, such as a cast, is reported as unsupported.
+--- @param src SrcArena
+--- @param file FileId
+--- @param code string
+--- @param start integer
+--- @mut src
+--- @return NodeId[] values
+--- @return Diag[] diags
+function M.expressions(src, file, code, start)
+    local prefix = 'return '
+    --- @type ConvertState
+    local st = { src = src, file = file, shift = start - 1 - #prefix, diags = {}, vararg = true, loops = 0 }
+    local source = byte_source(prefix .. code)
+    local ok, ast = pcall(parser.parse, source)
+    if not ok then
+        if type(ast) ~= 'table' then
+            error(ast, 0)
+        end
+        local e = ast --[[@as LcSyntaxError]]
+        return {}, { diag.at_span('E-syntax', span(st, e.offset, e.end_offset), { e.msg }) }
+    end
+    --- @cast ast LcNode[]
+    -- `return` must be the last statement, so it is the only one
+    local values = expression_list(st, ast[1])
+    for _, a in ipairs(comments.annotations(scan_tokens(st, source))) do
+        st.diags[#st.diags + 1] = diag.at_span('E-unsupported-directive', a.span, { a.tag })
+    end
+    return values, st.diags
 end
 
 return M

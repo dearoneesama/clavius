@@ -1,6 +1,7 @@
 local arena = require 'clavius.ir.arena'
 local comments = require 'clavius.syntax.comments'
 local index = require 'clavius.ir.index'
+local luacheck = require 'clavius.syntax.luacheck'
 local markers = require 'support.markers'
 local parse = require 'clavius.syntax.parse'
 local source_nodes = require 'clavius.ir.source_nodes'
@@ -117,10 +118,14 @@ describe('syntax.luacheck', function()
 end)
 
 describe('syntax.comments', function()
+    local line = 0
+
+    --- Makes a comment on the line after the last one made.
     --- @param text string
     --- @return Comment
     local function comment(text)
-        return { text = text, span = arena.span(1, 1, 0) }
+        line = line + 1
+        return { text = text, span = arena.span(1, 1, 0), line = line }
     end
 
     it('reads directives in both spellings', function()
@@ -142,6 +147,20 @@ describe('syntax.comments', function()
             { found[3].tag, found[3].args },
         })
         assert.are.equal(3, #found)
+    end)
+
+    it('gives where the arguments are and the lines below a directive', function()
+        local text = '---  @alias A  x \n---| 1\n--- text\n---@type A\n---| 2\n\n---| 3\n'
+        local chunk = assert(luacheck.convert(arena.new_src(), text, 1))
+        local found = {}
+        for i, d in ipairs(comments.directives(chunk.comments)) do
+            local next_lines = {}
+            for j, c in ipairs(d.next_lines) do
+                next_lines[j] = c.text
+            end
+            found[i] = { d.tag, text:sub(d.args_span.start, d.args_span.finish), next_lines }
+        end
+        assert.are.same({ { 'alias', 'A  x', { '-| 1', '- text' } }, { 'type', 'A', { '-| 2' } } }, found)
     end)
 
     it('reads annotation blocks', function()
