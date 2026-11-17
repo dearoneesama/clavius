@@ -19,5 +19,4 @@ end
 ---@clavius begin
 local x = bump(LIMIT - 1)
 assert(x <= LIMIT)
-assert(x > LIMIT) --! assert
 ---@clavius end

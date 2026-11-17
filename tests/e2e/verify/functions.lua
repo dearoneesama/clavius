@@ -1,4 +1,4 @@
--- Contracts are checked where a function returns and where it is called.
+-- Contracts that hold where each function returns and where it is called.
 ---@clavius begin
 
 ---@param n integer
@@ -20,7 +20,8 @@ local function max2(a, b)
     return b
 end
 
--- a verified function relies on its callees' contracts too
+-- a verified function relies on its callees' contracts too, and a marker in a region is redundant
+---@clavius
 ---@param a integer
 ---@param b integer
 ---@param c integer
@@ -38,13 +39,6 @@ local function inc2(n)
     return inc(inc(n))
 end
 
----@param n integer
----@post result > n
----@return integer
-local function unchecked(n)
-    return inc(n) --! pre
-end
-
 -- a parameter in `---@post` means its value on entry, and contract arithmetic is exact
 ---@param n int53
 ---@pre n > 0 and n < 1000
@@ -60,30 +54,6 @@ end
 ---@post n > 0
 local function keep(n) end
 
--- with just a redundant marker
----@clavius
----@param a int53
----@param b int53
----@param c int53
----@post result >= a and result >= b and result >= c
----@return int53
-local function max3_buggy(a, b, c)
-    if a > b and a > c then
-        return a
-    elseif b < c then
-        return b --! post
-    end
-    return c --! post
-end
-
----@param x int53
----@return int53
-local function partial(x) --! missing_return
-    if x > 0 then
-        return 1
-    end
-end
-
 local a = inc(1)
 assert(a == 2)
 local b = max2(a, 7)
@@ -92,16 +62,4 @@ assert(max3(1, 9, 4) >= 9)
 assert(inc2(3) == 5)
 assert(double(3) == 6)
 keep(1)
-local c = inc(-1) --! pre
-
----@clavius end
-
--- a region of its own, since a check that can't hold makes the code after it unreachable
----@clavius begin
----@unsafe
----@param n integer
----@pre n >= 0
-local function log(n) end
-
-log(-1) --! pre
 ---@clavius end

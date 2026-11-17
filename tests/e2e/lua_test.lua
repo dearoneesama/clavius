@@ -2,6 +2,7 @@ local cli = require 'clavius.cli'
 local dir = require 'pl.dir'
 local driver = require 'clavius.driver'
 local markers = require 'support.markers'
+local runs = require 'support.runs'
 local utils = require 'pl.utils'
 
 -- Every Lua program under tests/e2e/ but the *_test.lua files. Its markers name exactly the
@@ -25,15 +26,17 @@ describe('lua programs', function()
             local failed, err = driver.verify_core(assert(c.prog))
             assert(failed, err)
             assert.are.same(markers.read(text), markers.failures(c, failed))
-            -- a program that verifies runs on LuaJIT without an error
+            -- a program that verifies runs on LuaJIT without an error, and so do its functions on their contracts
             if #failed == 0 then
                 assert(loadfile(input))()
+                runs.check(c, input)
             end
         end)
     end
 
     it('runs from the command line', function()
-        local out, err = assert(io.tmpfile()), assert(io.tmpfile())
+        local out = assert(io.tmpfile())
+        local err = assert(io.tmpfile())
         local status = cli.main({ 'verify', 'tests/e2e/verify/assert.lua' }, out, err)
         out:seek 'set'
         err:seek 'set'
