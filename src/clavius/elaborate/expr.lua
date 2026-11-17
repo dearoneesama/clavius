@@ -1,6 +1,8 @@
--- Lowers source expressions to pure core terms. The checks an expression needs are hoisted in
--- evaluation order into the statement list before it.
+-- Lowers source expressions to pure core terms. The checks and calls an expression needs are hoisted in
+-- evaluation order into the statement list before it. A contract clause is spec code: its arithmetic
+-- is exact, so it has no checks.
 
+local arena = require 'clavius.ir.arena'
 local builder = require 'clavius.elaborate.builder'
 
 local M = {}
@@ -17,9 +19,6 @@ local function int_text(text)
     return ('%.0f'):format(assert(tonumber(text)))
 end
 
---- Forward declaration.
-local lower
-
 --- Lowers `lhs and rhs` or `lhs or rhs`. The right operand's checks run only when it is evaluated, so
 --- when it has any, the result goes through a temporary set in a Branch.
 --- @param b Builder
@@ -33,9 +32,9 @@ local lower
 local function short_circuit(b, id, n, out)
     local op = n.op == 'and' and 'and' or 'or'
     -- lhs always runs so it is lowered into current statement list
-    local l = lower(b, n.lhs, out)
+    local l = M.lower(b, n.lhs, out)
     local rhs_statements = {}
-    local r = lower(b, n.rhs, rhs_statements)
+    local r = M.lower(b, n.rhs, rhs_statements)
     -- if rhs produced no checks, then core term is pure, evaluating it in every case is harmless
     if #rhs_statements == 0 then
         return builder.add(b, { tag = 'BinOp', op = op, lhs = l, rhs = r }, id)
@@ -56,6 +55,69 @@ local function short_circuit(b, id, n, out)
     return builder.add(b, { tag = 'Var', name = t }, id)
 end
 
+--- Lowers a contract clause of a function to a term, with `subst` giving the term for each of its
+--- parameters and its value that doesn't stand for itself.
+--- @param b Builder
+--- @param cond NodeId
+--- @param subst table<NodeId, NodeId>
+--- @mut b
+--- @return NodeId term
+function M.clause(b, cond, subst)
+    local spec, outer = b.spec, b.subst
+    b.spec, b.subst = true, subst
+    -- spec code has no checks and no calls, so nothing is hoisted
+    local hoisted = {}
+    local t = M.lower(b, cond, hoisted)
+    assert(#hoisted == 0, 'elaborate: a contract clause needs statements')
+    b.spec, b.subst = spec, outer
+    return t
+end
+
+--- Lowers a call of a local function. The arguments are evaluated and each `---@pre` checked on them.
+--- The value, if any, is then arbitrary but for its type and the callee's `---@post`s, which are
+--- assumed: proved in a verified callee, and trusted in an `---@unsafe` one. Returns the value's term,
+--- or nil when the callee has no `---@return`.
+--- @param b Builder
+--- @param id NodeId
+--- @param out NodeId[]
+--- @mut b
+--- @mut out
+--- @decrease id
+--- @return NodeId|nil term
+function M.call(b, id, out)
+    local n = b.src.nodes[id] --[[@as SrcCall]]
+    local fn_id = b.info.callees[id]
+    local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
+    --- @type table<NodeId, NodeId>
+    local subst = {}
+    for i, a in ipairs(n.args) do
+        subst[fn.params[i]] = M.lower(b, a, out)
+    end
+    for _, pre in ipairs(arena.directives(b.src, fn, 'ClvPre')) do
+        local cond = (b.src.nodes[pre] --[[@as SrcClvPre]]).cond
+        builder.check(b, out, 'pre', M.clause(b, cond, subst), id, pre)
+    end
+    local trusted = arena.has_directive(b.src, fn, 'ClvUnsafe')
+    local decl = trusted and fn_id or nil
+    local value = nil
+    local r = arena.directives(b.src, fn, 'ClvReturn')[1]
+    if r ~= nil then
+        local ty = b.info.types[r]
+        local t = builder.temp(b, builder.sort(ty), id)
+        builder.emit(b, out, { tag = 'Havoc', target = t }, id)
+        value = builder.add(b, { tag = 'Var', name = t }, id)
+        if ty == 'int53' then
+            builder.assume(b, out, trusted and 'trusted' or 'type_fact', builder.is_int53(b, value, id), id, decl)
+        end
+        subst[r] = value
+    end
+    for _, post in ipairs(arena.directives(b.src, fn, 'ClvPost')) do
+        local cond = (b.src.nodes[post] --[[@as SrcClvPost]]).cond
+        builder.assume(b, out, trusted and 'trusted' or 'callee_post', M.clause(b, cond, subst), id, decl)
+    end
+    return value
+end
+
 --- Lowers an expression to a term and adds the statements it needs to `out`.
 --- @param b Builder
 --- @param id NodeId
@@ -64,18 +126,28 @@ end
 --- @mut out
 --- @decrease id
 --- @return NodeId term
-function lower(b, id, out)
+function M.lower(b, id, out)
     local n = b.src.nodes[id]
     if n.tag == 'Literal' and n.kind == 'number' then
         return builder.add(b, { tag = 'Int', text = int_text(n.text) }, id)
     elseif n.tag == 'Literal' then
         return builder.add(b, { tag = 'Bool', value = n.kind == 'true' }, id)
     elseif n.tag == 'Id' then
+        local decl = b.res.decl[id]
+        if b.subst[decl] ~= nil then
+            return b.subst[decl]
+        elseif b.res.constants[decl] ~= nil and not b.declared[builder.name_of(b, id)] then
+            -- a constant declared outside this unit
+            return M.lower(b, b.res.constants[decl], out)
+        end
         return builder.add(b, { tag = 'Var', name = builder.name_of(b, id) }, id)
+    elseif n.tag == 'Call' then
+        -- `types` has made sure the callee has a value
+        return assert(M.call(b, id, out))
     elseif n.tag == 'Paren' then
-        return lower(b, n.expr, out)
+        return M.lower(b, n.expr, out)
     elseif n.tag == 'UnOp' and n.op == 'not' then
-        return builder.add(b, { tag = 'Not', arg = lower(b, n.arg, out) }, id)
+        return builder.add(b, { tag = 'Not', arg = M.lower(b, n.arg, out) }, id)
     elseif n.tag == 'UnOp' then
         -- -x stays within ±2^53 when x does, so it needs no check
         local arg = b.src.nodes[n.arg]
@@ -84,21 +156,19 @@ function lower(b, id, out)
             return builder.add(b, { tag = 'Int', text = text == '0' and text or '-' .. text }, id)
         end
         local zero = builder.add(b, { tag = 'Int', text = '0' }, id)
-        return builder.add(b, { tag = 'BinOp', op = '-', lhs = zero, rhs = lower(b, n.arg, out) }, id)
+        return builder.add(b, { tag = 'BinOp', op = '-', lhs = zero, rhs = M.lower(b, n.arg, out) }, id)
     elseif n.tag == 'BinOp' and (n.op == 'and' or n.op == 'or') then
         return short_circuit(b, id, n, out)
     elseif n.tag == 'BinOp' then
-        local l = lower(b, n.lhs, out)
-        local r = lower(b, n.rhs, out)
+        local l = M.lower(b, n.lhs, out)
+        local r = M.lower(b, n.rhs, out)
         local t = builder.add(b, { tag = 'BinOp', op = OPS[n.op], lhs = l, rhs = r }, id)
-        if RANGE_CHECKED[n.op] then
+        if RANGE_CHECKED[n.op] and not b.spec then
             builder.check(b, out, 'range', builder.is_int53(b, t, id), id)
         end
         return t
     end
     error(('elaborate: unhandled expression %s'):format(n.tag))
 end
-
-M.lower = lower
 
 return M

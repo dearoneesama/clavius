@@ -70,7 +70,8 @@ end
 --- @return Diag[]
 local function run_validate(c)
     local prog = assert(c.prog)
-    return validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, { src = c.src, index = assert(c.index) })
+    local source = { src = c.src, index = assert(c.index), callees = assert(c.info).callees }
+    return validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, source)
 end
 
 --- Each stage needs the results of every stage before it.

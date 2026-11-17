@@ -138,6 +138,8 @@ describe('validate', function()
             local n = core.nodes[id]
             if n.tag == 'Branch' then
                 n.then_body = without_checks(core, n.then_body, dropped)
+            elseif n.tag == 'Block' then
+                n.body = without_checks(core, n.body, dropped)
             end
             if not (n.tag == 'Check' and dropped[n.obligation]) then
                 out[#out + 1] = id
@@ -146,30 +148,33 @@ describe('validate', function()
         return out
     end
 
-    --- Elaborates `PROGRAM`, removes the checks of the obligations in `dropped`, and returns what validate
-    --- reports: each diagnostic's code, arguments and the source text of its span.
+    --- Elaborates `program`, removes the checks of the obligations in `dropped`, and returns what validate
+    --- reports: each diagnostic's code, arguments and the first line of the source text of its span.
+    --- @param program string
     --- @param dropped table<integer, boolean>
     --- @param relabel integer|nil an obligation whose kind becomes `assert`
     --- @return string[][]
-    local function coverage(dropped, relabel)
-        local c = driver.run_until('elaborate', PROGRAM, 1)
+    local function coverage(program, dropped, relabel)
+        local c = driver.run_until('elaborate', program, 1)
         local prog = assert(c.prog)
-        local unit = prog.core.nodes[prog.units[1]] --[[@as CoreUnit]]
-        unit.body = without_checks(prog.core, unit.body, dropped)
+        for _, id in ipairs(prog.units) do
+            local unit = prog.core.nodes[id] --[[@as CoreUnit]]
+            unit.body = without_checks(prog.core, unit.body, dropped)
+        end
         if relabel then
             prog.obligations[relabel].kind = 'assert'
         end
         local out = {}
-        local source = { src = c.src, index = assert(c.index) }
+        local source = { src = c.src, index = assert(c.index), callees = assert(c.info).callees }
         for i, d in ipairs(validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, source)) do
             local s = assert(d.span)
-            out[i] = { d.code, d.args[1], d.args[2], PROGRAM:sub(s.start, s.finish) }
+            out[i] = { d.code, d.args[1], d.args[2], program:sub(s.start, s.finish):match '^[^\n]*' }
         end
         return out
     end
 
     it('accepts the obligations that elaborate emits', function()
-        assert.are.same({}, coverage({}, nil))
+        assert.are.same({}, coverage(PROGRAM, {}, nil))
     end)
 
     it('reports a node in a region whose obligation has no Check', function()
@@ -177,10 +182,41 @@ describe('validate', function()
             { 'E-internal-coverage', 'BinOp', 'range', 'x * 2' },
             { 'E-internal-coverage', 'Call', 'assert', 'assert(y > x)' },
             { 'E-internal-coverage', 'Call', 'unreachable', 'error()' },
-        }, coverage({ [1] = true, [3] = true, [4] = true }, nil))
+        }, coverage(PROGRAM, { [1] = true, [3] = true, [4] = true }, nil))
     end)
 
     it('reports an obligation of the wrong kind', function()
-        assert.are.same({ { 'E-internal-coverage', 'BinOp', 'range', 'x * 2 + 1' } }, coverage({}, 2))
+        assert.are.same({ { 'E-internal-coverage', 'BinOp', 'range', 'x * 2 + 1' } }, coverage(PROGRAM, {}, 2))
+    end)
+
+    -- the contract obligations that elaborate emits, by id
+    local CONTRACTS = [=[
+        ---@clavius
+        ---@param n integer
+        ---@pre n > 0
+        ---@post result > n
+        ---@return integer
+        local function inc(n)
+            return n + 1 -- 1 (range); 2 (post): the value meets `---@post`
+        end -- 3 (missing_return): the end isn't reached
+        ---@clavius
+        ---@post true
+        local function idle() end -- 4 (post): at the end
+        ---@clavius begin
+        local y = inc(1) -- 5 (pre): the argument meets `---@pre`
+        ---@clavius end
+    ]=]
+
+    it('accepts the contract obligations that elaborate emits', function()
+        assert.are.same({}, coverage(CONTRACTS, {}, nil))
+    end)
+
+    it('reports a call, a return and a function end whose contract obligation has no Check', function()
+        assert.are.same({
+            { 'E-internal-coverage', 'Call', 'pre', 'inc(1)' },
+            { 'E-internal-coverage', 'Return', 'post', 'return n + 1' },
+            { 'E-internal-coverage', 'Function', 'missing_return', 'function inc(n)' },
+            { 'E-internal-coverage', 'Function', 'post', 'function idle() end' },
+        }, coverage(CONTRACTS, { [2] = true, [3] = true, [4] = true, [5] = true }, nil))
     end)
 end)

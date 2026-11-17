@@ -116,12 +116,16 @@ local PHRASES = {
     ['proof-block'] = 'a `--[[@proof` block',
 }
 
---- What a failing obligation of each kind means. `%s` is the source text of its node.
+--- What a failing obligation of each kind means. `%s` is the source text of its clause's condition, if
+--- it has one, or else of its node.
 --- @type table<string, string>
 local FAILURES = {
     range = '%s may leave ±2^53',
     assert = 'this assertion may fail',
     unreachable = 'this `error` may be reached',
+    pre = 'this call may not satisfy its precondition `%s`',
+    post = 'the function may return here without satisfying its postcondition `%s`',
+    missing_return = 'the end of this function may be reached, where it returns no value',
 }
 
 --- @param text string
@@ -150,12 +154,18 @@ end
 --- Formats the failing obligation `id` as `line:col: kind: message [O17]`.
 --- @param id integer
 --- @param o Obligation
---- @param spans Span[] the source arena's
+--- @param src SrcArena
 --- @param text string
 --- @return string
-function M.failure(id, o, spans, text)
-    local span = spans[o.node]
-    local snippet = text:sub(span.start, span.finish):gsub('%s+', ' ')
+function M.failure(id, o, src, text)
+    local span = src.spans[o.node]
+    -- a contract clause is quoted without its tag
+    local quoted = span
+    if o.clause ~= nil then
+        local clause = src.nodes[o.clause] --[[@as SrcClvPre|SrcClvPost]]
+        quoted = src.spans[clause.cond]
+    end
+    local snippet = text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
     local message = assert(FAILURES[o.kind], ('messages: no message for %s'):format(o.kind)):format(snippet)
     return ('%s: %s: %s [O%d]'):format(position(text, span.start), o.kind, message, id)
 end
@@ -204,14 +214,14 @@ end
 --- Formats failing obligations in source order: by span start, then kind.
 --- @param failed integer[] obligation ids
 --- @param obligations Obligation[]
---- @param spans Span[] the source arena's
+--- @param src SrcArena
 --- @param text string
 --- @return string[]
-function M.failures(failed, obligations, spans, text)
+function M.failures(failed, obligations, src, text)
     local list = {}
     for i, id in ipairs(failed) do
         local o = obligations[id]
-        list[i] = { start = spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = M.failure(id, o, spans, text) }
+        list[i] = { start = src.spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = M.failure(id, o, src, text) }
     end
     return in_order(list)
 end

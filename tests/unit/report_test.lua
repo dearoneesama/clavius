@@ -22,7 +22,27 @@ describe('report.messages', function()
             '3:20: range: x + 1 may leave ±2^53 [O1]',
             '5:15: unreachable: this `error` may be reached [O2]',
             '5:27: assert: this assertion may fail [O3]',
-        }, messages.failures({ 3, 2, 1 }, prog.obligations, c.src.spans, text))
+        }, messages.failures({ 3, 2, 1 }, prog.obligations, c.src, text))
+    end)
+
+    it('quotes the condition of a failing contract clause', function()
+        local text = stringx.dedent [=[
+            ---@clavius
+            ---@param n integer
+            ---@pre n > 0
+            ---@post n > 1
+            local function f(n) end
+            ---@clavius begin
+            f(0)
+            ---@clavius end
+        ]=]
+        local c = driver.run_until('validate', text, 1)
+        assert.are.same({}, c.diags)
+        local prog = assert(c.prog)
+        assert.are.same({
+            '5:7: post: the function may return here without satisfying its postcondition `n > 1` [O1]',
+            '7:1: pre: this call may not satisfy its precondition `n > 0` [O2]',
+        }, messages.failures({ 1, 2 }, prog.obligations, c.src, text))
     end)
 
     it('orders diagnostics by position, then code', function()

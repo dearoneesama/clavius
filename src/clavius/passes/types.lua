@@ -96,19 +96,6 @@ local function want_bool(st, id, ty)
     return ty == 'boolean'
 end
 
---- Returns a function's ClvReturn, or nil when it has no `---@return`.
---- @param st TypesState
---- @param fn SrcFunction
---- @return NodeId|nil
-local function result_of(st, fn)
-    for _, d in ipairs(fn.directives) do
-        if st.src.nodes[d].tag == 'ClvReturn' then
-            return d
-        end
-    end
-    return nil
-end
-
 --- Returns a type expression as it would be written, for messages.
 --- @param st TypesState
 --- @param id NodeId
@@ -188,7 +175,7 @@ local function signature(st, fn)
             st.out.types[p] = declared(st, ty_node)
         end
     end
-    local r = result_of(st, fn)
+    local r = arena.directives(st.src, fn, 'ClvReturn')[1]
     if r ~= nil then
         st.out.types[r] = declared(st, (st.src.nodes[r] --[[@as SrcClvReturn]]).type)
     end
@@ -216,7 +203,7 @@ local function call(st, id)
             report(st, 'E-type-mismatch', a, { want, ty })
         end
     end
-    local r = result_of(st, fn)
+    local r = arena.directives(st.src, fn, 'ClvReturn')[1]
     return r and st.out.types[r]
 end
 
@@ -255,7 +242,7 @@ function expression(st, id)
     elseif n.tag == 'Call' then
         local fn = st.src.nodes[st.res.functions[st.res.decl[n.func]]] --[[@as SrcFunction]]
         ty = call(st, id)
-        if result_of(st, fn) == nil then
+        if not arena.has_directive(st.src, fn, 'ClvReturn') then
             report(st, 'E-type-mismatch', id, { 'a value', 'no value' })
         end
     elseif n.tag == 'Paren' then
@@ -376,7 +363,7 @@ local function func(st, fn, verified)
         end
     end
     if verified then
-        st.result = result_of(st, fn)
+        st.result = arena.directives(st.src, fn, 'ClvReturn')[1]
         statement(st, fn.body)
         st.result = nil
     end

@@ -7,10 +7,11 @@
 --   every `Assume` must refer to an assumption with an allowed justification;
 --   every `Exit` must be inside a `Block` with its label;
 --   the `Block` labels in a unit must differ.
--- For a core program elaborated from Lua, it also checks coverage: every source node in a region that
--- can fail at runtime has a `Check` for each obligation it needs.
+-- For a core program elaborated from Lua, it also checks coverage: every source node in marked code that
+-- can fail at runtime, or that a contract applies to, has a `Check` for each obligation it needs.
 -- A failure is a bug in Clavius, not in the program being verified.
 
+local arena = require 'clavius.ir.arena'
 local diag = require 'clavius.ir.diag'
 local obligation = require 'clavius.ir.obligation'
 
@@ -48,6 +49,12 @@ end
 --- @class ValidateSource
 --- @field src SrcArena
 --- @field index NodeIndex
+--- @field callees table<NodeId, NodeId> the Function node that each call of a local function calls
+
+--- One obligation that a source node needs: its kind, and the clause for a contract kind or 0.
+--- @class NeededKey
+--- @field kind ObligationKind
+--- @field clause NodeId
 
 --- The `Block` labels of one unit.
 --- @class ValidateLabels
@@ -112,24 +119,46 @@ end
 
 local RANGE_CHECKED = { add = true, sub = true, mul = true }
 
---- Returns the obligation kind that the source node `id` in a region needs, or nil. This follows from
---- what `clavius.ir.support` lets regions use: every `+`, `-` and `*` is on `int53`, and every call is
---- a statement call to `assert` or `error`.
---- @param src SrcArena
---- @param id NodeId
---- @return ObligationKind|nil
-local function needed_kind(src, id)
-    local n = src.nodes[id]
-    if n.tag == 'BinOp' and RANGE_CHECKED[n.op] then
-        return 'range'
-    elseif n.tag == 'Call' then
-        local callee = src.nodes[n.func] --[[@as SrcId]]
-        return callee.name == 'assert' and 'assert' or 'unreachable'
+--- Adds a key for each contract clause in `clauses`.
+--- @param keys NeededKey[]
+--- @param kind ObligationKind
+--- @param clauses NodeId[]
+--- @mut keys
+local function add_clauses(keys, kind, clauses)
+    for _, c in ipairs(clauses) do
+        keys[#keys + 1] = { kind = kind, clause = c }
     end
-    return nil
 end
 
---- Reports each source node in a region that lacks a checked obligation it needs. No core node exists
+--- Returns the obligations that the source node `id` in marked code needs. This follows from what
+--- `clavius.ir.support` lets marked code use: every `+`, `-` and `*` is on `int53`, every call is to
+--- `assert`, `error` or a local function, and every `return` is in a verified function.
+--- @param source ValidateSource
+--- @param id NodeId
+--- @return NeededKey[]
+local function needed(source, id)
+    local src = source.src
+    local n = src.nodes[id]
+    local keys = {}
+    if n.tag == 'BinOp' and RANGE_CHECKED[n.op] then
+        keys[1] = { kind = 'range', clause = 0 }
+    elseif n.tag == 'Call' and source.callees[id] ~= nil then
+        add_clauses(keys, 'pre', arena.directives(src, src.nodes[source.callees[id]] --[[@as SrcFunction]], 'ClvPre'))
+    elseif n.tag == 'Call' then
+        local callee = src.nodes[n.func]
+        keys[1] = { kind = (callee.tag == 'Id' and callee.name == 'assert') and 'assert' or 'unreachable', clause = 0 }
+    elseif n.tag == 'Return' then
+        local fn = src.nodes[source.index.unit[id]] --[[@as SrcFunction]]
+        add_clauses(keys, 'post', arena.directives(src, fn, 'ClvPost'))
+    elseif n.tag == 'Function' and arena.has_directive(src, n, 'ClvReturn') then
+        keys[1] = { kind = 'missing_return', clause = 0 }
+    elseif n.tag == 'Function' then
+        add_clauses(keys, 'post', arena.directives(src, n, 'ClvPost'))
+    end
+    return keys
+end
+
+--- Reports each source node in marked code that lacks a checked obligation it needs. No core node exists
 --- for it, so the diagnostic's span is the source node's.
 --- @param source ValidateSource
 --- @param tables ValidateTables
@@ -137,21 +166,35 @@ end
 --- @param diags Diag[]
 --- @mut diags
 local function check_coverage(source, tables, checked, diags)
-    --- @type table<NodeId, table<string, boolean>>
+    -- node -> kind -> clause, or 0 -> present
+    --- @type table<NodeId, table<string, table<NodeId, boolean>>>
     local have = {}
     for id, o in ipairs(tables.obligations) do
         if checked[id] then
             have[o.node] = have[o.node] or {}
-            have[o.node][o.kind] = true
+            have[o.node][o.kind] = have[o.node][o.kind] or {}
+            have[o.node][o.kind][o.clause or 0] = true
         end
     end
-    for _, tag in ipairs { 'BinOp', 'Call' } do
-        local ids = source.index.by_tag[tag] or {}
-        for _, id in ipairs(ids) do
-            if source.index.region[id] ~= 0 then
-                local kind = needed_kind(source.src, id)
-                if kind ~= nil and not (have[id] and have[id][kind]) then
-                    diags[#diags + 1] = diag.at_span('E-internal-coverage', source.src.spans[id], { tag, kind })
+    for _, tag in ipairs { 'BinOp', 'Call', 'Return' } do
+        for _, id in ipairs(source.index.by_tag[tag] or {}) do
+            if source.index.unit[id] ~= 0 then
+                for _, key in ipairs(needed(source, id)) do
+                    local kinds = have[id] and have[id][key.kind]
+                    if not (kinds and kinds[key.clause]) then
+                        diags[#diags + 1] = diag.at_span('E-internal-coverage', source.src.spans[id], { tag, key.kind })
+                    end
+                end
+            end
+        end
+    end
+    -- a verified function's end
+    for _, id in ipairs(source.index.by_tag.Function or {}) do
+        if source.index.unit[source.src.nodes[id].body] == id then
+            for _, key in ipairs(needed(source, id)) do
+                local kinds = have[id] and have[id][key.kind]
+                if not (kinds and kinds[key.clause]) then
+                    diags[#diags + 1] = diag.at_span('E-internal-coverage', source.src.spans[id], { 'Function', key.kind })
                 end
             end
         end

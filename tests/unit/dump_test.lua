@@ -44,9 +44,18 @@ describe('sexpr.dump', function()
             (assumption 1 :kind branch :node 2)
             (Unit "a b" [] [(Assign x (Ite (Bool false) (Int -3) (Int 4)))])
             (assumption 2 :node 0 :kind type_fact)
+            (assumption 3 :kind trusted :decl 9 :node 4)
+            (obligation 1 :kind pre :node 3 :clause 1)
         ]=]
         assert.are.same({ 'a b', false, '-3' }, { prog.core.nodes[6].name, prog.core.nodes[1].value, prog.core.nodes[2].text })
-        assert.are.same({ { kind = 'branch', node = 2 }, { kind = 'type_fact', node = 0 } }, prog.assumptions)
+        assert.are.same({
+            { kind = 'branch', node = 2 },
+            { kind = 'type_fact', node = 0 },
+            { kind = 'trusted', node = 4, decl = 9 },
+        }, prog.assumptions)
+        assert.are.same({ { kind = 'pre', node = 3, clause = 1 } }, prog.obligations)
+        local again = read_core(write.write_all(dump.write_core(prog)))
+        assert.are.same({ prog.obligations, prog.assumptions }, { again.obligations, again.assumptions })
     end)
 
     it('round-trips every fixture', function()
@@ -82,7 +91,7 @@ describe('sexpr.dump', function()
             { '(obligation 1 :kind assert)', '1:1: obligation needs :kind with a symbol and :node' },
             { '(assumption 1 :kind "x" :node 0)', '1:1: assumption needs :kind with a symbol and :node' },
             { '(obligation 1 :kind assert :kind range :node 0)', '1:28: duplicate :kind' },
-            { '(obligation 1 :kind assert :node)', '1:28: expected :kind or :node with a value' },
+            { '(obligation 1 :kind assert :node)', '1:28: expected :kind, :node or :clause with a value' },
             { '(Unit u [] [(Havoc x)]', '1:1: unclosed (' },
         }
         for _, c in ipairs(cases) do

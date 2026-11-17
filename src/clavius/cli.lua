@@ -115,7 +115,7 @@ local function run_lua(args, text, out, err)
         err:write(('clavius: %s\n'):format(run_err))
         return M.EXIT_ERROR
     end
-    write_lines(out, args.file, messages.failures(failed, prog.obligations, c.src.spans, text))
+    write_lines(out, args.file, messages.failures(failed, prog.obligations, c.src, text))
     return #failed > 0 and M.EXIT_FAILED or M.EXIT_OK
 end
 

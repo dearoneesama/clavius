@@ -103,7 +103,7 @@ end
 --- @param record Obligation|Assumption
 --- @return Sexp
 local function record_sexp(head, id, record)
-    return write.list {
+    local items = {
         write.sym(head),
         write.sym(tostring(id)),
         write.sym ':kind',
@@ -111,6 +111,12 @@ local function record_sexp(head, id, record)
         write.sym ':node',
         write.sym(tostring(record.node)),
     }
+    local extra = head == 'obligation' and (record --[[@as Obligation]]).clause or (record --[[@as Assumption]]).decl
+    if extra ~= nil then
+        items[#items + 1] = write.sym(head == 'obligation' and ':clause' or ':decl')
+        items[#items + 1] = write.sym(tostring(extra))
+    end
+    return write.list(items)
 end
 
 --- Writes a program as s-expressions: its units as trees, then its obligations and assumptions. A
@@ -227,8 +233,9 @@ local function read_record(x, expected_id)
     while i <= #x.items do
         local key = x.items[i]
         local value = x.items[i + 1]
-        if key.tag ~= 'Sym' or (key.text ~= ':kind' and key.text ~= ':node') or not value then
-            fail(key, 'expected :kind or :node with a value')
+        local extra = head.text == 'obligation' and ':clause' or ':decl'
+        if key.tag ~= 'Sym' or (key.text ~= ':kind' and key.text ~= ':node' and key.text ~= extra) or not value then
+            fail(key, ('expected :kind, :node or %s with a value'):format(extra))
         end
         --- @cast key SexpSym
         if attrs[key.text] then
@@ -245,7 +252,12 @@ local function read_record(x, expected_id)
     --- @cast kind SexpSym
     --- @cast node Sexp
     -- the kind is checked against the closed list by validate, not here
-    return { kind = kind.text, node = read_int(node) } --[[@as Obligation|Assumption]]
+    local record = { kind = kind.text, node = read_int(node) }
+    local extra = attrs[':clause'] or attrs[':decl']
+    if extra then
+        record[head.text == 'obligation' and 'clause' or 'decl'] = read_int(extra)
+    end
+    return record --[[@as Obligation|Assumption]]
 end
 
 --- Reads a core program: any number of units, obligations and assumptions in any order. Each

@@ -83,6 +83,21 @@ function M.has_directive(a, fn, tag)
     return false
 end
 
+--- Returns a source function's directives of kind `tag`, in order.
+--- @param a SrcArena
+--- @param fn SrcFunction
+--- @param tag SrcTag
+--- @return NodeId[]
+function M.directives(a, fn, tag)
+    local out = {}
+    for _, d in ipairs(fn.directives) do
+        if a.nodes[d].tag == tag then
+            out[#out + 1] = d
+        end
+    end
+    return out
+end
+
 --- Adds a core node whose children are already in the arena and returns its id. Raises an error if a
 --- child id isn't smaller than the new id.
 --- @param a CoreArena
