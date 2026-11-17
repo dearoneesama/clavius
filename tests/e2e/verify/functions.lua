@@ -95,3 +95,13 @@ keep(1)
 local c = inc(-1) --! pre
 
 ---@clavius end
+
+-- a region of its own, since a check that can't hold makes the code after it unreachable
+---@clavius begin
+---@unsafe
+---@param n integer
+---@pre n >= 0
+local function log(n) end
+
+log(-1) --! pre
+---@clavius end

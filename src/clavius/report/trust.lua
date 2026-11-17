@@ -1,0 +1,103 @@
+-- The trust report: what a run assumed rather than proved, with where each assumption comes from. For
+-- example:
+--
+--   Trust report: prog.lua
+--
+--     @unsafe functions
+--       bump  prog.lua:8
+--
+--     callers outside verification
+--       inc   prog.lua:15
+--       max   prog.lua:22
+-- means:
+--
+-- - `bump`, defined on line 8, is `---@unsafe`. Its body isn't verified, yet verified code that calls it
+--   relies on its `---@post`s and its value's type.
+-- - `inc` and `max` are verified, assuming their parameters' types and their `---@pre`s on entry. A
+--   verified caller proves those at each call, but a caller in unmarked code doesn't, so they are trusted
+--   to hold there.
+
+local arena = require 'clavius.ir.arena'
+
+local M = {}
+
+--- A function in the report, with the line of its `local function`.
+--- @class TrustEntry
+--- @field name string
+--- @field line integer
+
+--- Adds a section to `out`: a blank line, its heading indented by 2, and an entry per line indented by
+--- 4, with the names padded to `width` so the locations line up.
+--- @param out string[]
+--- @param heading string
+--- @param entries TrustEntry[]
+--- @param width integer
+--- @param file string
+--- @mut out
+local function section(out, heading, entries, width, file)
+    if #entries == 0 then
+        return
+    end
+    out[#out + 1] = ''
+    out[#out + 1] = ('  %s'):format(heading)
+    for _, e in ipairs(entries) do
+        out[#out + 1] = ('    %s%s  %s:%d'):format(e.name, (' '):rep(width - #e.name), file, e.line)
+    end
+end
+
+--- Returns the trust report of a run as lines, or no lines when it trusted nothing. The trusted
+--- assumptions name their Functions: an `---@unsafe` one, whose contract its callers rely on, or a
+--- verified one, whose callers outside verification are trusted to meet its boundary assumptions.
+--- @param prog CoreProgram
+--- @param src SrcArena
+--- @param index NodeIndex
+--- @param text string
+--- @param file string the file's name as the report shows it
+--- @return string[]
+function M.report(prog, src, index, text, file)
+    local seen, fns = {}, {}
+    for _, a in ipairs(prog.assumptions) do
+        if a.kind == 'trusted' and a.decl ~= nil and not seen[a.decl] then
+            seen[a.decl] = true
+            fns[#fns + 1] = a.decl
+        end
+    end
+    if #fns == 0 then
+        return {}
+    end
+
+    --- @param a NodeId
+    --- @param b NodeId
+    --- @return boolean
+    local function before(a, b)
+        return src.spans[a].start < src.spans[b].start
+    end
+
+    table.sort(fns, before)
+    local starts = arena.line_starts(text)
+    --- @type TrustEntry[]
+    local unsafe = {}
+    --- @type TrustEntry[]
+    local callers = {}
+    -- the longest name, so the locations line up across both sections
+    local width = 0
+    for _, id in ipairs(fns) do
+        -- every trusted Function is a `local function`'s
+        local def = src.nodes[index.parent[id]] --[[@as SrcLocalFunction]]
+        local name = (src.nodes[def.binder] --[[@as SrcBinder]]).name
+        local fn = src.nodes[id] --[[@as SrcFunction]]
+        local entry = { name = name, line = arena.line_col(text, starts, src.spans[index.parent[id]].start) }
+        if arena.has_directive(src, fn, 'ClvUnsafe') then
+            unsafe[#unsafe + 1] = entry
+        else
+            callers[#callers + 1] = entry
+        end
+        width = math.max(width, #name)
+    end
+    local out = { ('Trust report: %s'):format(file) }
+    section(out, '@unsafe functions', unsafe, width, file)
+    section(out, 'callers outside verification', callers, width, file)
+    return out
+end
+
+return M

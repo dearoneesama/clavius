@@ -1,0 +1,7 @@
+Trust report: report.lua
+
+  @unsafe functions
+    bump  report.lua:10
+
+  callers outside verification
+    max   report.lua:21

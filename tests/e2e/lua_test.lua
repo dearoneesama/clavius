@@ -41,4 +41,18 @@ describe('lua programs', function()
         assert.are.same({ cli.EXIT_FAILED, message, '' }, { status, out:read '*a', err:read '*a' })
         assert.are.equal(cli.EXIT_OK, cli.main({ 'verify', 'tests/e2e/verify/assign.lua' }, out, err))
     end)
+
+    it('prints the trust report from the command line', function()
+        local out = assert(io.tmpfile())
+        local err = assert(io.tmpfile())
+        local status = cli.main({ 'verify', '--trust-report', 'tests/e2e/verify/unsafe.lua' }, out, err)
+        out:seek 'set'
+        local report = 'Trust report: tests/e2e/verify/unsafe.lua\n\n  @unsafe functions\n    bump  tests/e2e/verify/unsafe.lua:8\n'
+        assert.are.same({ cli.EXIT_OK, report }, { status, out:read '*a' })
+        -- without the flag, nothing is printed
+        local quiet = assert(io.tmpfile())
+        assert.are.equal(cli.EXIT_OK, cli.main({ 'verify', 'tests/e2e/verify/unsafe.lua' }, quiet, err))
+        quiet:seek 'set'
+        assert.are.equal('', quiet:read '*a')
+    end)
 end)

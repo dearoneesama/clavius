@@ -14,5 +14,4 @@ end
 ---@clavius begin
 local a = bump(5)
 assert(a > 5)
-local b = bump(-1) --! pre
 ---@clavius end

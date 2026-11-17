@@ -4,6 +4,7 @@ local argparse = require 'argparse'
 local driver = require 'clavius.driver'
 local messages = require 'clavius.report.messages'
 local read = require 'clavius.sexpr.read'
+local trust = require 'clavius.report.trust'
 
 --- argparse ships no type annotations, so its parser objects are untyped here.
 --- @alias ArgParser any
@@ -13,6 +14,7 @@ local read = require 'clavius.sexpr.read'
 --- @field command string
 --- @field file string
 --- @field after string|nil
+--- @field trust_report boolean|nil `verify --trust-report`
 
 local M = {}
 
@@ -41,6 +43,7 @@ local function build_parser(help)
 
     local verify = with_help(parser:command('verify', 'Verify a Lua file.'))
     verify:argument('file', 'The .lua file or .core.sexp file to verify.')
+    verify:flag('--trust-report', 'Also print what the run assumed rather than proved.')
 
     local dump = with_help(parser:command('dump', 'Print the program as an s-expression after a stage.'))
     dump:argument('file', 'The .lua file to read.')
@@ -115,7 +118,18 @@ local function run_lua(args, text, out, err)
         err:write(('clavius: %s\n'):format(run_err))
         return M.EXIT_ERROR
     end
-    write_lines(out, args.file, messages.failures(failed, prog.obligations, c.src, text))
+    local failures = messages.failures(failed, prog.obligations, c.src, text)
+    write_lines(out, args.file, failures)
+    local report = {}
+    if args.trust_report then
+        report = trust.report(prog, c.src, assert(c.index), text, args.file)
+    end
+    if #report > 0 and #failures > 0 then
+        out:write '\n'
+    end
+    for _, line in ipairs(report) do
+        out:write(line, '\n')
+    end
     return #failed > 0 and M.EXIT_FAILED or M.EXIT_OK
 end
 
