@@ -134,6 +134,12 @@ program.lua
  types ─────── typechecking
     │
     ▼
+ effects ───── finds locals each loop writes, which its encoding havocs
+    │
+    ▼
+ termination ─ checks that every applicable loops have a termination measure
+    │
+    ▼
  elaborate ─── converts the Clavius AST into Core IL: an intermediate
     │          representation for command (Assign, Assume, Check, Havoc, etc.)
     |          sequences and source code mappings.

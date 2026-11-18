@@ -6,7 +6,7 @@ local trust = require 'clavius.report.trust'
 local utils = require 'pl.utils'
 
 -- tests/snapshots/<STAGE>/<NAME>.lua is dumped after STAGE into <NAME>.<STAGE>.sexp
-for _, stage in ipairs { 'parse', 'resolve', 'types', 'elaborate' } do
+for _, stage in ipairs { 'parse', 'resolve', 'types', 'effects', 'elaborate' } do
     describe(('dump --after %s'):format(stage), function()
         local inputs = dir.getfiles(('tests/snapshots/%s'):format(stage), '*.lua')
         table.sort(inputs)

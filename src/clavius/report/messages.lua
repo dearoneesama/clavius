@@ -80,6 +80,7 @@ local PHRASES = {
     ['return-name-clash'] = "a parameter has the name of the function's value",
     ['marked-unsafe'] = "a function can't be both `---@clavius` and `---@unsafe`",
     ['repeated-decrease'] = 'this loop already has a `---@decrease`',
+    ['missing-decrease'] = 'a `while` or `repeat` loop needs a `---@decrease` above it',
     -- node kinds
     Index = 'indexing',
     Table = 'a table constructor',

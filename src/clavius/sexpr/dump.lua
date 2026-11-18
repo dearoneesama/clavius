@@ -13,6 +13,7 @@
 -- A source arena is written the same way. Side tables follow a node's fields:
 --
 --   (Local [(BinOp add (Id x$1 :type int53) (Literal number 1 :type int53) :type int53)] [(Binder y$2 :type int53)])
+--   (While [] (Id on$3 :type boolean) (Block [(Set [(Id y$2 :type int53)] [(Literal number 1 :type int53)])]) :writes [y$2])
 
 local arena = require 'clavius.ir.arena'
 local read = require 'clavius.sexpr.read'
@@ -33,6 +34,7 @@ local write = require 'clavius.sexpr.write'
 --- @class SrcDumpTables
 --- @field names table<NodeId, string>|nil unique names, written in place of the names of Binder and Id nodes
 --- @field types table<NodeId, string>|nil types, written after a node's fields as `:type T`
+--- @field writes table<NodeId, string[]>|nil the locals that each loop writes, written after its fields as `:writes [x$1 y$2]`
 
 --- A shape error while reading. It's raised with `error` and caught in `read_core`.
 --- @class DumpError
@@ -85,6 +87,14 @@ local function node_sexp(nodes, specs, id, tables)
     if tables.types and tables.types[id] then
         items[#items + 1] = write.sym ':type'
         items[#items + 1] = write.sym(tables.types[id])
+    end
+    if tables.writes and tables.writes[id] then
+        local names = {}
+        for i, name in ipairs(tables.writes[id]) do
+            names[i] = write.sym(name)
+        end
+        items[#items + 1] = write.sym ':writes'
+        items[#items + 1] = write.vec(names)
     end
     return write.list(items)
 end

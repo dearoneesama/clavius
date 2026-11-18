@@ -4,10 +4,12 @@
 local boogie_print = require 'clavius.backend.boogie.print'
 local boogie_run = require 'clavius.backend.boogie.run'
 local dump = require 'clavius.sexpr.dump'
+local effects = require 'clavius.passes.effects'
 local elaborate = require 'clavius.elaborate'
 local index = require 'clavius.ir.index'
 local parse = require 'clavius.syntax.parse'
 local resolve = require 'clavius.passes.resolve'
+local termination = require 'clavius.passes.termination'
 local types = require 'clavius.passes.types'
 local validate = require 'clavius.validate'
 local write = require 'clavius.sexpr.write'
@@ -21,6 +23,7 @@ local write = require 'clavius.sexpr.write'
 --- @field index NodeIndex|nil
 --- @field res Resolution|nil
 --- @field info TypeInfo|nil
+--- @field effects Effects|nil
 --- @field prog CoreProgram|nil
 --- @field stage string the last stage that ran
 --- @field diags Diag[] the diagnostics of that stage
@@ -61,6 +64,19 @@ end
 
 --- @param c CompilerContext
 --- @return Diag[]
+local function run_effects(c)
+    c.effects = effects.run(c.src, assert(c.res), assert(c.index))
+    return {}
+end
+
+--- @param c CompilerContext
+--- @return Diag[]
+local function run_termination(c)
+    return termination.run(c.src, assert(c.index))
+end
+
+--- @param c CompilerContext
+--- @return Diag[]
 local function run_elaborate(c)
     c.prog = elaborate.run(c.src, c.root, assert(c.res), assert(c.info))
     return {}
@@ -80,6 +96,8 @@ local STAGES = {
     { name = 'parse', run = run_parse },
     { name = 'resolve', run = run_resolve },
     { name = 'types', run = run_types },
+    { name = 'effects', run = run_effects },
+    { name = 'termination', run = run_termination },
     { name = 'elaborate', run = run_elaborate },
     { name = 'validate', run = run_validate },
 }
@@ -140,7 +158,7 @@ function M.dump(c)
         return M.dump_core(c)
     end
     --- @type SrcDumpTables
-    local tables = { names = nil, types = c.info and c.info.types }
+    local tables = { names = nil, types = c.info and c.info.types, writes = nil }
     if c.res then
         -- an Id is written with the name of its Binder
         local names = {}
@@ -151,6 +169,17 @@ function M.dump(c)
             names[id] = c.res.names[binder]
         end
         tables.names = names
+    end
+    if c.res and c.effects then
+        -- a loop is written with the names of the locals it writes
+        local writes = {}
+        for id, list in pairs(c.effects.writes) do
+            writes[id] = {}
+            for i, w in ipairs(list) do
+                writes[id][i] = c.res.names[w.root]
+            end
+        end
+        tables.writes = writes
     end
     return write.write_all { dump.write_src(c.src, c.root, tables) }
 end
