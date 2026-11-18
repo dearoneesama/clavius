@@ -8,7 +8,7 @@ local source_nodes = require 'clavius.ir.source_nodes'
 --- @field by_tag table<string, NodeId[]> the ids of each kind's nodes in ascending order
 --- @field parent NodeId[] each node's parent, or 0 for the root
 --- @field region NodeId[] the ClvRegion node that a node is in, or 0 outside every region
---- @field unit NodeId[] the root of the unit whose code a node is: its ClvRegion or verified Function. It is 0 for unmarked code and for contracts, which are spec code.
+--- @field unit NodeId[] the root of the unit whose code a node is: its ClvRegion or verified Function. It is 0 for unmarked code, and for contracts and loop annotations, which are spec code.
 
 local M = {}
 
@@ -22,14 +22,16 @@ local function child_unit(src, p, unit_of_p, child)
     local n = src.nodes[p]
     if n.tag == 'ClvRegion' then
         return p
-    elseif n.tag ~= 'Function' then
-        return unit_of_p
-    end
-    -- keeps a function's contract out of its unit
-    for _, d in ipairs(n.directives) do
-        if d == child then
-            return 0
+    elseif n.tag == 'While' or n.tag == 'Repeat' or n.tag == 'Fornum' or n.tag == 'Forin' or n.tag == 'Function' then
+        -- keeps a function's contract and a loop's annotations out of the unit
+        for _, d in ipairs(n.directives) do
+            if d == child then
+                return 0
+            end
         end
+    end
+    if n.tag ~= 'Function' then
+        return unit_of_p
     end
     -- a function in marked code is verified unless it is `---@unsafe`
     if arena.has_directive(src, n, 'ClvMarker') or (unit_of_p ~= 0 and not arena.has_directive(src, n, 'ClvUnsafe')) then

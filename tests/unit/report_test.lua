@@ -65,8 +65,8 @@ describe('report.messages', function()
     end)
 
     it('names features in plain words', function()
-        local d = diag.at_span('E-unsupported-feature', arena.span(1, 1, 1), { 'While' })
-        local expected = "1:1: E-unsupported-feature: a `while` loop isn't supported in this version; leave this code unmarked"
+        local d = diag.at_span('E-unsupported-feature', arena.span(1, 1, 1), { 'Forin' })
+        local expected = "1:1: E-unsupported-feature: a generic `for` loop isn't supported in this version; leave this code unmarked"
         assert.are.equal(expected, messages.diag(d, {}, 'x'))
     end)
 end)

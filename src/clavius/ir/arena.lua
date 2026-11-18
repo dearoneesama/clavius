@@ -69,13 +69,16 @@ function M.add_src(a, node, span)
     return id
 end
 
---- Returns whether a source function has a directive of kind `tag`, such as `ClvUnsafe`.
+--- A source node that the directives above it annotate.
+--- @alias SrcAnnotated SrcFunction | SrcWhile | SrcRepeat | SrcFornum | SrcForin
+
+--- Returns whether a source function or loop has a directive of kind `tag`, such as `ClvUnsafe`.
 --- @param a SrcArena
---- @param fn SrcFunction
+--- @param n SrcAnnotated
 --- @param tag SrcTag
 --- @return boolean
-function M.has_directive(a, fn, tag)
-    for _, d in ipairs(fn.directives) do
+function M.has_directive(a, n, tag)
+    for _, d in ipairs(n.directives) do
         if a.nodes[d].tag == tag then
             return true
         end
@@ -83,14 +86,14 @@ function M.has_directive(a, fn, tag)
     return false
 end
 
---- Returns a source function's directives of kind `tag`, in order.
+--- Returns a source function's or loop's directives of kind `tag`, in order.
 --- @param a SrcArena
---- @param fn SrcFunction
+--- @param n SrcAnnotated
 --- @param tag SrcTag
 --- @return NodeId[]
-function M.directives(a, fn, tag)
+function M.directives(a, n, tag)
     local out = {}
-    for _, d in ipairs(fn.directives) do
+    for _, d in ipairs(n.directives) do
         if a.nodes[d].tag == tag then
             out[#out + 1] = d
         end

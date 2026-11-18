@@ -31,6 +31,7 @@ local support = require 'clavius.ir.support'
 --- @field top_functions table<NodeId, boolean> the Function nodes of top-level `local function`s
 --- @field binder_of table<NodeId, NodeId> the Binder of each `local function`'s Function node
 --- @field verified table<NodeId, boolean> the Function nodes whose bodies are marked code
+--- @field loop_vars table<NodeId, boolean> the Binders of numeric `for` loops, which marked code may not assign
 --- @field fn NodeId|nil the Binder of the `local function` whose body is being visited
 --- @field in_clause boolean whether a contract clause is being visited
 --- @field outer_reads PendingUse[]
@@ -270,6 +271,9 @@ local function visit_set(st, id, scope, unit)
         if target.tag == 'Id' and decl ~= nil then
             st.out.assigned[decl] = true
         end
+        if unit ~= 0 and decl ~= nil and st.loop_vars[decl] then
+            report(st, 'E-unsupported-feature', t, { 'loop-variable-write' })
+        end
         -- LuaJIT assigns right to left, and Lua leaves the order undefined
         local j = 1
         while unit ~= 0 and decl ~= nil and j < i do
@@ -331,7 +335,7 @@ local function visit_directives(st, id, scope)
     local typed, returns, clauses = {}, {}, {}
     for _, d in ipairs(fn.directives) do
         local dn = st.src.nodes[d]
-        if not support.DIRECTIVES[dn.tag] then
+        if not support.FUNCTION_DIRECTIVES[dn.tag] then
             report(st, 'E-unsupported-directive', d, { support.DIRECTIVE_TAGS[dn.tag] })
         elseif dn.tag == 'ClvParam' and not params[dn.name] then
             report(st, 'E-misplaced-directive', d, { 'no-such-param' })
@@ -363,6 +367,50 @@ local function visit_directives(st, id, scope)
         local clause = st.src.nodes[d] --[[@as SrcClvPre|SrcClvPost]]
         visit_clause(st, clause.cond, clause.tag == 'ClvPost' and post_scope or scope, id)
     end
+end
+
+--- Resolves a loop's directives in `scope`. A loop has one measure, of one expression.
+--- @param st ResolveState
+--- @param loop SrcWhile|SrcRepeat|SrcFornum
+--- @param scope integer
+--- @param unit NodeId
+--- @mut st
+local function visit_loop_directives(st, loop, scope, unit)
+    local measured = false
+    for _, d in ipairs(loop.directives) do
+        local dn = st.src.nodes[d]
+        if unit ~= 0 and not support.LOOP_DIRECTIVES[dn.tag] then
+            report(st, 'E-unsupported-directive', d, { support.DIRECTIVE_TAGS[dn.tag] })
+        elseif dn.tag == 'ClvInvariant' then
+            visit_clause(st, dn.cond, scope, unit)
+        elseif dn.tag == 'ClvDecrease' then
+            if unit ~= 0 and measured then
+                report(st, 'E-misplaced-directive', d, { 'repeated-decrease' })
+            elseif unit ~= 0 and #dn.measures > 1 then
+                report(st, 'E-unsupported-feature', d, { 'decrease-list' })
+            end
+            measured = true
+            for _, m in ipairs(dn.measures) do
+                visit_clause(st, m, scope, unit)
+            end
+        end
+    end
+end
+
+--- Returns whether a numeric `for` has a step that marked code may use: none, or a nonzero integer
+--- literal, perhaps negated.
+--- @param src SrcArena
+--- @param step NodeId|nil
+--- @return boolean
+local function literal_step(src, step)
+    if step == nil then
+        return true
+    end
+    local n = src.nodes[step]
+    if n.tag == 'UnOp' and n.op == 'unm' then
+        n = src.nodes[n.arg]
+    end
+    return n.tag == 'Literal' and n.kind == 'number' and tonumber(n.text) ~= 0
 end
 
 --- Visits a function. In marked code, or when it is `---@unsafe`, the function is a unit root for its
@@ -445,12 +493,14 @@ function visit(st, id, scope, unit)
         elseif n.tag == 'Return' and #n.values > 1 then
             report(st, 'E-unsupported-feature', id, { 'multiple-returns' })
             unit = 0
+        elseif n.tag == 'Fornum' and not literal_step(st.src, n.step) then
+            report(st, 'E-unsupported-feature', id, { 'for-step' })
         end
     end
 
     local child_scope = scope
     local child_unit = unit
-    if n.tag == 'Block' or n.tag == 'Fornum' or n.tag == 'Forin' then
+    if n.tag == 'Block' or n.tag == 'Forin' then
         child_scope = open(st, scope)
     elseif n.tag == 'ClvRegion' then
         child_unit = id
@@ -474,12 +524,31 @@ function visit(st, id, scope, unit)
         st.binder_of[n.func] = n.binder
         visit(st, n.func, scope, unit)
         return
+    elseif n.tag == 'While' then
+        visit_loop_directives(st, n, scope, unit)
+        visit(st, n.cond, scope, unit)
+        visit(st, n.body, scope, unit)
+        return
     elseif n.tag == 'Repeat' then
-        -- the condition sees the body's locals
+        -- the directives see only what is outside the loop, and the condition sees the body's locals
+        visit_loop_directives(st, n, scope, unit)
         local body = st.src.nodes[n.body] --[[@as SrcBlock]]
         local s = open(st, scope)
         visit_statements(st, body.statements, s, unit)
         visit(st, n.cond, s, unit)
+        return
+    elseif n.tag == 'Fornum' then
+        -- the bounds don't see the loop variable (e.g. for i=i,i), and the directives do
+        visit(st, n.start, scope, unit)
+        visit(st, n.limit, scope, unit)
+        if n.step ~= nil then
+            visit(st, n.step, scope, unit)
+        end
+        local s = open(st, scope)
+        visit(st, n.var, s, unit)
+        st.loop_vars[n.var] = true
+        visit_loop_directives(st, n, s, unit)
+        visit(st, n.body, s, unit)
         return
     end
 
@@ -543,6 +612,7 @@ function M.run(src, root)
         top_functions = {},
         binder_of = {},
         verified = {},
+        loop_vars = {},
         fn = nil,
         in_clause = false,
         outer_reads = {},

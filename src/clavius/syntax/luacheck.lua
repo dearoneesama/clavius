@@ -71,6 +71,9 @@ local LUA53_OPS = { idiv = true, band = true, bor = true, bxor = true, shl = tru
 
 local LITERAL_KINDS = { Nil = 'nil', True = 'true', False = 'false', Number = 'number', String = 'string' }
 
+-- luacheck's loop tags
+local LOOPS = { While = true, Repeat = true, Fornum = true, Forin = true }
+
 --- Makes a source object over the raw bytes of `text`. luacheck's own decoder counts code points in a
 --- valid UTF-8 file, so its offsets wouldn't be byte offsets after the first non-ASCII character. Over
 --- raw bytes, the lexer takes the path it takes for files that aren't UTF-8.
@@ -336,10 +339,18 @@ local function statement(st, node, above)
     local tag = node.tag
     local s = node_span(st, node)
     local fn = defined_function(node)
+    --- @type SpliceBelow
+    local below = 'other'
+    if fn then
+        below = 'function'
+    elseif LOOPS[tag] then
+        below = 'loop'
+    end
     local placed = nil
     if st.cursor then
-        placed = splice.place(st.cursor, above, fn ~= nil, st.marked)
+        placed = splice.place(st.cursor, above, below, st.marked)
     end
+    local directives = (placed and below == 'loop') and placed.directives or {}
     if tag == 'Local' then
         local values = values_of(st, node[2] or {}, fn, placed)
         local names = {}
@@ -378,12 +389,12 @@ local function statement(st, node, above)
         st.loops = st.loops + 1
         local body = block(st, node[2], node[1].end_offset + 1)
         st.loops = st.loops - 1
-        return add(st, { tag = 'While', cond = cond, body = body }, s)
+        return add(st, { tag = 'While', directives = directives, cond = cond, body = body }, s)
     elseif tag == 'Repeat' then
         st.loops = st.loops + 1
         local body = block(st, node[1], assert(node.offset))
         st.loops = st.loops - 1
-        return add(st, { tag = 'Repeat', body = body, cond = expression(st, node[2]) }, s)
+        return add(st, { tag = 'Repeat', directives = directives, body = body, cond = expression(st, node[2]) }, s)
     elseif tag == 'Fornum' then
         local start = expression(st, node[2])
         local limit = expression(st, node[3])
@@ -395,7 +406,8 @@ local function statement(st, node, above)
         st.loops = st.loops + 1
         local body = block(st, node[#node], node[#node - 1].end_offset + 1)
         st.loops = st.loops - 1
-        return add(st, { tag = 'Fornum', start = start, limit = limit, step = step, var = var, body = body }, s)
+        local fornum = { tag = 'Fornum', directives = directives, start = start, limit = limit, step = step, var = var, body = body }
+        return add(st, fornum, s)
     elseif tag == 'Forin' then
         local iters = expression_list(st, node[2])
         local names = {}
@@ -405,7 +417,7 @@ local function statement(st, node, above)
         st.loops = st.loops + 1
         local body = block(st, node[3], node[2][#node[2]].end_offset + 1)
         st.loops = st.loops - 1
-        return add(st, { tag = 'Forin', iters = iters, names = names, body = body }, s)
+        return add(st, { tag = 'Forin', directives = directives, iters = iters, names = names, body = body }, s)
     elseif tag == 'Return' then
         return add(st, { tag = 'Return', values = expression_list(st, node) }, s)
     elseif tag == 'Break' then

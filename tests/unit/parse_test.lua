@@ -309,7 +309,7 @@ describe('syntax.splice', function()
             ---@frob
             local c = 1
             ---@invariant c > 0
-            --! E-unsupported-directive
+            --! E-misplaced-directive
             local d = c ---@type integer
             --! E-unsupported-directive
             ---@pre d > 0
@@ -326,6 +326,67 @@ describe('syntax.splice', function()
                 ---@frob
                 local h = 1
             end
+            ]=]
+        )
+    end)
+
+    it('places the directives above a loop in marked code into the loop', function()
+        local p, diags = parse.run(
+            stringx.dedent [=[
+            ---@invariant x > 0
+            while x do end
+            ---@clavius begin
+            ---@invariant i >= 1
+            ---@decrease n - i
+            while i < n do end
+            ---@invariant true
+            repeat until true
+            ---@decrease 1
+            for j = 1, 2 do end
+            ---@clavius end
+            ]=],
+            1
+        )
+        assert.are.same({}, diags)
+        local loops = {}
+        for _, id in ipairs(p.src.nodes[p.root].statements) do
+            local n = p.src.nodes[id]
+            if n.tag == 'ClvRegion' then
+                for _, s in ipairs(n.statements) do
+                    loops[#loops + 1] = write.flat(dump.write_src(p.src, s, {}))
+                end
+            else
+                loops[#loops + 1] = write.flat(dump.write_src(p.src, id, {}))
+            end
+        end
+        assert.are.same({
+            '(While [] (Id x) (Block []))',
+            '(While [(ClvInvariant (BinOp ge (Id i) (Literal number 1))) (ClvDecrease [(BinOp sub (Id n) (Id i))])] '
+                .. '(BinOp lt (Id i) (Id n)) (Block []))',
+            '(Repeat [(ClvInvariant (Literal true true))] (Block []) (Literal true true))',
+            '(Fornum [(ClvDecrease [(Literal number 1)])] (Literal number 1) (Literal number 2) nil (Binder j) (Block []))',
+        }, loops)
+    end)
+
+    it('reports loop directives above anything but a loop, and function directives above a loop', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            ---@clavius begin
+            local i = 1
+            ---@invariant i > 0
+            --! E-misplaced-directive
+            i = 2
+            ---@decrease i
+            --! E-misplaced-directive
+            if i > 0 then end
+            ---@pre i > 0
+            --! E-misplaced-directive
+            while i > 0 do end
+            ---@invariant i > 0
+            --! E-misplaced-directive
+            local function f() end
+            ---@clavius end
             ]=]
         )
     end)

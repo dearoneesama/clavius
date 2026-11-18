@@ -14,6 +14,10 @@ M.KINDS = {
     LocalFunction = true,
     Function = true,
     Return = true,
+    While = true,
+    Repeat = true,
+    Fornum = true,
+    Break = true,
     Set = true,
     Call = true,
     If = true,
@@ -58,9 +62,13 @@ M.TYPES = { int53 = true, boolean = true }
 --- @type table<string, boolean>
 M.CALLS = { assert = true, error = true }
 
---- Directive kinds that marked code may use.
+--- Directive kinds that marked code may use above a function.
 --- @type table<string, boolean>
-M.DIRECTIVES = { ClvMarker = true, ClvUnsafe = true, ClvPre = true, ClvPost = true, ClvParam = true, ClvReturn = true }
+M.FUNCTION_DIRECTIVES = { ClvMarker = true, ClvUnsafe = true, ClvPre = true, ClvPost = true, ClvParam = true, ClvReturn = true }
+
+--- Directive kinds that marked code may use above a loop.
+--- @type table<string, boolean>
+M.LOOP_DIRECTIVES = { ClvInvariant = true, ClvDecrease = true }
 
 --- The tag after `---@` of each directive kind.
 --- @type table<string, string>

@@ -24,6 +24,7 @@ describe('resolve', function()
         assert.are.same({ 'x x$1' }, refs 'local x = 1 local x = x')
         assert.are.same({ 'y global' }, refs 'do local y = 1 end local z = y')
         assert.are.same({ 'i global', 'i i$1' }, refs 'for i = i, 2 do local j = i end')
+        assert.are.same({ 'i global', 'i global', 's s$1', 'i global' }, refs 'local s = 1 for i = i, i, s + i do end')
         assert.are.same({ 'k global', 'k k$1' }, refs 'for k in k do local j = k end')
         assert.are.same({ 'p p$2' }, refs 'local function f(p) return p end')
     end)
@@ -60,9 +61,7 @@ describe('resolve', function()
             local e = #t --! E-unsupported-feature
             local f = {} --! E-unsupported-feature
             local g = function() end --! E-unsupported-feature
-            while t < 2 do t = t + 1 end --! E-unsupported-feature
-            repeat t = t + 1 until t > 2 --! E-unsupported-feature
-            for i = 1, 2 do t = i end --! E-unsupported-feature
+            for k in t do end --! E-unsupported-feature
             local k = ... --! E-unsupported-feature
             local l = t.x --! E-unsupported-feature
             return t --! E-unsupported-feature
@@ -76,7 +75,7 @@ describe('resolve', function()
             'resolve',
             [=[
             ---@clavius begin
-            while y do local z = 1 / w end --! E-unsupported-feature
+            for k in y do local z = 1 / w end --! E-unsupported-feature
             local a = (1 / x) + 1 --! E-unsupported-feature
             ---@clavius end
             ]=]
@@ -281,6 +280,98 @@ describe('resolve', function()
             ---@return integer
             --! E-misplaced-directive
             local function k(result) return result end
+            ]=]
+        )
+    end)
+
+    it("resolves a loop's annotations outside its body, and a numeric `for`'s with its variable", function()
+        local text = [=[
+            ---@clavius begin
+            local n = 1
+            ---@invariant n > 0
+            ---@decrease n
+            while n > 0 do local m = n end
+            ---@invariant n > 0
+            repeat local n = 2 until n > 1
+            ---@invariant i > n
+            for i = n, 2 do end
+            ---@clavius end
+        ]=]
+        assert.are.same({
+            'n n$1',
+            'n n$1',
+            'n n$1',
+            'n n$1',
+            'n n$1',
+            'n n$3',
+            'i i$4',
+            'n n$1',
+            'n n$1',
+        }, refs(text))
+    end)
+
+    it("keeps a loop's body locals from its condition and annotations, but not from `until`", function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            local n = 1
+            ---@invariant m > 0
+            --! E-banned-global
+            ---@decrease m
+            --! E-banned-global
+            while m do --! E-banned-global
+                local m = n
+            end
+            ---@invariant k > 0
+            --! E-banned-global
+            ---@decrease k
+            --! E-banned-global
+            repeat
+                local k = n
+            until k > 0
+            ---@invariant j > 0
+            --! E-banned-global
+            ---@decrease i
+            for i = 1, i do --! E-banned-global
+                local j = i
+            end
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('rejects loop forms that this version does not verify', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            local n = 3
+            for i = 1, 2, 3 do end
+            for i = 1, 2, -1 do end
+            for i = 1, 2, n do end --! E-unsupported-feature
+            for i = 1, 2, 0 do end --! E-unsupported-feature
+            for i = 1, 2, -0 do end --! E-unsupported-feature
+            for i = 1, 2 do
+                i = 2 --! E-unsupported-feature
+            end
+            ---@decrease n, n
+            --! E-unsupported-feature
+            while n > 0 do n = n - 1 end
+            ---@decrease n
+            ---@decrease n
+            --! E-misplaced-directive
+            while n > 0 do n = n - 1 end
+            ---@invariant f(n)
+            --! E-unsupported-feature
+            ---@decrease f(n)
+            --! E-unsupported-feature
+            while n > 0 do n = n - 1 end
+            ---@clavius end
+            ---@clavius
+            ---@decrease 1
+            --! E-unsupported-directive
+            local function g() end
             ]=]
         )
     end)

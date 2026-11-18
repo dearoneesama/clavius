@@ -64,24 +64,28 @@
    (Block
      [(Local [(Literal number 0)] [(Binder i)])
       (While
+        []
         (BinOp lt (Id i) (Literal number 3))
         (Block
           [(Set [(Id i)] [(BinOp add (Id i) (Literal number 1))])
            (If [(IfArm (BinOp eq (Id i) (Literal number 2)) (Block [(Break)]))] nil)]))
-      (Repeat (Block [(Local [(Id i)] [(Binder j)])]) (BinOp gt (Id j) (Literal number 0)))])
+      (Repeat [] (Block [(Local [(Id i)] [(Binder j)])]) (BinOp gt (Id j) (Literal number 0)))])
    (Fornum
+     []
      (Literal number 1)
      (Literal number 3)
      nil
      (Binder i)
      (Block [(Call (Id print) nil [(Id i)])]))
    (Fornum
+     []
      (Literal number 3)
      (Literal number 1)
      (UnOp unm (Literal number 1))
      (Binder i)
      (Block [(Goto continue) (Label continue)]))
    (Forin
+     []
      [(Call (Id pairs) nil [(Id tbl)])]
      [(Binder k) (Binder v)]
      (Block [(Call (Id print) nil [(Id k) (Id v)])]))

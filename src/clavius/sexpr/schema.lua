@@ -42,14 +42,17 @@ M.source = {
         { name = 'body', shape = 'node' },
     },
     While = {
+        { name = 'directives', shape = 'list' },
         { name = 'cond', shape = 'node' },
         { name = 'body', shape = 'node' },
     },
     Repeat = {
+        { name = 'directives', shape = 'list' },
         { name = 'body', shape = 'node' },
         { name = 'cond', shape = 'node' },
     },
     Fornum = {
+        { name = 'directives', shape = 'list' },
         { name = 'start', shape = 'node' },
         { name = 'limit', shape = 'node' },
         { name = 'step', shape = 'opt' },
@@ -57,6 +60,7 @@ M.source = {
         { name = 'body', shape = 'node' },
     },
     Forin = {
+        { name = 'directives', shape = 'list' },
         { name = 'iters', shape = 'list' },
         { name = 'names', shape = 'list' },
         { name = 'body', shape = 'node' },

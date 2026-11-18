@@ -47,20 +47,24 @@
 --- @field cond NodeId
 --- @field body NodeId
 
+--- `while cond do body end`.
 --- @class SrcWhile
 --- @field tag 'While'
+--- @field directives NodeId[] the directives above it, such as ClvInvariant
 --- @field cond NodeId
 --- @field body NodeId
 
 --- `repeat body until cond`. The condition sees the locals of the body.
 --- @class SrcRepeat
 --- @field tag 'Repeat'
+--- @field directives NodeId[] the directives above it, such as ClvInvariant
 --- @field body NodeId
 --- @field cond NodeId
 
 --- `for var = start, limit, step do body end`.
 --- @class SrcFornum
 --- @field tag 'Fornum'
+--- @field directives NodeId[] the directives above it, such as ClvInvariant
 --- @field start NodeId
 --- @field limit NodeId
 --- @field step NodeId|nil
@@ -70,6 +74,7 @@
 --- `for names in iters do body end`.
 --- @class SrcForin
 --- @field tag 'Forin'
+--- @field directives NodeId[] the directives above it, such as ClvInvariant
 --- @field iters NodeId[]
 --- @field names NodeId[] Binder nodes
 --- @field body NodeId
@@ -627,12 +632,21 @@ function M.children(n)
         kids[#kids + 1] = n.cond
         kids[#kids + 1] = n.body
     elseif n.tag == 'While' then
+        for _, kid in ipairs(n.directives) do
+            kids[#kids + 1] = kid
+        end
         kids[#kids + 1] = n.cond
         kids[#kids + 1] = n.body
     elseif n.tag == 'Repeat' then
+        for _, kid in ipairs(n.directives) do
+            kids[#kids + 1] = kid
+        end
         kids[#kids + 1] = n.body
         kids[#kids + 1] = n.cond
     elseif n.tag == 'Fornum' then
+        for _, kid in ipairs(n.directives) do
+            kids[#kids + 1] = kid
+        end
         kids[#kids + 1] = n.start
         kids[#kids + 1] = n.limit
         if n.step ~= nil then
@@ -641,6 +655,9 @@ function M.children(n)
         kids[#kids + 1] = n.var
         kids[#kids + 1] = n.body
     elseif n.tag == 'Forin' then
+        for _, kid in ipairs(n.directives) do
+            kids[#kids + 1] = kid
+        end
         for _, kid in ipairs(n.iters) do
             kids[#kids + 1] = kid
         end

@@ -285,6 +285,21 @@ function expression(st, id)
     return ty
 end
 
+--- Types a loop's directives: an invariant is a boolean and a measure an `int53`.
+--- @param st TypesState
+--- @param loop SrcWhile|SrcRepeat|SrcFornum
+--- @mut st
+local function loop_directives(st, loop)
+    for _, d in ipairs(loop.directives) do
+        local dn = st.src.nodes[d]
+        if dn.tag == 'ClvInvariant' then
+            want_bool(st, dn.cond, expression(st, dn.cond))
+        elseif dn.tag == 'ClvDecrease' then
+            want_int(st, dn.measures[1], expression(st, dn.measures[1]))
+        end
+    end
+end
+
 --- @param st TypesState
 --- @param id NodeId
 --- @mut st
@@ -322,6 +337,25 @@ local function statement(st, id)
         if n.else_block ~= nil then
             statement(st, n.else_block)
         end
+    elseif n.tag == 'While' then
+        loop_directives(st, n)
+        want_bool(st, n.cond, expression(st, n.cond))
+        statement(st, n.body)
+    elseif n.tag == 'Repeat' then
+        loop_directives(st, n)
+        statement(st, n.body)
+        want_bool(st, n.cond, expression(st, n.cond))
+    elseif n.tag == 'Fornum' then
+        want_int(st, n.start, expression(st, n.start))
+        want_int(st, n.limit, expression(st, n.limit))
+        if n.step ~= nil then
+            want_int(st, n.step, expression(st, n.step))
+        end
+        st.out.types[n.var] = 'int53'
+        loop_directives(st, n)
+        statement(st, n.body)
+    elseif n.tag == 'Break' then -- luacheck: ignore 542
+        -- nothing to type
     elseif n.tag == 'Call' and st.res.decl[n.func] ~= nil then
         call(st, id)
     elseif n.tag == 'Call' then

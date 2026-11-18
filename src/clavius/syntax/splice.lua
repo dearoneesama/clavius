@@ -1,5 +1,5 @@
 -- Places annotations in the source tree while the converter builds it: the directives above a function
--- become its directive nodes, and the top-level statements between `---@clavius begin` and `end` become
+-- or a loop become its directive nodes, and the top-level statements between `---@clavius begin` and `end` become
 -- regions. It reports misplaced directives, and the annotations in marked code that it doesn't place.
 
 local arena = require 'clavius.ir.arena'
@@ -22,10 +22,13 @@ local directive = require 'clavius.syntax.directive'
 --- @field code_parser CodeParser
 --- @field diags Diag[]
 
---- The directive nodes of a function, and whether its body is marked code.
+--- The directive nodes of a function or a loop, and whether a function's body is marked code.
 --- @class Placement
 --- @field directives NodeId[]
 --- @field marked boolean
+
+--- What a statement is to the directives above it: a function definition, a loop, or anything else.
+--- @alias SpliceBelow 'function' | 'loop' | 'other'
 
 local M = {}
 
@@ -52,9 +55,11 @@ local FUNCTION_TAGS = {
     vararg = true,
 }
 
--- tags that annotate the function below them when there is one, and otherwise something that has no
--- place yet, such as a loop for `---@decrease`
+-- tags that annotate the function below them when there is one, and otherwise something else
 local MAYBE_FUNCTION_TAGS = { decrease = true, frozen = true, extern = true, closure_invariant = true }
+
+-- tags that annotate the loop below them
+local LOOP_TAGS = { invariant = true, decrease = true }
 
 --- Returns whether `offset` lies within `s`.
 --- @param s Span
@@ -274,18 +279,20 @@ function M.finish(cur)
     dangling(cur, take_all(cur, math.huge, true), false)
 end
 
---- Places the directives above a statement and returns the nodes for the function it defines.
+--- Places the directives above a statement and returns the nodes for the function it defines or the
+--- loop it is.
 ---
 --- Marked code is the statements of regions and the bodies of functions marked `---@clavius`. There, and
 --- above a function marked `---@clavius` or `---@unsafe`, directives become nodes. Elsewhere only those
 --- two marks are read, since the other annotations there are LuaLS's.
 --- @param cur SpliceCursor
 --- @param above Directive[]
---- @param has_function boolean whether the statement defines a function
+--- @param below SpliceBelow
 --- @param marked boolean whether the statement is marked code
 --- @mut cur
 --- @return Placement
-function M.place(cur, above, has_function, marked)
+function M.place(cur, above, below, marked)
+    local has_function = below == 'function'
     local marker, unsafe = false, false
     for _, d in ipairs(above) do
         marker = marker or d.tag == 'clavius'
@@ -302,11 +309,13 @@ function M.place(cur, above, has_function, marked)
     end
     for _, d in ipairs(known) do
         local tag = d.tag
+        -- whether the tag annotates the statement below
+        local fits = (has_function and (FUNCTION_TAGS[tag] or MAYBE_FUNCTION_TAGS[tag])) or (below == 'loop' and LOOP_TAGS[tag])
         if (active or is_function_mark(d)) and after_code(cur, d) then
             report(cur, 'E-unsupported-directive', d, { tag })
         elseif is_function_mark(d) and not has_function then
             report(cur, 'E-misplaced-directive', d, { 'no-function-below' })
-        elseif active and has_function and (FUNCTION_TAGS[tag] or MAYBE_FUNCTION_TAGS[tag]) then
+        elseif active and fits then
             local nodes, diags = directive.parse(cur.src, d, cur.code_parser)
             for _, id in ipairs(nodes) do
                 ids[#ids + 1] = id
@@ -316,6 +325,8 @@ function M.place(cur, above, has_function, marked)
             end
         elseif active and FUNCTION_TAGS[tag] then
             report(cur, 'E-misplaced-directive', d, { 'no-function-below' })
+        elseif active and LOOP_TAGS[tag] then
+            report(cur, 'E-misplaced-directive', d, { 'no-loop-below' })
         elseif active then
             report(cur, 'E-unsupported-directive', d, { tag })
         end

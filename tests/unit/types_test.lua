@@ -205,4 +205,39 @@ describe('types', function()
             ]=]
         )
     end)
+
+    it('checks loop conditions, bounds, invariants and measures', function()
+        local c = markers.expect_diags(
+            'types',
+            [=[
+            ---@clavius begin
+            local n = 1
+            local on = true
+            ---@invariant n
+            --! E-unsupported-feature
+            ---@decrease on
+            --! E-type-mismatch
+            while n do end --! E-unsupported-feature
+            ---@invariant on
+            ---@decrease n
+            repeat local m = n until m --! E-unsupported-feature
+            for i = on, 2, 1.5 do end --! E-type-mismatch E-unsupported-type
+            ---@invariant i
+            --! E-unsupported-feature
+            for i = 1, n do
+                local k = i
+            end
+            ---@clavius end
+            ]=]
+        )
+        local info = assert(c.info)
+        local res = assert(c.res)
+        local found = {}
+        for id, n in ipairs(c.src.nodes) do
+            if n.tag == 'Binder' and (n.name == 'i' or n.name == 'k') then
+                found[#found + 1] = ('%s %s'):format(res.names[id], info.types[id])
+            end
+        end
+        assert.are.same({ 'i$4 int53', 'i$5 int53', 'k$6 int53' }, found)
+    end)
 end)
