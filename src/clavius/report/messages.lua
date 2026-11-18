@@ -25,6 +25,7 @@ local TEMPLATES = {
     ['E-internal-assume'] = 'Assume A%s has no allowed justification',
     ['E-internal-exit'] = 'Exit %s has no enclosing Block with that label',
     ['E-internal-label'] = 'Block label %s is already used in this unit',
+    ['E-internal-back-edge'] = 'Assume A%s ends the path but has statements after it',
     ['E-internal-coverage'] = '%s has no %s obligation',
 }
 
@@ -118,8 +119,8 @@ local PHRASES = {
     ['proof-block'] = 'a `--[[@proof` block',
 }
 
---- What a failing obligation of each kind means. `%s` is the source text of its clause's condition, if
---- it has one, or else of its node.
+--- What a failing obligation of each kind means. `%s` is the source text of its clause's condition or
+--- measure, if it has one, or else of its node.
 --- @type table<string, string>
 local FAILURES = {
     range = '%s may leave ±2^53',
@@ -128,6 +129,17 @@ local FAILURES = {
     pre = 'this call may not satisfy its precondition `%s`',
     post = 'the function may return here without satisfying its postcondition `%s`',
     missing_return = 'the end of this function may be reached, where it returns no value',
+    invariant_entry = 'the loop invariant `%s` may not hold when the loop starts',
+    invariant_preserved = 'the loop invariant `%s` may not hold again after an iteration',
+    decrease = 'an iteration may start with the measure `%s` negative, or may not decrease it',
+    for_bound = "this loop's limit plus its step may leave ±2^53",
+}
+
+--- What a failing obligation that the counter of a numeric `for` needs means. It has no clause.
+--- @type table<string, string>
+local COUNTER_FAILURES = {
+    invariant_entry = "the loop counter's range may not hold when the loop starts",
+    invariant_preserved = "the loop counter's range may not hold again after an iteration",
 }
 
 --- @param text string
@@ -161,14 +173,21 @@ end
 --- @return string
 function M.failure(id, o, src, text)
     local span = src.spans[o.node]
-    -- a contract clause is quoted without its tag
+    -- a clause is quoted without its tag
     local quoted = span
+    local template = FAILURES[o.kind]
     if o.clause ~= nil then
-        local clause = src.nodes[o.clause] --[[@as SrcClvPre|SrcClvPost]]
-        quoted = src.spans[clause.cond]
+        local clause = src.nodes[o.clause]
+        if clause.tag == 'ClvDecrease' then
+            quoted = src.spans[clause.measures[1]]
+        elseif clause.tag == 'ClvPre' or clause.tag == 'ClvPost' or clause.tag == 'ClvInvariant' then
+            quoted = src.spans[clause.cond]
+        end
+    elseif COUNTER_FAILURES[o.kind] then
+        template = COUNTER_FAILURES[o.kind]
     end
     local snippet = text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
-    local message = assert(FAILURES[o.kind], ('messages: no message for %s'):format(o.kind)):format(snippet)
+    local message = assert(template, ('messages: no message for %s'):format(o.kind)):format(snippet)
     return ('%s: %s: %s [O%d]'):format(position(text, span.start), o.kind, message, id)
 end
 

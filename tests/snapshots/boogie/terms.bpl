@@ -12,4 +12,5 @@ procedure {:rlimit 10000000} terms()
   assert {:msg "O5"} !((if p then 1 else 2) != (if !p then 2 else 1));
   p := true;
   assert {:msg "O6"} p == (q || !q);
+  assert {:msg "O7"} (((-7) mod 3) == 2) && ((7 mod (-3)) == 1);
 }

@@ -1,7 +1,7 @@
 -- Core node types. `schema/gen.lua` turns this into src/clavius/ir/core_nodes.lua and
 -- src/clavius/sexpr/schema.lua. The field format is described in schema/source.lua.
 
-local OPS = "'+' | '-' | '*' | '<' | '<=' | '>' | '>=' | '==' | '!=' | 'and' | 'or' | '=>'"
+local OPS = "'+' | '-' | '*' | 'mod' | '<' | '<=' | '>' | '>=' | '==' | '!=' | 'and' | 'or' | '=>'"
 
 --- @type NodeType[]
 return {
@@ -48,7 +48,7 @@ return {
     { tag = 'Bool', doc = 'A boolean literal.', fields = { { 'value', 'boolean' } } },
     {
         tag = 'BinOp',
-        doc = 'An integer or boolean operator. `=>` is implication.',
+        doc = 'An integer or boolean operator. `=>` is implication, and `mod` the Euclidean remainder, which lies in [0, |rhs|) when rhs ~= 0.',
         fields = { { 'op', OPS }, { 'lhs', 'node' }, { 'rhs', 'node' } },
     },
     { tag = 'Not', doc = 'Boolean negation.', fields = { { 'arg', 'node' } } },

@@ -14,12 +14,15 @@ local arena = require 'clavius.ir.arena'
 --- @field src SrcArena
 --- @field res Resolution
 --- @field info TypeInfo
+--- @field effects Effects
 --- @field core CoreArena
 --- @field obligations Obligation[]
 --- @field assumptions Assumption[]
 --- @field vars NodeId[] the VarDecl nodes of the unit being built
 --- @field declared table<string, boolean> the names of those variables
 --- @field temps integer the temporaries of the unit being built
+--- @field loops integer the loops of the unit being built
+--- @field breaks string[] the Block labels of the loops around the statement being lowered, innermost last
 --- @field fn BuilderFunction|nil
 --- @field spec boolean whether a contract clause is being lowered: its arithmetic is exact and has no checks
 --- @field subst table<NodeId, NodeId> the term that stands for each declaration in the clause being lowered
@@ -33,18 +36,22 @@ local INT53_MAX = '9007199254740992'
 --- @param src SrcArena
 --- @param res Resolution
 --- @param info TypeInfo
+--- @param effects Effects
 --- @return Builder
-function M.new(src, res, info)
+function M.new(src, res, info, effects)
     return {
         src = src,
         res = res,
         info = info,
+        effects = effects,
         core = arena.new_core(),
         obligations = {},
         assumptions = {},
         vars = {},
         declared = {},
         temps = 0,
+        loops = 0,
+        breaks = {},
         fn = nil,
         spec = false,
         subst = {},
@@ -106,7 +113,8 @@ end
 --- @param b Builder
 --- @mut b
 function M.start_unit(b)
-    b.vars, b.declared, b.temps = {}, {}, 0
+    b.vars, b.declared = {}, {}
+    b.temps, b.loops = 0, 0
 end
 
 --- Declares a variable of the unit being built.
@@ -131,6 +139,15 @@ function M.temp(b, sort, origin)
     local name = ('$t%d'):format(b.temps)
     M.var(b, name, sort, origin)
     return name
+end
+
+--- Returns a fresh label for a loop's Block: `loop$1`, `loop$2` and so on in each unit.
+--- @param b Builder
+--- @mut b
+--- @return string
+function M.loop_label(b)
+    b.loops = b.loops + 1
+    return ('loop$%d'):format(b.loops)
 end
 
 --- Returns the term `-2^53 <= t and t <= 2^53`.

@@ -19,6 +19,7 @@
 --- | 'E-internal-assume' # an `Assume` with no allowed justification
 --- | 'E-internal-exit' # an `Exit` that no `Block` with its label encloses
 --- | 'E-internal-label' # a `Block` label that is already used in the unit
+--- | 'E-internal-back-edge' # a `back_edge` `Assume` with statements after it in its list
 --- | 'E-internal-coverage' # a source node with no obligation for a check it needs
 
 --- @class Diag

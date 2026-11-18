@@ -2,27 +2,34 @@
 -- proves and the source node it covers. Each `Assume` names an assumption: the fact's justification
 -- and the source node it comes from.
 
---- What a check proves:
---- - `range`: an integer result stays within ±2^53;
---- - `assert`: an `assert` call holds;
---- - `unreachable`: the code never runs, as with `error`;
---- - `pre`: a call meets one of the callee's `---@pre`s;
---- - `post`: a function's value and parameters meet one of its `---@post`s where it returns;
---- - `missing_return`: a function with a `---@return` never reaches the end of its body.
---- @alias ObligationKind 'range' | 'assert' | 'unreachable' | 'pre' | 'post' | 'missing_return'
+--- What a check proves.
+--- @alias ObligationKind
+--- | 'range' # an integer result stays within ±2^53
+--- | 'assert' # an `assert` call holds
+--- | 'unreachable' # the code never runs, as with `error`
+--- | 'pre' # a call meets one of the callee's `---@pre`s
+--- | 'post' # a function's value and parameters meet one of its `---@post`s where it returns
+--- | 'missing_return' # a function with a `---@return` never reaches the end of its body
+--- | 'invariant_entry' # a loop's `---@invariant`, or the range of a numeric `for`'s counter, holds when the loop starts
+--- | 'invariant_preserved' # a loop's invariant, or the counter's range, holds again after an iteration
+--- | 'decrease' # a loop's `---@decrease` measure is non-negative when an iteration starts and smaller when it ends
+--- | 'for_bound' # a numeric `for`'s limit plus its step stays within ±2^53, so the counter can pass it
 
---- Why an assumption may be made:
---- - `type_fact`: a value of a declared type satisfies that type's predicate;
---- - `branch`: the condition of the branch being taken;
---- - `callee_post`: a verified callee's `---@post`, proved where the callee returns;
---- - `trusted`: a fact that nothing proves, which the trust report lists: what an `---@unsafe` callee
----   promises, and what a verified function assumes on entry about callers outside verification.
---- @alias Justification 'type_fact' | 'branch' | 'callee_post' | 'trusted'
+--- Why an assumption may be made. Nothing proves a `trusted` one, so the trust report lists each. The
+--- `false` of a `back_edge` ends an iteration whose checks are done, since the loop's head, with its
+--- havoc and invariants, stands for every later iteration.
+--- @alias Justification
+--- | 'type_fact' # a value of a declared type satisfies that type's predicate
+--- | 'branch' # the condition of the branch being taken
+--- | 'callee_post' # a verified callee's `---@post`, proved where the callee returns
+--- | 'trusted' # what an `---@unsafe` callee promises, or what a verified function assumes on entry about outside callers
+--- | 'invariant' # a loop invariant at the loop's head, checked on entry and after each iteration
+--- | 'back_edge' # `false` at the end of an iteration that iterates again
 
 --- @class Obligation
 --- @field kind ObligationKind
 --- @field node NodeId the source node it covers
---- @field clause NodeId|nil the ClvPre or ClvPost it is for
+--- @field clause NodeId|nil the ClvPre, ClvPost, ClvInvariant or ClvDecrease it is for
 
 --- @class Assumption
 --- @field kind Justification
@@ -33,10 +40,21 @@ local M = {}
 
 --- The obligation kinds as a set.
 --- @type table<string, boolean>
-M.OBLIGATION_KINDS = { range = true, assert = true, unreachable = true, pre = true, post = true, missing_return = true }
+M.OBLIGATION_KINDS = {
+    range = true,
+    assert = true,
+    unreachable = true,
+    pre = true,
+    post = true,
+    missing_return = true,
+    invariant_entry = true,
+    invariant_preserved = true,
+    decrease = true,
+    for_bound = true,
+}
 
 --- The justifications an `Assume` may have as a set.
 --- @type table<string, boolean>
-M.JUSTIFICATIONS = { type_fact = true, branch = true, callee_post = true, trusted = true }
+M.JUSTIFICATIONS = { type_fact = true, branch = true, callee_post = true, trusted = true, invariant = true, back_edge = true }
 
 return M

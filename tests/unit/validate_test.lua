@@ -54,12 +54,22 @@ describe('validate', function()
     it('reports an Assume with no allowed justification', function()
         local text = [=[
             (Unit u [] [(Choice [(Assume 2 (Bool true))] [(Block b [(Assume 1 (Bool true))])])])
-            (assumption 1 :kind invariant :node 0)
+            (assumption 1 :kind makeup :node 0)
         ]=]
         assert.are.same({
             { code = 'E-internal-assume', tag = 'Assume', args = { '2' } },
             { code = 'E-internal-assume', tag = 'Assume', args = { '1' } },
         }, diags(text))
+    end)
+
+    it('reports a back_edge Assume that does not end its statement list', function()
+        local text = [=[
+            (Unit u [] [(Branch (Bool true) [(Assume 1 (Bool false)) (Check 1 (Bool true))] [(Assume 2 (Bool false))])])
+            (obligation 1 :kind assert :node 0)
+            (assumption 1 :kind back_edge :node 0)
+            (assumption 2 :kind back_edge :node 0)
+        ]=]
+        assert.are.same({ { code = 'E-internal-back-edge', tag = 'Assume', args = { '1' } } }, diags(text))
     end)
 
     it('reports an Exit that no Block with its label encloses', function()
@@ -126,8 +136,8 @@ describe('validate', function()
         local z = x - 1 -- none: this line is outside the region
     ]=]
 
-    --- Returns `body` without the `Check` statements of the obligations in `dropped`. The `then` lists of
-    --- its branches lose theirs too.
+    --- Returns `body` without the `Check` statements of the obligations in `dropped`. The lists of its
+    --- branches and blocks lose theirs too.
     --- @param core CoreArena
     --- @param body NodeId[]
     --- @param dropped table<integer, boolean>
@@ -138,6 +148,7 @@ describe('validate', function()
             local n = core.nodes[id]
             if n.tag == 'Branch' then
                 n.then_body = without_checks(core, n.then_body, dropped)
+                n.else_body = without_checks(core, n.else_body, dropped)
             elseif n.tag == 'Block' then
                 n.body = without_checks(core, n.body, dropped)
             end
@@ -218,5 +229,42 @@ describe('validate', function()
             { 'E-internal-coverage', 'Function', 'missing_return', 'function inc(n)' },
             { 'E-internal-coverage', 'Function', 'post', 'function idle() end' },
         }, coverage(CONTRACTS, { [2] = true, [3] = true, [4] = true, [5] = true }, nil))
+    end)
+
+    -- the loop obligations that elaborate emits, by id
+    local LOOPS = [=[
+        ---@clavius begin
+        local i = 0
+        -- 1 (invariant_entry); 3 (invariant_preserved); 4 (decrease)
+        ---@invariant i >= 0
+        ---@decrease 3 - i
+        while i < 3 do
+            i = i + 1 -- 2 (range)
+        end
+        -- 6 (decrease)
+        ---@decrease 3 - i
+        repeat
+            i = i + 1 -- 5 (range)
+        until i >= 3
+        -- 7 (for_bound); 8 (invariant_entry) and 9 (invariant_preserved) of the counter's range
+        for k = 1, 2 do
+        end
+        ---@clavius end
+    ]=]
+
+    it('accepts the loop obligations that elaborate emits', function()
+        assert.are.same({}, coverage(LOOPS, {}, nil))
+    end)
+
+    it('reports a loop whose invariant, measure or counter obligation has no Check', function()
+        assert.are.same({
+            { 'E-internal-coverage', 'While', 'invariant_entry', 'while i < 3 do' },
+            { 'E-internal-coverage', 'While', 'invariant_preserved', 'while i < 3 do' },
+            { 'E-internal-coverage', 'While', 'decrease', 'while i < 3 do' },
+            { 'E-internal-coverage', 'Repeat', 'decrease', 'repeat' },
+            { 'E-internal-coverage', 'Fornum', 'for_bound', 'for k = 1, 2 do' },
+            { 'E-internal-coverage', 'Fornum', 'invariant_entry', 'for k = 1, 2 do' },
+            { 'E-internal-coverage', 'Fornum', 'invariant_preserved', 'for k = 1, 2 do' },
+        }, coverage(LOOPS, { [1] = true, [3] = true, [4] = true, [6] = true, [7] = true, [8] = true, [9] = true }, nil))
     end)
 end)

@@ -9,7 +9,11 @@
    (Check 4 (BinOp => (BinOp and (Var p) (Var q)) (BinOp or (Var p) (Bool false))))
    (Check 5 (Not (BinOp != (Ite (Var p) (Int 1) (Int 2)) (Ite (Not (Var p)) (Int 2) (Int 1)))))
    (Assign p (Bool true))
-   (Check 6 (BinOp == (Var p) (BinOp or (Var q) (Not (Var q)))))])
+   (Check 6 (BinOp == (Var p) (BinOp or (Var q) (Not (Var q)))))
+   (Check 7
+     (BinOp and
+       (BinOp == (BinOp mod (Int -7) (Int 3)) (Int 2))
+       (BinOp == (BinOp mod (Int 7) (Int -3)) (Int 1))))])
 
 (obligation 1 :kind assert :node 0)
 (obligation 2 :kind assert :node 0)
@@ -17,3 +21,4 @@
 (obligation 4 :kind assert :node 0)
 (obligation 5 :kind assert :node 0)
 (obligation 6 :kind assert :node 0)
+(obligation 7 :kind assert :node 0)

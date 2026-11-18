@@ -5,6 +5,7 @@
 --   terms, which are pure, are everywhere else;
 --   every `Check` must refer to an obligation of a known kind;
 --   every `Assume` must refer to an assumption with an allowed justification;
+--   a `back_edge` `Assume`, which assumes `false`, must end its statement list;
 --   every `Exit` must be inside a `Block` with its label;
 --   the `Block` labels in a unit must differ.
 -- For a core program elaborated from Lua, it also checks coverage: every source node in marked code that
@@ -71,7 +72,7 @@ end
 --- @mut labels
 --- @mut diags
 local function check_statements(core, ids, tables, checked, labels, diags)
-    for _, id in ipairs(ids) do
+    for i, id in ipairs(ids) do
         local n = core.nodes[id]
         if n.tag == 'Assign' then
             check_term(core, n.value, diags)
@@ -79,6 +80,9 @@ local function check_statements(core, ids, tables, checked, labels, diags)
             local a = tables.assumptions[n.assumption]
             if a == nil or not obligation.JUSTIFICATIONS[a.kind] then
                 diags[#diags + 1] = diag.at_node('E-internal-assume', id, { tostring(n.assumption) })
+            elseif a.kind == 'back_edge' and i < #ids then
+                -- the path ends here, so a Check after it would hold vacuously
+                diags[#diags + 1] = diag.at_node('E-internal-back-edge', id, { tostring(n.assumption) })
             end
             check_term(core, n.cond, diags)
         elseif n.tag == 'Check' then
@@ -132,7 +136,8 @@ end
 
 --- Returns the obligations that the source node `id` in marked code needs. This follows from what
 --- `clavius.ir.support` lets marked code use: every `+`, `-` and `*` is on `int53`, every call is to
---- `assert`, `error` or a local function, and every `return` is in a verified function.
+--- `assert`, `error` or a local function, every `return` is in a verified function, and every numeric
+--- `for` has a literal step.
 --- @param source ValidateSource
 --- @param id NodeId
 --- @return NeededKey[]
@@ -154,6 +159,17 @@ local function needed(source, id)
         keys[1] = { kind = 'missing_return', clause = 0 }
     elseif n.tag == 'Function' then
         add_clauses(keys, 'post', arena.directives(src, n, 'ClvPost'))
+    elseif n.tag == 'While' or n.tag == 'Repeat' or n.tag == 'Fornum' then
+        if n.tag == 'Fornum' then
+            -- the counter's range is an invariant too, with no clause
+            keys[#keys + 1] = { kind = 'for_bound', clause = 0 }
+            keys[#keys + 1] = { kind = 'invariant_entry', clause = 0 }
+            keys[#keys + 1] = { kind = 'invariant_preserved', clause = 0 }
+        end
+        local invariants = arena.directives(src, n, 'ClvInvariant')
+        add_clauses(keys, 'invariant_entry', invariants)
+        add_clauses(keys, 'invariant_preserved', invariants)
+        add_clauses(keys, 'decrease', arena.directives(src, n, 'ClvDecrease'))
     end
     return keys
 end
@@ -176,7 +192,7 @@ local function check_coverage(source, tables, checked, diags)
             have[o.node][o.kind][o.clause or 0] = true
         end
     end
-    for _, tag in ipairs { 'BinOp', 'Call', 'Return' } do
+    for _, tag in ipairs { 'BinOp', 'Call', 'Return', 'While', 'Repeat', 'Fornum' } do
         for _, id in ipairs(source.index.by_tag[tag] or {}) do
             if source.index.unit[id] ~= 0 then
                 for _, key in ipairs(needed(source, id)) do

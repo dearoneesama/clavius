@@ -45,6 +45,35 @@ describe('report.messages', function()
         }, messages.failures({ 1, 2 }, prog.obligations, c.src, text))
     end)
 
+    it("quotes a loop's invariant and measure, and names its counter and bound", function()
+        local text = stringx.dedent [=[
+            ---@clavius begin
+            local i = 0
+            ---@invariant i  >=  0
+            ---@decrease 3 - i
+            while i < 3 do i = i + 1 end
+            for k = 1, 2 do end
+            ---@clavius end
+        ]=]
+        local c = driver.run_until('validate', text, 1)
+        assert.are.same({}, c.diags)
+        local prog = assert(c.prog)
+        local kinds = {}
+        for id, o in ipairs(prog.obligations) do
+            if o.kind ~= 'range' then
+                kinds[#kinds + 1] = id
+            end
+        end
+        assert.are.same({
+            '5:1: decrease: an iteration may start with the measure `3 - i` negative, or may not decrease it [O4]',
+            '5:1: invariant_entry: the loop invariant `i >= 0` may not hold when the loop starts [O1]',
+            '5:1: invariant_preserved: the loop invariant `i >= 0` may not hold again after an iteration [O3]',
+            "6:1: for_bound: this loop's limit plus its step may leave ±2^53 [O5]",
+            "6:1: invariant_entry: the loop counter's range may not hold when the loop starts [O6]",
+            "6:1: invariant_preserved: the loop counter's range may not hold again after an iteration [O7]",
+        }, messages.failures(kinds, prog.obligations, c.src, text))
+    end)
+
     it('orders diagnostics by position, then code', function()
         local text = 'abc\ndef\n'
         local diags = {
