@@ -1,7 +1,8 @@
 std = 'lua51'
 max_line_length = 150
 max_comment_line_length = false
-exclude_files = { 'lua_modules/**', '.luarocks/**', 'tests/snapshots/**', 'tests/e2e/*/**' }
+-- the shipped `---@meta` files are specs that Clavius reads as text, never code that runs
+exclude_files = { 'lua_modules/**', '.luarocks/**', 'tests/snapshots/**', 'tests/e2e/*/**', 'src/clavius/meta/**' }
 
 files['tests/**'] = { std = '+busted' }
 

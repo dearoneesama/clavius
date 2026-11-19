@@ -75,10 +75,10 @@
 --- @field tag 'Bool'
 --- @field value boolean
 
---- An integer or boolean operator. `=>` is implication, and `mod` the Euclidean remainder, which lies in [0, |rhs|) when rhs ~= 0.
+--- An integer or boolean operator. `=>` is implication. `div` and `mod` are Euclidean: when rhs ~= 0, `lhs == (lhs div rhs) * rhs + lhs mod rhs` with the remainder in [0, |rhs|).
 --- @class CoreBinOp
 --- @field tag 'BinOp'
---- @field op '+' | '-' | '*' | 'mod' | '<' | '<=' | '>' | '>=' | '==' | '!=' | 'and' | 'or' | '=>'
+--- @field op '+' | '-' | '*' | 'div' | 'mod' | '<' | '<=' | '>' | '>=' | '==' | '!=' | 'and' | 'or' | '=>'
 --- @field lhs NodeId
 --- @field rhs NodeId
 

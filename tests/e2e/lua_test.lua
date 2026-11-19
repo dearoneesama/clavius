@@ -4,12 +4,13 @@ local driver = require 'clavius.driver'
 local markers = require 'support.markers'
 local utils = require 'pl.utils'
 
--- Every Lua program under tests/e2e/ but the *_test.lua files. Its markers name exactly the
--- diagnostics it gets or, when it gets none, the obligations that may fail.
+-- Every Lua program under tests/e2e/ but the *_test.lua and *.meta.lua files. Its markers name exactly
+-- the diagnostics it gets or, when it gets none, the obligations that may fail. A program `foo.lua` with
+-- a `foo.meta.lua` next to it is verified with that file as its `--meta` file.
 describe('lua programs', function()
     local inputs = {}
     for _, path in ipairs(dir.getallfiles('tests/e2e', '*.lua')) do
-        if not path:match '_test%.lua$' then
+        if not path:match '_test%.lua$' and not path:match '%.meta%.lua$' then
             inputs[#inputs + 1] = path
         end
     end
@@ -17,7 +18,10 @@ describe('lua programs', function()
     for _, input in ipairs(inputs) do
         it(input, function()
             local text = assert(utils.readfile(input, true))
-            local c = driver.run_until('validate', text, 1)
+            local meta_path = input:gsub('%.lua$', '.meta.lua')
+            local meta_text = utils.readfile(meta_path, true)
+            local metas = meta_text and { { name = meta_path, text = meta_text } } or nil
+            local c = driver.run_until('validate', text, 1, metas)
             if #c.diags > 0 then
                 assert.are.same(markers.read(text), markers.diags(c))
                 return
@@ -42,12 +46,55 @@ describe('lua programs', function()
         assert.are.equal(cli.EXIT_OK, cli.main({ 'verify', 'tests/e2e/verify/assign.lua' }, out, err))
     end)
 
+    it('prints the specs and host functions it trusts in the trust report', function()
+        local out = assert(io.tmpfile())
+        local err = assert(io.tmpfile())
+        local argv = { 'verify', '--trust-report', '--meta', 'tests/e2e/verify/extern.meta.lua', 'tests/e2e/verify/extern.lua' }
+        local status = cli.main(argv, out, err)
+        out:seek 'set'
+        local report = table.concat({
+            'Trust report: tests/e2e/verify/extern.lua',
+            '',
+            '  @extern functions',
+            '    host.damage  tests/e2e/verify/extern.meta.lua:12  @no_callback',
+            '    host.log     tests/e2e/verify/extern.meta.lua:17  @may_raise',
+            '    host_frame   tests/e2e/verify/extern.meta.lua:22',
+            '    host.half    tests/e2e/verify/extern.meta.lua:30',
+            '    host.ready   tests/e2e/verify/extern.meta.lua:35',
+            '',
+            '  callers outside verification',
+            '    hit          tests/e2e/verify/extern.lua:25',
+            '',
+        }, '\n')
+        assert.are.same({ cli.EXIT_OK, report }, { status, out:read '*a' })
+    end)
+
+    it('reports that integer division relies on the stdlib, and that `%` relies on nothing', function()
+        local err = assert(io.tmpfile())
+        local floor = assert(io.tmpfile())
+        local status = cli.main({ 'verify', '--trust-report', 'tests/e2e/verify/floor_only.lua' }, floor, err)
+        floor:seek 'set'
+        local report = table.concat({
+            'Trust report: tests/e2e/verify/floor_only.lua',
+            '',
+            '  stdlib unchanged',
+            '    glue replaces no stdlib function and not the string metatable',
+            '',
+        }, '\n')
+        assert.are.same({ cli.EXIT_OK, report }, { status, floor:read '*a' })
+        local mod = assert(io.tmpfile())
+        status = cli.main({ 'verify', '--trust-report', 'tests/e2e/verify/mod_only.lua' }, mod, err)
+        mod:seek 'set'
+        assert.are.same({ cli.EXIT_OK, '' }, { status, mod:read '*a' })
+    end)
+
     it('prints the trust report from the command line', function()
         local out = assert(io.tmpfile())
         local err = assert(io.tmpfile())
         local status = cli.main({ 'verify', '--trust-report', 'tests/e2e/verify/unsafe.lua' }, out, err)
         out:seek 'set'
-        local report = 'Trust report: tests/e2e/verify/unsafe.lua\n\n  @unsafe functions\n    bump  tests/e2e/verify/unsafe.lua:8\n'
+        local report =
+            'Trust report: tests/e2e/verify/unsafe.lua\n\n  @unsafe functions\n    bump   tests/e2e/verify/unsafe.lua:11  @no_callback @may_raise\n    ready  tests/e2e/verify/unsafe.lua:20\n'
         assert.are.same({ cli.EXIT_OK, report }, { status, out:read '*a' })
         -- without the flag, nothing is printed
         local quiet = assert(io.tmpfile())

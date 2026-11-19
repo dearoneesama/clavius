@@ -50,7 +50,7 @@ end
 --- @class ValidateSource
 --- @field src SrcArena
 --- @field index NodeIndex
---- @field callees table<NodeId, NodeId> the Function node that each call of a local function calls
+--- @field ops table<NodeId, ResolvedOp> the operation of each call, and of each operator with rules of its own, from `types`
 
 --- One obligation that a source node needs: its kind, and the clause for a contract kind or 0.
 --- @class NeededKey
@@ -135,9 +135,10 @@ local function add_clauses(keys, kind, clauses)
 end
 
 --- Returns the obligations that the source node `id` in marked code needs. This follows from what
---- `clavius.ir.support` lets marked code use: every `+`, `-` and `*` is on `int53`, every call is to
---- `assert`, `error` or a local function, every `return` is in a verified function, and every numeric
---- `for` has a literal step.
+--- `clavius.ir.support` lets marked code use: every `+`, `-`, `*` and `%` is on `int53`, every call is
+--- to `assert`, `error`, a local function or a function a `---@meta` file declares, or is the idiom
+--- `math.floor(a / b)`, every `return` is in a verified function, and every numeric `for` has a literal
+--- step.
 --- @param source ValidateSource
 --- @param id NodeId
 --- @return NeededKey[]
@@ -145,10 +146,16 @@ local function needed(source, id)
     local src = source.src
     local n = src.nodes[id]
     local keys = {}
+    local op = source.ops[id]
     if n.tag == 'BinOp' and RANGE_CHECKED[n.op] then
         keys[1] = { kind = 'range', clause = 0 }
-    elseif n.tag == 'Call' and source.callees[id] ~= nil then
-        add_clauses(keys, 'pre', arena.directives(src, src.nodes[source.callees[id]] --[[@as SrcFunction]], 'ClvPre'))
+    elseif n.tag == 'BinOp' and n.op == 'mod' then
+        keys[1] = { kind = 'div_zero', clause = 0 }
+        keys[2] = { kind = 'mod_range', clause = 0 }
+    elseif n.tag == 'Call' and op ~= nil and op.op == 'int.floordiv' then
+        keys[1] = { kind = 'div_zero', clause = 0 }
+    elseif n.tag == 'Call' and op ~= nil then
+        add_clauses(keys, 'pre', arena.directives(src, src.nodes[assert(op.callee)] --[[@as SrcFunction]], 'ClvPre'))
     elseif n.tag == 'Call' then
         local callee = src.nodes[n.func]
         keys[1] = { kind = (callee.tag == 'Id' and callee.name == 'assert') and 'assert' or 'unreachable', clause = 0 }

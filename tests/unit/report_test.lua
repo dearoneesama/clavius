@@ -45,6 +45,48 @@ describe('report.messages', function()
         }, messages.failures({ 1, 2 }, prog.obligations, c.src, text))
     end)
 
+    it('names the divisor and the inexact remainder, and quotes a library spec from its own file', function()
+        local text = stringx.dedent [=[
+            ---@clavius begin
+            local z = 0
+            local a = 5 % z
+            ---@clavius end
+            ---@clavius begin
+            local b = math.floor(5 / 0)
+            ---@clavius end
+            ---@clavius begin
+            local c = 9007199254740992 % -3
+            ---@clavius end
+            ---@clavius begin
+            host.f(-1)
+            ---@clavius end
+        ]=]
+        local meta = stringx.dedent [=[
+            ---@meta
+            ---@extern
+            ---@param n integer
+            ---@pre   n >= 0
+            function host.f(n) end
+        ]=]
+        local c = driver.run_until('validate', text, 1, { { name = 'host.lua', text = meta } })
+        assert.are.same({}, c.diags)
+        local prog = assert(c.prog)
+        local ids = {}
+        for id, o in ipairs(prog.obligations) do
+            if o.kind == 'div_zero' or o.kind == 'mod_range' or o.kind == 'pre' then
+                ids[#ids + 1] = id
+            end
+        end
+        assert.are.same({
+            '3:11: div_zero: the divisor of `5 % z` may be 0 [O1]',
+            '3:11: mod_range: `5 % z` may be computed inexactly, since the dividend minus the remainder may leave ±2^53 [O2]',
+            '6:11: div_zero: the divisor of `math.floor(5 / 0)` may be 0 [O3]',
+            '9:11: div_zero: the divisor of `9007199254740992 % -3` may be 0 [O4]',
+            '9:11: mod_range: `9007199254740992 % -3` may be computed inexactly, since the dividend minus the remainder may leave ±2^53 [O5]',
+            '12:1: pre: this call may not satisfy its precondition `n >= 0` [O6]',
+        }, messages.failures(ids, prog.obligations, c.src, text, driver.texts(c)))
+    end)
+
     it("quotes a loop's invariant and measure, and names its counter and bound", function()
         local text = stringx.dedent [=[
             ---@clavius begin

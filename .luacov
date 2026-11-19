@@ -1,3 +1,5 @@
 return {
     include = { '^src/' },
+    -- the shipped `---@meta` files are read as text, never run
+    exclude = { '^src/clavius/meta/' },
 }

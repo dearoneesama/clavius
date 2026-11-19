@@ -21,6 +21,7 @@ local directive = require 'clavius.syntax.directive'
 --- @field next integer the first directive not taken yet
 --- @field code_parser CodeParser
 --- @field diags Diag[]
+--- @field meta boolean whether the file is a `---@meta` file, where the directives above every function definition are read
 
 --- The directive nodes of a function or a loop, and whether a function's body is marked code.
 --- @class Placement
@@ -152,9 +153,10 @@ end
 --- @param directives Directive[]
 --- @param code_parser CodeParser
 --- @param diags Diag[] where the cursor reports
+--- @param meta boolean whether the file is a `---@meta` file
 --- @return SpliceCursor
-function M.cursor(src, text, directives, code_parser, diags)
-    return { src = src, text = text, directives = directives, next = 1, code_parser = code_parser, diags = diags }
+function M.cursor(src, text, directives, code_parser, diags, meta)
+    return { src = src, text = text, directives = directives, next = 1, code_parser = code_parser, diags = diags, meta = meta }
 end
 
 --- Returns whether code precedes `d` on its line. LuaLS attaches such a directive to that code.
@@ -283,8 +285,9 @@ end
 --- loop it is.
 ---
 --- Marked code is the statements of regions and the bodies of functions marked `---@clavius`. There, and
---- above a function marked `---@clavius` or `---@unsafe`, directives become nodes. Elsewhere only those
---- two marks are read, since the other annotations there are LuaLS's.
+--- above a function marked `---@clavius` or `---@unsafe`, directives become nodes. In a `---@meta` file,
+--- the directives above every function definition do too, since they are its contract. Elsewhere only
+--- those two marks are read, since the other annotations there are LuaLS's.
 --- @param cur SpliceCursor
 --- @param above Directive[]
 --- @param below SpliceBelow
@@ -298,12 +301,13 @@ function M.place(cur, above, below, marked)
         marker = marker or d.tag == 'clavius'
         unsafe = unsafe or d.tag == 'unsafe'
     end
-    local active = marked or (has_function and (marker or unsafe))
+    local active = marked or (has_function and (marker or unsafe or cur.meta))
     local ids = {}
     -- a tag that Clavius doesn't read is ignored wherever it sits
     local known = {}
     for _, d in ipairs(above) do
-        if directive.is_tag(d.tag) then
+        -- a `---@meta` file's own tag may sit right above its first function
+        if directive.is_tag(d.tag) and not (cur.meta and d.tag == 'meta') then
             known[#known + 1] = d
         end
     end

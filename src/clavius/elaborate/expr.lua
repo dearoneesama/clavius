@@ -4,6 +4,7 @@
 
 local arena = require 'clavius.ir.arena'
 local builder = require 'clavius.elaborate.builder'
+local support = require 'clavius.ir.support'
 
 local M = {}
 
@@ -73,10 +74,10 @@ function M.clause(b, cond, subst)
     return t
 end
 
---- Lowers a call of a local function. The arguments are evaluated and each `---@pre` checked on them.
---- The value, if any, is then arbitrary but for its type and the callee's `---@post`s, which are
---- assumed: proved in a verified callee, and trusted in an `---@unsafe` one. Returns the value's term,
---- or nil when the callee has no `---@return`.
+--- Lowers a call of a local, library or host function. The arguments are evaluated and each `---@pre`
+--- checked on them. The value, if any, is then arbitrary but for its type and the callee's `---@post`s,
+--- which are assumed: proved in a verified callee, and trusted in an `---@unsafe` one, a library spec or
+--- a host function. Returns the value's term, or nil when the callee has no `---@return`.
 --- @param b Builder
 --- @param id NodeId
 --- @param out NodeId[]
@@ -86,7 +87,8 @@ end
 --- @return NodeId|nil term
 function M.call(b, id, out)
     local n = b.src.nodes[id] --[[@as SrcCall]]
-    local fn_id = b.info.callees[id]
+    local op = b.info.ops[id]
+    local fn_id = assert(op.callee)
     local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
     --- @type table<NodeId, NodeId>
     local subst = {}
@@ -97,9 +99,10 @@ function M.call(b, id, out)
         local cond = (b.src.nodes[pre] --[[@as SrcClvPre]]).cond
         builder.check(b, out, 'pre', M.clause(b, cond, subst), id, pre)
     end
-    local trusted = arena.has_directive(b.src, fn, 'ClvUnsafe')
+    local trusted = op.trusted
     local decl = trusted and fn_id or nil
     local value = nil
+    local assumed = false
     local r = arena.directives(b.src, fn, 'ClvReturn')[1]
     if r ~= nil then
         local ty = b.info.types[r]
@@ -108,14 +111,106 @@ function M.call(b, id, out)
         value = builder.add(b, { tag = 'Var', name = t }, id)
         if ty == 'int53' then
             builder.assume(b, out, trusted and 'trusted' or 'type_fact', builder.is_int53(b, value, id), id, decl)
+            assumed = true
         end
         subst[r] = value
     end
-    for _, post in ipairs(arena.directives(b.src, fn, 'ClvPost')) do
+    local posts = arena.directives(b.src, fn, 'ClvPost')
+    for _, post in ipairs(posts) do
         local cond = (b.src.nodes[post] --[[@as SrcClvPost]]).cond
         builder.assume(b, out, trusted and 'trusted' or 'callee_post', M.clause(b, cond, subst), id, decl)
+        assumed = true
+    end
+    -- a trusted callee that the call assumes nothing of (no `---@post`, and no value or a `boolean` one,
+    -- which has no type fact) is still trusted to return, having raised no error and written nothing it
+    -- may not; the assumption puts it in the trust report
+    if trusted and not assumed then
+        builder.assume(b, out, 'trusted', builder.add(b, { tag = 'Bool', value = true }, id), id, decl)
     end
     return value
+end
+
+--- Returns Lua's floored quotient and remainder of `a` and `b`, from the core's Euclidean ones. The two
+--- differ only when `b < 0` and the remainder isn't 0: `7 // -3` is -3 with remainder -2, and
+--- Euclidean division gives -2 with remainder 1. With `b == 0` both are unspecified, as spec code's
+--- partial operations are (design §6).
+--- @param b Builder
+--- @param a NodeId
+--- @param d NodeId the divisor
+--- @param origin NodeId
+--- @mut b
+--- @return NodeId quotient
+--- @return NodeId remainder
+local function floored(b, a, d, origin)
+    local zero = builder.add(b, { tag = 'Int', text = '0' }, origin)
+    local one = builder.add(b, { tag = 'Int', text = '1' }, origin)
+    local q = builder.add(b, { tag = 'BinOp', op = 'div', lhs = a, rhs = d }, origin)
+    local r = builder.add(b, { tag = 'BinOp', op = 'mod', lhs = a, rhs = d }, origin)
+    local negative = builder.add(b, { tag = 'BinOp', op = '<', lhs = d, rhs = zero }, origin)
+    local inexact = builder.add(b, { tag = 'BinOp', op = '!=', lhs = r, rhs = zero }, origin)
+    local fix = builder.add(b, { tag = 'BinOp', op = 'and', lhs = negative, rhs = inexact }, origin)
+    local q_fixed = builder.add(b, { tag = 'BinOp', op = '-', lhs = q, rhs = one }, origin)
+    local r_fixed = builder.add(b, { tag = 'BinOp', op = '+', lhs = r, rhs = d }, origin)
+    local quotient = builder.add(b, { tag = 'Ite', cond = fix, if_true = q_fixed, if_false = q }, origin)
+    local remainder = builder.add(b, { tag = 'Ite', cond = fix, if_true = r_fixed, if_false = r }, origin)
+    return quotient, remainder
+end
+
+--- Adds the check that a divisor isn't 0: `n % 0` is NaN, and `math.floor(n / 0)` is an infinity or NaN.
+--- @param b Builder
+--- @param out NodeId[]
+--- @param d NodeId the divisor
+--- @param origin NodeId
+--- @mut b
+--- @mut out
+local function check_divisor(b, out, d, origin)
+    local zero = builder.add(b, { tag = 'Int', text = '0' }, origin)
+    builder.check(b, out, 'div_zero', builder.add(b, { tag = 'BinOp', op = '!=', lhs = d, rhs = zero }, origin), origin)
+end
+
+--- Lowers `math.floor(a / b)`, integer division. Its result needs no range check: `|a / b| <= |a|` when
+--- `b ~= 0`, and the double LuaJIT computes floors to the exact result (design §6).
+--- @param b Builder
+--- @param id NodeId
+--- @param out NodeId[]
+--- @mut b
+--- @mut out
+--- @decrease id
+--- @return NodeId term
+local function floordiv(b, id, out)
+    local n = b.src.nodes[id] --[[@as SrcCall]]
+    local q = b.src.nodes[assert(support.floordiv_arg(b.src, n))] --[[@as SrcBinOp]]
+    local l = M.lower(b, q.lhs, out)
+    local r = M.lower(b, q.rhs, out)
+    if not b.spec then
+        check_divisor(b, out, r, id)
+    end
+    return (floored(b, l, r, id))
+end
+
+--- Lowers `a % b` with Lua's floored semantics. LuaJIT computes it as `a - math.floor(a / b) * b` in
+--- doubles, which is exact only while that product, `a - a % b`, is within ±2^53: `2^53 % -3` gives
+--- 0 where the floored remainder is -1. So besides the divisor, it checks that range.
+--- @param b Builder
+--- @param id NodeId
+--- @param n SrcBinOp
+--- @param out NodeId[]
+--- @mut b
+--- @mut out
+--- @decrease id
+--- @return NodeId term
+local function mod(b, id, n, out)
+    local l = M.lower(b, n.lhs, out)
+    local r = M.lower(b, n.rhs, out)
+    if not b.spec then
+        check_divisor(b, out, r, id)
+    end
+    local _, remainder = floored(b, l, r, id)
+    if not b.spec then
+        local product = builder.add(b, { tag = 'BinOp', op = '-', lhs = l, rhs = remainder }, id)
+        builder.check(b, out, 'mod_range', builder.is_int53(b, product, id), id)
+    end
+    return remainder
 end
 
 --- Lowers an expression to a term and adds the statements it needs to `out`.
@@ -141,6 +236,8 @@ function M.lower(b, id, out)
             return M.lower(b, b.res.constants[decl], out)
         end
         return builder.add(b, { tag = 'Var', name = builder.name_of(b, id) }, id)
+    elseif n.tag == 'Call' and b.info.ops[id].op == 'int.floordiv' then
+        return floordiv(b, id, out)
     elseif n.tag == 'Call' then
         -- `types` has made sure the callee has a value
         return assert(M.call(b, id, out))
@@ -159,6 +256,8 @@ function M.lower(b, id, out)
         return builder.add(b, { tag = 'BinOp', op = '-', lhs = zero, rhs = M.lower(b, n.arg, out) }, id)
     elseif n.tag == 'BinOp' and (n.op == 'and' or n.op == 'or') then
         return short_circuit(b, id, n, out)
+    elseif n.tag == 'BinOp' and n.op == 'mod' then
+        return mod(b, id, n, out)
     elseif n.tag == 'BinOp' then
         local l = M.lower(b, n.lhs, out)
         local r = M.lower(b, n.rhs, out)

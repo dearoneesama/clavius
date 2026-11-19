@@ -14,6 +14,8 @@
 --- | 'invariant_preserved' # a loop's invariant, or the counter's range, holds again after an iteration
 --- | 'decrease' # a loop's `---@decrease` measure is non-negative when an iteration starts and smaller when it ends
 --- | 'for_bound' # a numeric `for`'s limit plus its step stays within ±2^53, so the counter can pass it
+--- | 'div_zero' # the divisor of `%` or of `math.floor(a / b)` isn't 0
+--- | 'mod_range' # `a - a % b` stays within ±2^53, so LuaJIT computes `a % b` exactly
 
 --- Why an assumption may be made. Nothing proves a `trusted` one, so the trust report lists each. The
 --- `false` of a `back_edge` ends an iteration whose checks are done, since the loop's head, with its
@@ -22,7 +24,7 @@
 --- | 'type_fact' # a value of a declared type satisfies that type's predicate
 --- | 'branch' # the condition of the branch being taken
 --- | 'callee_post' # a verified callee's `---@post`, proved where the callee returns
---- | 'trusted' # what an `---@unsafe` callee promises, or what a verified function assumes on entry about outside callers
+--- | 'trusted' # what an `---@unsafe` callee, a library spec or a host function promises, or what a verified function assumes on entry about outside callers
 --- | 'invariant' # a loop invariant at the loop's head, checked on entry and after each iteration
 --- | 'back_edge' # `false` at the end of an iteration that iterates again
 
@@ -34,7 +36,7 @@
 --- @class Assumption
 --- @field kind Justification
 --- @field node NodeId the source node it comes from
---- @field decl NodeId|nil for a trusted one, the Function whose contract or callers it trusts
+--- @field decl NodeId|nil for a trusted one, the Function whose contract or callers it trusts: a local function, or a function in a `---@meta` file
 
 local M = {}
 
@@ -51,6 +53,8 @@ M.OBLIGATION_KINDS = {
     invariant_preserved = true,
     decrease = true,
     for_bound = true,
+    div_zero = true,
+    mod_range = true,
 }
 
 --- The justifications an `Assume` may have as a set.

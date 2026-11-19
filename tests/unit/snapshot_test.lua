@@ -29,9 +29,9 @@ describe('trust report', function()
     for _, input in ipairs(inputs) do
         it(input, function()
             local text = assert(utils.readfile(input, true))
-            local c = driver.run_until('validate', text, 1)
+            local c = driver.run_until('validate', text, 1, nil, (input:match '[^/]+$'))
             assert.are.same({}, messages.diags(c.diags, c.spans, text))
-            local lines = trust.report(assert(c.prog), c.src, assert(c.index), text, (input:match '[^/]+$'))
+            local lines = trust.report(assert(c.prog), c.src, assert(c.index), c.files, c.file)
             snapshot.check((input:gsub('%.lua$', '.trust.txt')), table.concat(lines, '\n') .. '\n')
         end)
     end

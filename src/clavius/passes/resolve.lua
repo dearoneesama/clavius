@@ -13,6 +13,24 @@ local support = require 'clavius.ir.support'
 --- @field functions table<NodeId, NodeId> the Function node of each `local function`'s Binder
 --- @field constants table<NodeId, NodeId> the initializer of each constant: a top-level local whose initializer is a number or boolean literal, and which is never assigned
 --- @field assigned table<NodeId, boolean> the Binders that an assignment anywhere in the file targets
+--- @field library table<NodeId, NodeId> the Function node in a `---@meta` file that each call in marked code of a library or host function calls
+--- @field idioms table<NodeId, string> the operation that each call in marked code written as a library idiom stands for, such as `int.floordiv` for `math.floor(a / b)`
+
+--- What the `---@meta` files of a run declare, for the files that call into them.
+--- @class Interface
+--- @field functions table<string, NodeId> the Function node of each declared function, by the name it is called by, such as `math.min`
+--- @field kinds table<NodeId, MetaKind> whether each declared function is a shipped library spec or a host function
+--- @field res Resolution the resolution of the `---@meta` files: their parameters and contracts
+--- @field info TypeInfo the types of their parameters, values and contract clauses
+
+--- A function that a `---@meta` file declares: the name it is called by, and its Function node.
+--- @class MetaFunction
+--- @field name string
+--- @field fn NodeId
+
+--- A `---@meta` file is shipped with Clavius, with the specs of the standard library, or is the
+--- project's own, with `---@extern` host functions.
+--- @alias MetaKind 'stdlib' | 'extern'
 
 --- A read in marked code of a local declared outside its unit, or a call that marked code makes. Both
 --- are checked once the whole file is resolved.
@@ -36,6 +54,12 @@ local support = require 'clavius.ir.support'
 --- @field in_clause boolean whether a contract clause is being visited
 --- @field outer_reads PendingUse[]
 --- @field calls PendingUse[]
+--- @field iface Interface|nil what the run's `---@meta` files declare
+--- @field meta_kind MetaKind|nil the kind of `---@meta` file being resolved, or nil for a Lua module
+--- @field meta_functions table<NodeId, boolean> in a `---@meta` file, the Function nodes of its top-level function definitions
+--- @field top_statements table<NodeId, boolean> the file's top-level statements, outside regions
+--- @field alias_path table<NodeId, string> the library function that each candidate alias names: a top-level local of unmarked code initialized with one, such as `local floor = math.floor`
+--- @field alias_calls PendingUse[] the calls in marked code through an alias, which must never be assigned
 
 local M = {}
 
@@ -158,6 +182,31 @@ end
 
 local visit
 
+--- Records the library aliases that a top-level `local` of unmarked code declares, such as
+--- `local floor = math.floor`: a name initialized with a shipped library function, or with
+--- `math.floor`, whose idiom `floor(a / b)` then still means integer division (gap review, item 16).
+--- A host function can't be aliased, since the host may install it after the module has loaded.
+--- @param st ResolveState
+--- @param n SrcLocal
+--- @param scope integer
+--- @mut st
+local function record_aliases(st, n, scope)
+    for i, b in ipairs(n.names) do
+        local v = n.values[i]
+        local tag = v and st.src.nodes[v].tag
+        local path = nil
+        if tag == 'Id' or tag == 'Index' then
+            local _
+            _, path = global_name(st, v, scope)
+        end
+        local fn = path and st.iface and st.iface.functions[path]
+        local stdlib = fn and st.iface.kinds[fn] == 'stdlib'
+        if path ~= nil and (support.IDIOMS[path] or stdlib) then
+            st.alias_path[b] = path
+        end
+    end
+end
+
 --- Checks the arguments of a statement call to `assert` or `error`.
 --- @param st ResolveState
 --- @param id NodeId
@@ -222,6 +271,37 @@ local function visit_call(st, id, scope, unit, is_statement)
     local base, path = nil, nil
     if n.method == nil then
         base, path = global_name(st, n.func, scope)
+    end
+    -- a call through a library alias is a call of the library function, as it names it
+    local callee = st.src.nodes[n.func]
+    local alias = unit ~= 0 and path == nil and callee.tag == 'Id' and lookup(st, scope, callee.name) or nil
+    if alias ~= nil and st.alias_path[alias] ~= nil then
+        path = st.alias_path[alias]
+        base = path:match '^[^.]+'
+        st.out.decl[n.func] = alias
+        st.alias_calls[#st.alias_calls + 1] = { id = id, binder = alias }
+    end
+    -- `math.floor(a / b)` is an operation, so a contract may use it too
+    local quotient = path ~= nil and support.IDIOMS[path] and support.floordiv_arg(st.src, n)
+    if unit ~= 0 and quotient and not is_statement then
+        local q = st.src.nodes[quotient] --[[@as SrcBinOp]]
+        st.out.idioms[id] = support.IDIOMS[path]
+        visit(st, q.lhs, scope, unit)
+        visit(st, q.rhs, scope, unit)
+        return
+    end
+    local declared = path ~= nil and st.iface and st.iface.functions[path]
+    if unit ~= 0 and declared and not st.in_clause then
+        local fn = st.src.nodes[declared] --[[@as SrcFunction]]
+        if fn.vararg or #n.args ~= #fn.params then
+            report(st, 'E-unsupported-feature', id, { 'call-args' })
+        else
+            st.out.library[id] = declared
+        end
+        for _, a in ipairs(n.args) do
+            visit(st, a, scope, unit)
+        end
+        return
     end
     if unit ~= 0 and st.in_clause then
         report(st, 'E-unsupported-feature', id, { 'call-in-contract' })
@@ -333,9 +413,19 @@ local function visit_directives(st, id, scope)
         ] = true
     end
     local typed, returns, clauses = {}, {}, {}
+    local allowed = st.meta_kind and support.META_DIRECTIVES or support.FUNCTION_DIRECTIVES
+    local unsafe = arena.has_directive(st.src, fn, 'ClvUnsafe')
+    if st.meta_kind == 'extern' and not arena.has_directive(st.src, fn, 'ClvExtern') then
+        report(st, 'E-misplaced-directive', id, { 'missing-extern' })
+    end
     for _, d in ipairs(fn.directives) do
         local dn = st.src.nodes[d]
-        if not support.FUNCTION_DIRECTIVES[dn.tag] then
+        if support.TRUST_FLAGS[dn.tag] and not st.meta_kind then
+            -- the flags describe trusted code, so they sit only on an `---@unsafe` function here
+            if not unsafe then
+                report(st, 'E-misplaced-directive', d, { 'untrusted-flag' })
+            end
+        elseif not allowed[dn.tag] then
             report(st, 'E-unsupported-directive', d, { support.DIRECTIVE_TAGS[dn.tag] })
         elseif dn.tag == 'ClvParam' and not params[dn.name] then
             report(st, 'E-misplaced-directive', d, { 'no-such-param' })
@@ -425,7 +515,8 @@ end
 local function visit_function(st, id, scope, unit, binder)
     local fn = st.src.nodes[id] --[[@as SrcFunction]]
     local unsafe = arena.has_directive(st.src, fn, 'ClvUnsafe')
-    local root = (unit ~= 0 or unsafe) and id or 0
+    -- a function in a `---@meta` file is a contract with no body to verify, like an `---@unsafe` one
+    local root = (unit ~= 0 or unsafe or st.meta_functions[id]) and id or 0
     local s = open(st, scope)
     for _, p in ipairs(fn.params) do
         local name = (st.src.nodes[p] --[[@as SrcBinder]]).name
@@ -500,6 +591,9 @@ function visit(st, id, scope, unit)
 
     local child_scope = scope
     local child_unit = unit
+    if n.tag == 'Local' and unit == 0 and st.top_statements[id] then
+        record_aliases(st, n --[[@as SrcLocal]], scope)
+    end
     if n.tag == 'Block' or n.tag == 'Forin' then
         child_scope = open(st, scope)
     elseif n.tag == 'ClvRegion' then
@@ -594,16 +688,15 @@ local function top_level(src, root)
     return out
 end
 
---- Resolves a parsed file.
+--- Makes the state for resolving one file.
 --- @param src SrcArena
---- @param root NodeId
---- @return Resolution res
---- @return Diag[] diags
-function M.run(src, root)
-    --- @type ResolveState
-    local st = {
+--- @param iface Interface|nil
+--- @param meta_kind MetaKind|nil
+--- @return ResolveState
+local function new_state(src, iface, meta_kind)
+    return {
         src = src,
-        out = { decl = {}, names = {}, functions = {}, constants = {}, assigned = {} },
+        out = { decl = {}, names = {}, functions = {}, constants = {}, assigned = {}, library = {}, idioms = {} },
         diags = {},
         scope_parent = {},
         scope_names = {},
@@ -617,9 +710,98 @@ function M.run(src, root)
         in_clause = false,
         outer_reads = {},
         calls = {},
+        iface = iface,
+        meta_kind = meta_kind,
+        meta_functions = {},
+        top_statements = {},
+        alias_path = {},
+        alias_calls = {},
     }
+end
+
+--- If a top-level statement defines a global function, as `function math.min(x, y) end` does, returns
+--- the function's name and its Function node.
+--- @param st ResolveState
+--- @param id NodeId
+--- @return string|nil name
+--- @return NodeId|nil fn
+local function global_definition(st, id)
+    local n = st.src.nodes[id]
+    if n.tag ~= 'Set' or #n.targets ~= 1 or #n.values ~= 1 or st.src.nodes[n.values[1]].tag ~= 'Function' then
+        return nil, nil
+    end
+    local _, path = global_name(st, n.targets[1], 0)
+    if path == nil then
+        return nil, nil
+    end
+    return path, n.values[1]
+end
+
+--- Resolves a `---@meta` file: the parameters and contracts of the functions it declares. Returns the
+--- resolution, the declared functions in file order, and the diagnostics. A `---@meta` file has no
+--- marked code.
+--- @param src SrcArena
+--- @param root NodeId
+--- @param kind MetaKind
+--- @return Resolution res
+--- @return MetaFunction[] declared
+--- @return Diag[] diags
+function M.meta(src, root, kind)
+    local st = new_state(src, nil, kind)
+    --- @type table<string, NodeId>
+    local functions = {}
+    --- @type MetaFunction[]
+    local declared = {}
+    local block = src.nodes[root] --[[@as SrcBlock]]
+    for _, id in ipairs(block.statements) do
+        local n = src.nodes[id]
+        local name, fn = global_definition(st, id)
+        if n.tag == 'LocalFunction' then
+            fn = n.func
+        end
+        -- a `---@meta` file is never verified, so nothing in it may be marked
+        local marked = fn ~= nil and arena.has_directive(src, src.nodes[fn] --[[@as SrcFunction]], 'ClvMarker')
+        if n.tag == 'ClvRegion' or marked then
+            report(st, 'E-misplaced-directive', id, { 'marked-meta' })
+        elseif name ~= nil and functions[name] ~= nil then
+            report(st, 'E-misplaced-directive', id, { 'repeated-declaration' })
+        elseif name ~= nil then
+            --- @cast fn NodeId
+            functions[name] = fn
+            declared[#declared + 1] = { name = name, fn = fn }
+            st.meta_functions[fn] = true
+        end
+    end
+    if #st.diags > 0 then
+        return st.out, declared, st.diags
+    end
+    visit(st, root, 0, 0)
+    return st.out, declared, st.diags
+end
+
+--- Resolves a parsed file. The names that the run's `---@meta` files declare are callable from its
+--- marked code.
+--- @param src SrcArena
+--- @param root NodeId
+--- @param iface Interface|nil
+--- @return Resolution res
+--- @return Diag[] diags
+function M.run(src, root, iface)
+    local st = new_state(src, iface, nil)
+    -- the run's resolution covers the `---@meta` files too, since a call lowers its callee's contract
+    if iface ~= nil then
+        for id = 1, #src.nodes do
+            st.out.decl[id] = iface.res.decl[id]
+            st.out.names[id] = iface.res.names[id]
+        end
+    end
     -- the Binders of top-level locals with a literal initializer, and the initializers
     local candidates, values = {}, {}
+    for _, id in
+        ipairs((src.nodes[root] --[[@as SrcBlock]]).statements)
+    do
+        st.top_statements[id] = true
+    end
     for _, id in ipairs(top_level(src, root)) do
         local n = src.nodes[id]
         if n.tag == 'LocalFunction' then
@@ -648,6 +830,11 @@ function M.run(src, root)
     for _, c in ipairs(st.calls) do
         if st.out.assigned[c.binder] then
             report(st, 'E-unsupported-feature', c.id, { 'reassigned-function' })
+        end
+    end
+    for _, c in ipairs(st.alias_calls) do
+        if st.out.assigned[c.binder] then
+            report(st, 'E-unsupported-feature', c.id, { 'reassigned-alias' })
         end
     end
     return st.out, st.diags

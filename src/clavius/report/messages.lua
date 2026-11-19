@@ -80,16 +80,20 @@ local PHRASES = {
     ['repeated-param'] = 'this parameter already has a `---@param`',
     ['return-name-clash'] = "a parameter has the name of the function's value",
     ['marked-unsafe'] = "a function can't be both `---@clavius` and `---@unsafe`",
+    ['untrusted-flag'] = '`---@no_callback` and `---@may_raise` belong on an `---@unsafe` function',
     ['repeated-decrease'] = 'this loop already has a `---@decrease`',
     ['missing-decrease'] = 'a `while` or `repeat` loop needs a `---@decrease` above it',
+    -- `---@meta` files
+    ['missing-extern'] = 'a function in a `---@meta` file given with `--meta` needs `---@extern` above it',
+    ['marked-meta'] = 'a `---@meta` file holds only specs, so nothing in it can be marked',
+    ['repeated-declaration'] = 'this function is already declared in a `---@meta` file of the run',
     -- node kinds
     Index = 'indexing',
     Table = 'a table constructor',
     Forin = 'a generic `for` loop',
     Dots = '`...`',
     -- operators
-    div = 'the `/` operator',
-    mod = 'the `%` operator',
+    div = 'the `/` operator, other than in `math.floor(a / b)`,',
     pow = 'the `^` operator',
     concat = 'the `..` operator',
     len = 'the `#` operator',
@@ -97,12 +101,13 @@ local PHRASES = {
     ['local-values'] = 'a `local` whose names and values differ in number',
     ['assign-values'] = 'an assignment whose targets and values differ in number',
     ['repeated-target'] = 'assigning a local twice in one assignment',
-    ['call'] = 'a call of anything but `assert`, `error` or a `local function` by its name',
+    ['call'] = 'a call of anything but `assert`, `error`, a `local function` by its name, or a function that a `---@meta` file declares',
     ['call-args'] = "a call whose arguments and the callee's parameters differ in number",
     ['call-in-contract'] = 'a call in a contract or a loop annotation',
     ['recursion'] = 'recursion',
     ['unmarked-callee'] = 'a call to a function that is neither `---@clavius` nor `---@unsafe`',
     ['reassigned-function'] = 'a call to a function that is assigned somewhere in the file',
+    ['reassigned-alias'] = 'a call through a library alias that is assigned somewhere in the file',
     ['function-value'] = 'a function other than a top-level `local function`, or one used as a value',
     ['return-outside-function'] = '`return` outside a function',
     ['multiple-returns'] = 'more than one return value',
@@ -133,6 +138,8 @@ local FAILURES = {
     invariant_preserved = 'the loop invariant `%s` may not hold again after an iteration',
     decrease = 'an iteration may start with the measure `%s` negative, or may not decrease it',
     for_bound = "this loop's limit plus its step may leave ±2^53",
+    div_zero = 'the divisor of `%s` may be 0',
+    mod_range = '`%s` may be computed inexactly, since the dividend minus the remainder may leave ±2^53',
 }
 
 --- What a failing obligation that the counter of a numeric `for` needs means. It has no clause.
@@ -165,13 +172,16 @@ function M.diag(d, spans, text)
     return ('%s: %s: %s'):format(position(text, span.start), d.code, template:format(unpack(args)))
 end
 
---- Formats the failing obligation `id` as `line:col: kind: message [O17]`.
+--- Formats the failing obligation `id` as `line:col: kind: message [O17]`. Its node is in the Lua file,
+--- whose text is `text`. The clause it quotes may be in another file of the run, such as the `---@pre`
+--- of a library function in a `---@meta` file, whose text `texts` gives.
 --- @param id integer
 --- @param o Obligation
 --- @param src SrcArena
 --- @param text string
+--- @param texts table<FileId, string>|nil
 --- @return string
-function M.failure(id, o, src, text)
+function M.failure(id, o, src, text, texts)
     local span = src.spans[o.node]
     -- a clause is quoted without its tag
     local quoted = span
@@ -186,7 +196,8 @@ function M.failure(id, o, src, text)
     elseif COUNTER_FAILURES[o.kind] then
         template = COUNTER_FAILURES[o.kind]
     end
-    local snippet = text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
+    local quoted_text = texts and texts[quoted.file] or text
+    local snippet = quoted_text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
     local message = assert(template, ('messages: no message for %s'):format(o.kind)):format(snippet)
     return ('%s: %s: %s [O%d]'):format(position(text, span.start), o.kind, message, id)
 end
@@ -237,12 +248,13 @@ end
 --- @param obligations Obligation[]
 --- @param src SrcArena
 --- @param text string
+--- @param texts table<FileId, string>|nil the text of each file of the run, for clauses in other files
 --- @return string[]
-function M.failures(failed, obligations, src, text)
+function M.failures(failed, obligations, src, text, texts)
     local list = {}
     for i, id in ipairs(failed) do
         local o = obligations[id]
-        list[i] = { start = src.spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = M.failure(id, o, src, text) }
+        list[i] = { start = src.spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = M.failure(id, o, src, text, texts) }
     end
     return in_order(list)
 end

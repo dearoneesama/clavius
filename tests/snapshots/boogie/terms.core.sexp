@@ -13,7 +13,11 @@
    (Check 7
      (BinOp and
        (BinOp == (BinOp mod (Int -7) (Int 3)) (Int 2))
-       (BinOp == (BinOp mod (Int 7) (Int -3)) (Int 1))))])
+       (BinOp == (BinOp mod (Int 7) (Int -3)) (Int 1))))
+   (Check 8
+     (BinOp and
+       (BinOp == (BinOp div (Int -7) (Int 3)) (Int -3))
+       (BinOp == (BinOp div (Int 7) (Int -3)) (Int -2))))])
 
 (obligation 1 :kind assert :node 0)
 (obligation 2 :kind assert :node 0)
@@ -22,3 +26,4 @@
 (obligation 5 :kind assert :node 0)
 (obligation 6 :kind assert :node 0)
 (obligation 7 :kind assert :node 0)
+(obligation 8 :kind assert :node 0)

@@ -395,7 +395,7 @@ function statement(b, id, out)
         lower_fornum(b, id, n, out)
     elseif n.tag == 'Break' then
         builder.emit(b, out, { tag = 'Exit', label = assert(b.breaks[#b.breaks]) }, id)
-    elseif n.tag == 'Call' and b.info.callees[id] ~= nil then
+    elseif n.tag == 'Call' and b.info.ops[id] ~= nil and b.info.ops[id].op == 'call' then
         expr.call(b, id, out)
     elseif n.tag == 'Call' then
         local callee = b.src.nodes[n.func] --[[@as SrcId]]

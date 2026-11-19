@@ -1,0 +1,8 @@
+Trust report: stdlib.lua
+
+  stdlib specs (Clavius dev)
+    math.min  clavius/meta/math.lua:21
+    math.max  clavius/meta/math.lua:29
+
+  stdlib unchanged
+    glue replaces no stdlib function and not the string metatable

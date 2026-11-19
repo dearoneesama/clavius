@@ -553,10 +553,11 @@ end
 --- @param src SrcArena
 --- @param text string
 --- @param file FileId
+--- @param meta boolean|nil whether the file is a `---@meta` file, whose functions' directives are read
 --- @mut src
 --- @return Chunk|nil chunk
 --- @return Diag[] diags
-function M.convert(src, text, file)
+function M.convert(src, text, file, meta)
     local st = new_state(src, file, 0)
     local source = byte_source(text)
     local ast, found, hanging = run_parser(st, source)
@@ -584,7 +585,7 @@ function M.convert(src, text, file)
     local function code(text_of_code, start)
         return M.expressions(src, file, text_of_code, start)
     end
-    st.cursor = splice.cursor(src, text, directives, code, st.diags)
+    st.cursor = splice.cursor(src, text, directives, code, st.diags, meta == true)
     local statements = statement_list(st, ast, regions)
     splice.finish(st.cursor)
     -- a `;` at the start of a block or after another `;`: Lua 5.1 has no empty statement

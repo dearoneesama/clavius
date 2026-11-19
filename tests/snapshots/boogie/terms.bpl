@@ -13,4 +13,5 @@ procedure {:rlimit 10000000} terms()
   p := true;
   assert {:msg "O6"} p == (q || !q);
   assert {:msg "O7"} (((-7) mod 3) == 2) && ((7 mod (-3)) == 1);
+  assert {:msg "O8"} (((-7) div 3) == (-3)) && ((7 div (-3)) == (-2));
 }

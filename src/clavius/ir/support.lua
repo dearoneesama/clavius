@@ -40,6 +40,7 @@ M.BINOPS = {
     add = true,
     sub = true,
     mul = true,
+    mod = true,
     eq = true,
     ne = true,
     lt = true,
@@ -58,13 +59,36 @@ M.UNOPS = { unm = true, ['not'] = true }
 --- @type table<string, boolean>
 M.TYPES = { int53 = true, boolean = true }
 
---- Library functions that marked code may call.
+--- Library functions that marked code may call and that Clavius encodes itself. Other library functions
+--- are called through the specs of the `---@meta` files in the run.
 --- @type table<string, boolean>
 M.CALLS = { assert = true, error = true }
+
+--- The idioms that are written as a library call but encoded as an operation (design §6).
+--- `math.floor(a / b)` is integer division: only this direct form counts.
+--- @type table<string, string>
+M.IDIOMS = { ['math.floor'] = 'int.floordiv' }
+
+--- Directive kinds that a function in a `---@meta` file may have.
+--- @type table<string, boolean>
+M.META_DIRECTIVES = {
+    ClvPre = true,
+    ClvPost = true,
+    ClvParam = true,
+    ClvReturn = true,
+    ClvExtern = true,
+    ClvNoCallback = true,
+    ClvMayRaise = true,
+}
 
 --- Directive kinds that marked code may use above a function.
 --- @type table<string, boolean>
 M.FUNCTION_DIRECTIVES = { ClvMarker = true, ClvUnsafe = true, ClvPre = true, ClvPost = true, ClvParam = true, ClvReturn = true }
+
+--- The flags of trusted code: an `---@extern` function in a `---@meta` file, or an `---@unsafe` one.
+--- They are parsed and listed in the trust report now, and take effect in M14.
+--- @type table<string, boolean>
+M.TRUST_FLAGS = { ClvNoCallback = true, ClvMayRaise = true }
 
 --- Directive kinds that marked code may use above a loop.
 --- @type table<string, boolean>
@@ -186,6 +210,27 @@ M.GLOBALS = {
 --- - `library`: a part of the library that Clavius has no rule for, such as `print` or `math.floor`;
 --- - `global`: a global outside the library. Verified code must never use one.
 --- @alias GlobalUse 'supported' | 'banned' | 'library' | 'global'
+
+--- If `call` is `math.floor(a / b)`, returns the `/` node, looking through parentheses. The callee must
+--- be the global `math.floor`, which `resolve` decides; this only checks the form.
+--- @param src SrcArena
+--- @param call SrcCall
+--- @return NodeId|nil
+function M.floordiv_arg(src, call)
+    if call.method ~= nil or #call.args ~= 1 then
+        return nil
+    end
+    local id = call.args[1]
+    local n = src.nodes[id]
+    while n.tag == 'Paren' do
+        id = n.expr
+        n = src.nodes[id]
+    end
+    if n.tag == 'BinOp' and n.op == 'div' then
+        return id
+    end
+    return nil
+end
 
 --- Says what a global, or a field of one, is to marked code.
 --- @param base string the global's name

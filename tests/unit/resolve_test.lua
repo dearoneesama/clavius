@@ -11,7 +11,8 @@ local function refs(text)
     local res = assert(c.res)
     local out = {}
     for id, n in ipairs(c.src.nodes) do
-        if n.tag == 'Id' then
+        -- the shipped specs follow the file in the run's arena
+        if n.tag == 'Id' and c.src.spans[id].file == c.file then
             local binder = res.decl[id]
             out[#out + 1] = ('%s %s'):format(n.name, binder and res.names[binder] or 'global')
         end
@@ -55,7 +56,6 @@ describe('resolve', function()
             ---@clavius begin
             local t = 1
             local a = 1 / 2 --! E-unsupported-feature
-            local b = 1 % 2 --! E-unsupported-feature
             local c = 2 ^ 2 --! E-unsupported-feature
             local d = 1 .. 2 --! E-unsupported-feature
             local e = #t --! E-unsupported-feature
@@ -270,6 +270,17 @@ describe('resolve', function()
             ---@unsafe
             --! E-misplaced-directive
             local function g() end
+            -- the flags of trusted code sit on an `---@unsafe` function, never on a verified one
+            ---@unsafe
+            ---@no_callback
+            ---@may_raise
+            local function u() end
+            ---@clavius
+            ---@no_callback
+            --! E-misplaced-directive
+            ---@may_raise
+            --! E-misplaced-directive
+            local function v() end
             ---@clavius
             ---@return integer
             ---@return integer
