@@ -82,9 +82,11 @@ function M.report(prog, src, index, text, file)
     -- the longest name, so the locations line up across both sections
     local width = 0
     for _, id in ipairs(fns) do
-        -- every trusted Function is a `local function`'s
-        local def = src.nodes[index.parent[id]] --[[@as SrcLocalFunction]]
-        local name = (src.nodes[def.binder] --[[@as SrcBinder]]).name
+        -- every trusted Function is defined by a `local function f`,
+        -- or, after `local f`, a `function f`
+        local def = src.nodes[index.parent[id]] --[[@as SrcLocalFunction|SrcSet]]
+        local named = def.tag == 'Set' and def.targets[1] or def.binder
+        local name = (src.nodes[named] --[[@as SrcBinder|SrcId]]).name
         local fn = src.nodes[id] --[[@as SrcFunction]]
         local entry = { name = name, line = arena.line_col(text, starts, src.spans[index.parent[id]].start) }
         if arena.has_directive(src, fn, 'ClvUnsafe') then

@@ -353,7 +353,9 @@ end
 --- @decrease id
 function statement(b, id, out)
     local n = b.src.nodes[id]
-    if n.tag == 'Local' then
+    if b.res.defined[id] ~= nil or (n.tag == 'Local' and #n.values == 0) then -- luacheck: ignore 542
+        -- a function definition is a unit of its own, and a forward declaration declares only functions
+    elseif n.tag == 'Local' then
         local terms = {}
         for i, v in ipairs(n.values) do
             terms[i] = expr.lower(b, v, out)
@@ -414,8 +416,6 @@ function statement(b, id, out)
         end
         check_posts(b, out, id)
         builder.emit(b, out, { tag = 'Exit', label = 'body' }, id)
-    elseif n.tag == 'LocalFunction' then -- luacheck: ignore 542
-        -- a unit of its own
     else
         error(('elaborate: unhandled statement %s'):format(n.tag))
     end
@@ -425,11 +425,11 @@ end
 --- arguments that meet its `---@pre`s, since some may be outside verification; verified ones check the
 --- `---@pre`s. Its body runs in a Block labeled `body`, which `return` exits.
 --- @param b Builder
---- @param def SrcLocalFunction
+--- @param binder NodeId the Binder that the function's definition defines
 --- @mut b
 --- @return NodeId unit
-local function function_unit(b, def)
-    local fn_id = def.func
+local function function_unit(b, binder)
+    local fn_id = b.res.functions[binder]
     local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
     builder.start_unit(b)
     local body = {}
@@ -472,17 +472,17 @@ local function function_unit(b, def)
     end
     b.fn = nil
     builder.emit(b, body, { tag = 'Block', label = 'body', body = inner }, fn_id)
-    return builder.add(b, { tag = 'Unit', name = builder.name_of(b, def.binder), vars = b.vars, body = body }, fn_id)
+    return builder.add(b, { tag = 'Unit', name = builder.name_of(b, binder), vars = b.vars, body = body }, fn_id)
 end
 
---- Returns whether a top-level `local function` is verified: marked `---@clavius`, or in a region and not
---- `---@unsafe`.
+--- Returns whether a top-level function definition is verified: marked `---@clavius`, or in a region and
+--- not `---@unsafe`.
 --- @param b Builder
---- @param def SrcLocalFunction
+--- @param binder NodeId the Binder that it defines
 --- @param in_region boolean
 --- @return boolean
-local function is_verified(b, def, in_region)
-    local fn = b.src.nodes[def.func] --[[@as SrcFunction]]
+local function is_verified(b, binder, in_region)
+    local fn = b.src.nodes[b.res.functions[binder]] --[[@as SrcFunction]]
     if arena.has_directive(b.src, fn, 'ClvMarker') then
         return true
     end
@@ -504,16 +504,18 @@ function M.run(src, root, res, info, effects)
     local top = src.nodes[root] --[[@as SrcBlock]]
     for _, id in ipairs(top.statements) do
         local n = src.nodes[id]
-        if n.tag == 'LocalFunction' and is_verified(b, n, false) then
-            units[#units + 1] = function_unit(b, n)
+        local binder = res.defined[id]
+        if binder ~= nil and is_verified(b, binder, false) then
+            units[#units + 1] = function_unit(b, binder)
         elseif n.tag == 'ClvRegion' then
             local others = {}
             for _, s in ipairs(n.statements) do
                 local sn = src.nodes[s]
-                if sn.tag ~= 'LocalFunction' then
+                local defines = res.defined[s]
+                if defines ~= nil and is_verified(b, defines, true) then
+                    units[#units + 1] = function_unit(b, defines)
+                elseif defines == nil and not (sn.tag == 'Local' and #sn.values == 0) then
                     others[#others + 1] = s
-                elseif is_verified(b, sn, true) then
-                    units[#units + 1] = function_unit(b, sn)
                 end
             end
             if #others > 0 then

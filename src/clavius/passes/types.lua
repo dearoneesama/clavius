@@ -308,7 +308,9 @@ end
 --- @decrease id
 local function statement(st, id)
     local n = st.src.nodes[id]
-    if n.tag == 'Local' then
+    if st.res.defined[id] ~= nil then -- luacheck: ignore 542
+        -- a function definition, typed as a unit of its own
+    elseif n.tag == 'Local' then
         for i, v in ipairs(n.values) do
             local ty = expression(st, v)
             if ty ~= nil then
@@ -379,14 +381,13 @@ local function statement(st, id)
                 report(st, 'E-type-mismatch', value, { want, ty })
             end
         end
-    elseif n.tag == 'LocalFunction' then -- luacheck: ignore 542
-        -- a unit of its own
     else
         error(('types: unhandled statement %s'):format(n.tag))
     end
 end
 
---- Types a function's contract, and its body unless it is `---@unsafe`. Its signature is already typed.
+--- Types a function's contract and measure, and its body unless it is `---@unsafe`. Its signature is
+--- already typed.
 --- @param st TypesState
 --- @param fn SrcFunction
 --- @param verified boolean
@@ -396,6 +397,10 @@ local function func(st, fn, verified)
         local dn = st.src.nodes[d]
         if dn.tag == 'ClvPre' or dn.tag == 'ClvPost' then
             want_bool(st, dn.cond, expression(st, dn.cond))
+        elseif dn.tag == 'ClvDecrease' then
+            for _, m in ipairs(dn.measures) do
+                want_int(st, m, expression(st, m))
+            end
         end
     end
     if verified then
@@ -416,7 +421,7 @@ function M.run(src, root, res)
     --- @type TypesState
     local st = { src = src, res = res, out = { types = {}, callees = {} }, diags = {}, result = nil, typed = {} }
     local top = src.nodes[root] --[[@as SrcBlock]]
-    -- the top-level `local function`s, and whether each is in a region
+    -- the top-level statements, and whether each is in a region
     local defs, in_region = {}, {}
     for _, id in ipairs(top.statements) do
         local n = src.nodes[id]
@@ -433,9 +438,9 @@ function M.run(src, root, res)
     -- the functions to type, and whether each is verified
     local fns, verified = {}, {}
     for i, id in ipairs(defs) do
-        local n = src.nodes[id]
-        if n.tag == 'LocalFunction' then
-            local fn = src.nodes[n.func] --[[@as SrcFunction]]
+        local binder = res.defined[id]
+        if binder ~= nil then
+            local fn = src.nodes[res.functions[binder]] --[[@as SrcFunction]]
             local unsafe = arena.has_directive(st.src, fn, 'ClvUnsafe')
             if unsafe or in_region[i] or arena.has_directive(st.src, fn, 'ClvMarker') then
                 fns[#fns + 1] = fn
@@ -443,7 +448,7 @@ function M.run(src, root, res)
             end
         end
     end
-    -- every signature first, since any function's code may call the ones before it
+    -- every signature first, since a function may call one defined below it
     for _, fn in ipairs(fns) do
         signature(st, fn)
     end

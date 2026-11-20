@@ -24,6 +24,7 @@ local write = require 'clavius.sexpr.write'
 --- @field res Resolution|nil
 --- @field info TypeInfo|nil
 --- @field effects Effects|nil
+--- @field termination Termination|nil
 --- @field prog CoreProgram|nil
 --- @field stage string the last stage that ran
 --- @field diags Diag[] the diagnostics of that stage
@@ -72,7 +73,9 @@ end
 --- @param c CompilerContext
 --- @return Diag[]
 local function run_termination(c)
-    return termination.run(c.src, assert(c.index))
+    local result, diags = termination.run(c.src, assert(c.index), assert(c.info))
+    c.termination = result
+    return diags
 end
 
 --- @param c CompilerContext
@@ -86,7 +89,7 @@ end
 --- @return Diag[]
 local function run_validate(c)
     local prog = assert(c.prog)
-    local source = { src = c.src, index = assert(c.index), callees = assert(c.info).callees }
+    local source = { src = c.src, index = assert(c.index), callees = assert(c.info).callees, cycle = assert(c.termination).cycle }
     return validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, source)
 end
 

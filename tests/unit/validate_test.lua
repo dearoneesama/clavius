@@ -176,7 +176,7 @@ describe('validate', function()
             prog.obligations[relabel].kind = 'assert'
         end
         local out = {}
-        local source = { src = c.src, index = assert(c.index), callees = assert(c.info).callees }
+        local source = { src = c.src, index = assert(c.index), callees = assert(c.info).callees, cycle = assert(c.termination).cycle }
         for i, d in ipairs(validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, source)) do
             local s = assert(d.span)
             out[i] = { d.code, d.args[1], d.args[2], program:sub(s.start, s.finish):match '^[^\n]*' }

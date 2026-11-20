@@ -64,7 +64,15 @@ M.CALLS = { assert = true, error = true }
 
 --- Directive kinds that marked code may use above a function.
 --- @type table<string, boolean>
-M.FUNCTION_DIRECTIVES = { ClvMarker = true, ClvUnsafe = true, ClvPre = true, ClvPost = true, ClvParam = true, ClvReturn = true }
+M.FUNCTION_DIRECTIVES = {
+    ClvMarker = true,
+    ClvUnsafe = true,
+    ClvPre = true,
+    ClvPost = true,
+    ClvParam = true,
+    ClvReturn = true,
+    ClvDecrease = true,
+}
 
 --- Directive kinds that marked code may use above a loop.
 --- @type table<string, boolean>

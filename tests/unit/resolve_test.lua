@@ -233,7 +233,7 @@ describe('resolve', function()
             ---@clavius
             ---@param n integer
             local function f(n)
-                local a = f(n) --! E-unsupported-feature
+                local a = f(n)
                 local b = unmarked(n) --! E-unsupported-feature
                 local c = trusted(n, n) --! E-unsupported-feature
                 local d = trusted(n)
@@ -280,6 +280,94 @@ describe('resolve', function()
             ---@return integer
             --! E-misplaced-directive
             local function k(result) return result end
+            ---@clavius
+            ---@param n integer
+            ---@decrease n, 1
+            ---@decrease n
+            --! E-misplaced-directive
+            local function m(n) end
+            ---@unsafe
+            ---@param n integer
+            ---@decrease n
+            --! E-misplaced-directive
+            local function u(n) end
+            ]=]
+        )
+    end)
+
+    it('resolves a measure over the parameters only', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius
+            ---@param n integer
+            ---@decrease n, result, k
+            --! E-banned-global E-banned-global
+            ---@return integer
+            local function f(n)
+                local k = n
+                return k
+            end
+            ]=]
+        )
+    end)
+
+    it('lets functions declared by a `local` without values call each other', function()
+        local text = [=[
+            local is_odd
+            ---@clavius begin
+            ---@param n integer
+            local function is_even(n) return is_odd(n) end
+            ---@param n integer
+            function is_odd(n) return is_even(n) end
+            local x = is_odd(1)
+            ---@clavius end
+        ]=]
+        assert.are.same({
+            'is_odd is_odd$1',
+            'n n$3',
+            'is_odd is_odd$1',
+            'is_even is_even$2',
+            'n n$4',
+            'is_odd is_odd$1',
+        }, refs(text))
+    end)
+
+    it('rejects forward-declared functions that may be called before they are defined', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            local early
+            ---@clavius
+            ---@param n integer
+            local function f(n)
+                early(n) --! E-unsupported-feature
+            end
+            print(f)
+            ---@clavius
+            ---@param n integer
+            function early(n) end
+
+            local never
+            local twice
+            local late
+            ---@clavius
+            ---@param n integer
+            local function g(n)
+                never(n) --! E-unsupported-feature
+                twice(n) --! E-unsupported-feature
+                late(n)
+            end
+            ---@clavius
+            ---@param n integer
+            function twice(n) end
+            ---@clavius
+            ---@param n integer
+            function late(n) end
+            twice = nil
+            ---@clavius begin
+            local x --! E-unsupported-feature
+            ---@clavius end
             ]=]
         )
     end)
@@ -367,10 +455,6 @@ describe('resolve', function()
             --! E-unsupported-feature
             while n > 0 do n = n - 1 end
             ---@clavius end
-            ---@clavius
-            ---@decrease 1
-            --! E-unsupported-directive
-            local function g() end
             ]=]
         )
     end)
