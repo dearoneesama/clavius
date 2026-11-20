@@ -62,7 +62,7 @@ Clavius is being developed, so this table may change over time and may not refle
 |LuaLS Generics|-|
 |Loops with invariants (`---@invariant`) and termination measures (`---@decrease`)|Numeric `for`'s step must be literal|
 |Custom iterators|-|
-|Recursion with Clavius' termination measures|-|
+|Recursion with termination measures|Yes|
 |Varargs and multiple return values|-|
 |Module state and closures|-|
 |Standard library calls, including integer division (`math.floor(a / b)`) and modulo (`%`)|-|
