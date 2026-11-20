@@ -13,13 +13,13 @@ local support = require 'clavius.ir.support'
 --- @field functions table<NodeId, NodeId> the Function node of each `local function`'s Binder
 --- @field constants table<NodeId, NodeId> the initializer of each constant: a top-level local whose initializer is a number or boolean literal, and which is never assigned
 --- @field assigned table<NodeId, boolean> the Binders that an assignment anywhere in the file targets
---- @field library table<NodeId, NodeId> the Function node in a `---@meta` file that each call in marked code of a library or host function calls
---- @field idioms table<NodeId, string> the operation that each call in marked code written as a library idiom stands for, such as `int.floordiv` for `math.floor(a / b)`
+--- @field library table<NodeId, NodeId> the `---@meta` Function that each library or host call calls
+--- @field idioms table<NodeId, string> the operation of each library idiom call, such as `int.floordiv`
 
 --- What the `---@meta` files of a run declare, for the files that call into them.
 --- @class Interface
---- @field functions table<string, NodeId> the Function node of each declared function, by the name it is called by, such as `math.min`
---- @field kinds table<NodeId, MetaKind> whether each declared function is a shipped library spec or a host function
+--- @field functions table<string, NodeId> the Function node of each declared name, such as `math.min`
+--- @field kinds table<NodeId, MetaKind> the kind of file that declares each Function
 --- @field res Resolution the resolution of the `---@meta` files: their parameters and contracts
 --- @field info TypeInfo the types of their parameters, values and contract clauses
 
@@ -28,8 +28,8 @@ local support = require 'clavius.ir.support'
 --- @field name string
 --- @field fn NodeId
 
---- A `---@meta` file is shipped with Clavius, with the specs of the standard library, or is the
---- project's own, with `---@extern` host functions.
+--- A shipped `---@meta` file of the standard library, or one of the project's with `---@extern` host
+--- functions.
 --- @alias MetaKind 'stdlib' | 'extern'
 
 --- A read in marked code of a local declared outside its unit, or a call that marked code makes. Both
@@ -56,10 +56,10 @@ local support = require 'clavius.ir.support'
 --- @field calls PendingUse[]
 --- @field iface Interface|nil what the run's `---@meta` files declare
 --- @field meta_kind MetaKind|nil the kind of `---@meta` file being resolved, or nil for a Lua module
---- @field meta_functions table<NodeId, boolean> in a `---@meta` file, the Function nodes of its top-level function definitions
+--- @field meta_functions table<NodeId, boolean> the Function nodes that a `---@meta` file declares
 --- @field top_statements table<NodeId, boolean> the file's top-level statements, outside regions
---- @field alias_path table<NodeId, string> the library function that each candidate alias names: a top-level local of unmarked code initialized with one, such as `local floor = math.floor`
---- @field alias_calls PendingUse[] the calls in marked code through an alias, which must never be assigned
+--- @field alias_path table<NodeId, string> the library name of each alias Binder, such as `math.floor`
+--- @field alias_calls PendingUse[] the calls in marked code through an alias
 
 local M = {}
 
@@ -183,9 +183,7 @@ end
 local visit
 
 --- Records the library aliases that a top-level `local` of unmarked code declares, such as
---- `local floor = math.floor`: a name initialized with a shipped library function, or with
---- `math.floor`, whose idiom `floor(a / b)` then still means integer division (gap review, item 16).
---- A host function can't be aliased, since the host may install it after the module has loaded.
+--- `local floor = math.floor`. A host function can't be aliased, since the host may install it later.
 --- @param st ResolveState
 --- @param n SrcLocal
 --- @param scope integer
@@ -193,12 +191,7 @@ local visit
 local function record_aliases(st, n, scope)
     for i, b in ipairs(n.names) do
         local v = n.values[i]
-        local tag = v and st.src.nodes[v].tag
-        local path = nil
-        if tag == 'Id' or tag == 'Index' then
-            local _
-            _, path = global_name(st, v, scope)
-        end
+        local path = v and select(2, global_name(st, v, scope))
         local fn = path and st.iface and st.iface.functions[path]
         local stdlib = fn and st.iface.kinds[fn] == 'stdlib'
         if path ~= nil and (support.IDIOMS[path] or stdlib) then
@@ -272,7 +265,7 @@ local function visit_call(st, id, scope, unit, is_statement)
     if n.method == nil then
         base, path = global_name(st, n.func, scope)
     end
-    -- a call through a library alias is a call of the library function, as it names it
+    -- a call through a library alias calls the function it names
     local callee = st.src.nodes[n.func]
     local alias = unit ~= 0 and path == nil and callee.tag == 'Id' and lookup(st, scope, callee.name) or nil
     if alias ~= nil and st.alias_path[alias] ~= nil then
@@ -738,8 +731,7 @@ local function global_definition(st, id)
 end
 
 --- Resolves a `---@meta` file: the parameters and contracts of the functions it declares. Returns the
---- resolution, the declared functions in file order, and the diagnostics. A `---@meta` file has no
---- marked code.
+--- resolution, the declared functions in file order, and the diagnostics.
 --- @param src SrcArena
 --- @param root NodeId
 --- @param kind MetaKind
@@ -795,13 +787,12 @@ function M.run(src, root, iface)
             st.out.names[id] = iface.res.names[id]
         end
     end
-    -- the Binders of top-level locals with a literal initializer, and the initializers
-    local candidates, values = {}, {}
-    for _, id in
-        ipairs((src.nodes[root] --[[@as SrcBlock]]).statements)
-    do
+    local top = src.nodes[root] --[[@as SrcBlock]]
+    for _, id in ipairs(top.statements) do
         st.top_statements[id] = true
     end
+    -- the Binders of top-level locals with a literal initializer, and the initializers
+    local candidates, values = {}, {}
     for _, id in ipairs(top_level(src, root)) do
         local n = src.nodes[id]
         if n.tag == 'LocalFunction' then

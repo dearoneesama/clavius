@@ -63,7 +63,7 @@ describe('lua programs', function()
             '    host.ready   tests/e2e/verify/extern.meta.lua:35',
             '',
             '  callers outside verification',
-            '    hit          tests/e2e/verify/extern.lua:25',
+            '    hit          tests/e2e/verify/extern.lua:24',
             '',
         }, '\n')
         assert.are.same({ cli.EXIT_OK, report }, { status, out:read '*a' })
@@ -78,7 +78,7 @@ describe('lua programs', function()
             'Trust report: tests/e2e/verify/floor_only.lua',
             '',
             '  stdlib unchanged',
-            '    glue replaces no stdlib function and not the string metatable',
+            '    nothing outside verification replaces a library function',
             '',
         }, '\n')
         assert.are.same({ cli.EXIT_OK, report }, { status, floor:read '*a' })

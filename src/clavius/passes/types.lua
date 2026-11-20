@@ -8,20 +8,18 @@ local support = require 'clavius.ir.support'
 
 --- @alias Type 'int53' | 'boolean'
 
---- What a node does, when that isn't plain from its kind: a call and the function it calls, or an
---- operation with rules of its own. `types` records it once, and `elaborate` and `validate` read it, so no
---- two passes recognize an idiom separately.
---- - `call`: a call of a local function, or of a library or host function declared in a `---@meta` file;
---- - `int.floordiv`: `math.floor(a / b)` on `int53` operands, which is integer division (design §6);
+--- What a node does, when its kind doesn't say. `types` records it, and later passes read it.
+--- - `call`: a call of a local, library or host function;
+--- - `int.floordiv`: `math.floor(a / b)` on `int53` operands;
 --- - `int.mod`: `a % b` on `int53` operands, with Lua's floored semantics.
 --- @class ResolvedOp
 --- @field op 'call' | 'int.floordiv' | 'int.mod'
 --- @field callee NodeId|nil for a call, the Function node it calls
---- @field trusted boolean for a call, whether the callee's contract is trusted rather than proved: an `---@unsafe` function, a library spec or a host function
+--- @field trusted boolean for a call, whether the callee is `---@unsafe` or in a `---@meta` file
 
 --- @class TypeInfo
 --- @field types table<NodeId, Type> the type of each expression and Binder in marked code and contracts, and of each function's ClvReturn
---- @field ops table<NodeId, ResolvedOp> the operation of each call, and of each operator with rules of its own, in marked code and contracts
+--- @field ops table<NodeId, ResolvedOp> the operation of each call, `%` and integer division
 
 --- @class TypesState
 --- @field src SrcArena
@@ -447,8 +445,8 @@ function M.meta(src, res, fns)
 end
 
 --- Types the marked code of a resolved file: its regions, the functions in them and those marked
---- `---@clavius`, and the contracts of `---@unsafe` functions. The types of what the run's `---@meta`
---- files declare are part of the result, since a call lowers its callee's contract.
+--- `---@clavius`, and the contracts of `---@unsafe` functions. The result includes the types of the
+--- run's `---@meta` files, whose contracts calls lower.
 --- @param src SrcArena
 --- @param root NodeId
 --- @param res Resolution

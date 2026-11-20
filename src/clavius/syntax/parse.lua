@@ -52,13 +52,10 @@ end
 
 --- Parses one file of a run into the run's arena, after the files already in it. Returns the file's root
 --- Block, or 0 when the text doesn't parse, and every syntax and annotation error.
----
---- In a `---@meta` file, the directives above each function definition are read as its contract, as
---- the directives above a `---@unsafe` function are. The file has no marked code.
 --- @param src SrcArena
 --- @param text string
 --- @param file FileId
---- @param meta boolean
+--- @param meta boolean whether the file is a `---@meta` file
 --- @mut src
 --- @return NodeId root
 --- @return Diag[] diags

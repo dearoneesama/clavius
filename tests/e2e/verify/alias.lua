@@ -1,6 +1,5 @@
--- A library alias, a top-level local of unmarked code initialized with a library function and never
--- assigned, is called like the function it names, and `floor(a / b)` is still integer division
--- (gap review, item 16). The program verifies and runs on LuaJIT.
+-- A library alias is called like the function it names, and `floor(a / b)` is still integer division.
+-- The program verifies and runs on LuaJIT.
 local floor = math.floor
 local min, max = math.min, math.max
 

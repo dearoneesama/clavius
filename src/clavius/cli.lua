@@ -99,8 +99,7 @@ local function run_core(args, text, out, err)
     return #failed > 0 and M.EXIT_FAILED or M.EXIT_OK
 end
 
---- Writes diagnostics, each file's after its name. Most are in the Lua file, and some may be in a
---- `---@meta` file of the run.
+--- Writes diagnostics under the name of the file each is in.
 --- @param stream file*
 --- @param c CompilerContext
 local function write_diags(stream, c)

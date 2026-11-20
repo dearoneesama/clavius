@@ -1,21 +1,23 @@
+local arena = require 'clavius.ir.arena'
 local driver = require 'clavius.driver'
 local markers = require 'support.markers'
 local stringx = require 'pl.stringx'
 
---- Runs the stages up to `stage` on a Lua file with one `---@meta` file of the project's, and returns the
---- diagnostics as `file line code`, with the meta file's lines counted in it.
+--- Runs the stages up to `stage` on a Lua file and one project `---@meta` file, and returns the
+--- diagnostics as `file line code`.
 --- @param stage string
 --- @param text string
 --- @param meta string
 --- @return string[]
 local function diags(stage, text, meta)
-    text, meta = stringx.dedent(text), stringx.dedent(meta)
+    text = stringx.dedent(text)
+    meta = stringx.dedent(meta)
     local c = driver.run_until(stage, text, 1, { { name = 'host.lua', text = meta } })
     local out = {}
     for i, d in ipairs(c.diags) do
         local span = d.span or c.spans[d.node]
         local f = c.files[span.file]
-        local line = select(1, require('clavius.ir.arena').line_col(f.text, require('clavius.ir.arena').line_starts(f.text), span.start))
+        local line = arena.line_col(f.text, arena.line_starts(f.text), span.start)
         out[i] = ('%s %d %s'):format(span.file == c.file and 'main' or f.name, line, d.code)
     end
     table.sort(out)

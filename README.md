@@ -42,29 +42,6 @@ bucket.lua:17:5: post: the function may return here without satisfying its postc
 
 Clavius cannot prove the postcondition, implying there is a bug in the implementation. Changing `added > CAPACITY` to `tokens + added > CAPACITY` fixes it and the error disappears.
 
-### Library and host functions
-
-Marked code may call the standard library functions that Clavius ships specs for, such as `math.min`, and `math.floor(a / b)` and `%` are integer division and remainder. Functions that the host provides are declared in a `---@meta` file with a contract, and the file is given with `--meta`:
-
-```lua
---- game.meta.lua
----@meta
-
----@extern
----@param hp integer
----@param dmg integer
----@pre hp >= 0 and dmg >= 0
----@post result >= 0 and result <= hp
----@return integer
-function host.damage(hp, dmg) end
-```
-
-```bash
-$ clavius verify --meta game.meta.lua --trust-report game.lua
-```
-
-Clavius trusts these contracts without proof, and `--trust-report` lists every one that a run relied on.
-
 ### Supported feature matrix
 
 Clavius is being developed, so this table may change over time and may not reflect the current state accurately.
@@ -88,8 +65,8 @@ Clavius is being developed, so this table may change over time and may not refle
 |Recursion with Clavius' termination measures|-|
 |Varargs and multiple return values|-|
 |Module state and closures|-|
-|Standard library calls, including integer division (`math.floor(a / b)`) and modulo (`%`)|Limited: `math.min`, `math.max` and `math.abs` on integers, with two arguments for `min` and `max`|
-|Host functions|Yes: `---@extern` functions in a `---@meta` file given with `--meta`|
+|Standard library calls, including integer division (`math.floor(a / b)`) and modulo (`%`)|Partial|
+|Host functions (`---@meta`, `---@extern`)|Yes|
 |Multiple files and modules|-|
 |OOP and classes|-|
 |Clavius ownership modes|-|

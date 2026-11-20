@@ -16,19 +16,18 @@
 --       math.min  clavius/meta/math.lua:14
 --
 --     stdlib unchanged
---       glue replaces no stdlib function and not the string metatable
+--       nothing outside verification replaces a library function
 -- means:
 --
 -- - `bump`, defined on line 8, is `---@unsafe`. Its body isn't verified, yet verified code that calls it
 --   relies on its `---@post`s and its value's type.
 -- - `host.log` is a host function that a `---@meta` file declares. Verified code relies on its contract
---   and its flags, and on the implicit promises of every trusted function (design §10).
+--   and its flags.
 -- - `inc` is verified, assuming its parameters' types and its `---@pre`s on entry. A verified caller
 --   proves those at each call, but a caller in unmarked code doesn't, so they are trusted to hold there.
 -- - `math.min`'s shipped spec is trusted, as written by the Clavius version named.
--- - Every call of a library function assumes that glue hasn't replaced it, as `math.min = f` would. That
---   includes `math.floor(a / b)` in verified code, which is encoded as integer division rather than
---   called through a spec, so a run that uses it but no spec has this section alone.
+-- - Verified code that calls a library function, `math.floor(a / b)` included, relies on nothing outside
+--   verification replacing it, as `math.min = f` would.
 
 local arena = require 'clavius.ir.arena'
 local clavius = require 'clavius'
@@ -76,9 +75,8 @@ local function name_of(src, index, id)
         return (src.nodes[def.binder] --[[@as SrcBinder]]).name
     end
     -- `function a.b(…) end` in a `---@meta` file
-    local target = src.nodes[
-        (def --[[@as SrcSet]]).targets[1]
-    ]
+    local set = def --[[@as SrcSet]]
+    local target = src.nodes[set.targets[1]]
     if target.tag == 'Index' then
         local key = src.nodes[target.key] --[[@as SrcLiteral]]
         return ('%s.%s'):format((src.nodes[target.obj] --[[@as SrcId]]).name, key.text)
@@ -87,9 +85,8 @@ local function name_of(src, index, id)
 end
 
 --- Returns the trust report of a run as lines, or no lines when it trusted nothing. The trusted
---- assumptions name their Functions: an `---@unsafe` one, a library spec or a host function, whose
---- contract its callers rely on, or a verified one, whose callers outside verification are trusted to meet
---- its boundary assumptions.
+--- assumptions name their Functions: a trusted one, whose contract its callers rely on, or a verified
+--- one, whose callers outside verification are trusted to meet its boundary assumptions.
 --- @param prog CoreProgram
 --- @param src SrcArena
 --- @param index NodeIndex
@@ -97,8 +94,8 @@ end
 --- @param main FileId the Lua file that was verified
 --- @return string[]
 function M.report(prog, src, index, files, main)
-    -- `math.floor(a / b)` in exec code has a `div_zero` check on its Call; spec code calls nothing at
-    -- runtime, so its uses have no check and rely on nothing
+    -- `math.floor(a / b)` outside contracts relies on `math.floor`, and only there does its Call have a
+    -- `div_zero` check
     local floor_idiom = false
     for _, o in ipairs(prog.obligations) do
         if o.kind == 'div_zero' and src.nodes[o.node].tag == 'Call' then
@@ -120,7 +117,8 @@ function M.report(prog, src, index, files, main)
     --- @param b NodeId
     --- @return boolean
     local function before(a, b)
-        local sa, sb = src.spans[a], src.spans[b]
+        local sa = src.spans[a]
+        local sb = src.spans[b]
         if sa.file ~= sb.file then
             return sa.file < sb.file
         end
@@ -175,7 +173,7 @@ function M.report(prog, src, index, files, main)
     if #stdlib > 0 or floor_idiom then
         out[#out + 1] = ''
         out[#out + 1] = '  stdlib unchanged'
-        out[#out + 1] = '    glue replaces no stdlib function and not the string metatable'
+        out[#out + 1] = '    nothing outside verification replaces a library function'
     end
     return out
 end

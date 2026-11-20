@@ -1,10 +1,5 @@
 -- Connects the stages for the command line and the tests. A Lua file goes through the stages in
 -- order, and the run stops after the first stage that reports a diagnostic.
---
--- A run has one source arena. The Lua file is parsed into it first, so its node ids don't depend on the
--- `---@meta` files, which follow it: the shipped specs of the standard library, then the project's
--- files given with `--meta`. The `interfaces` stage resolves and types those, and the Lua file's
--- marked code may then call what they declare.
 
 local boogie_print = require 'clavius.backend.boogie.print'
 local boogie_run = require 'clavius.backend.boogie.run'
@@ -35,7 +30,7 @@ local write = require 'clavius.sexpr.write'
 --- @class CompilerContext
 --- @field file FileId
 --- @field text string
---- @field files table<FileId, SourceFile> every file of the run, the Lua file's included
+--- @field files table<FileId, SourceFile> the Lua file and the `---@meta` files
 --- @field src SrcArena
 --- @field root NodeId
 --- @field metas MetaRoot[] the parsed `---@meta` files
@@ -61,9 +56,7 @@ local STDLIB = { 'clavius.meta.math' }
 --- @type MetaSource[]|nil
 local stdlib_cache = nil
 
---- Returns the shipped `---@meta` files of the standard library. They are installed as modules but never
---- required, since running one would assign into the real library, so each is found by trying the
---- templates of `package.path`; Lua 5.1 has no `package.searchpath`.
+--- Returns the shipped `---@meta` files of the standard library, found through `package.path`.
 --- @return MetaSource[]
 function M.stdlib()
     if stdlib_cache then
@@ -73,6 +66,7 @@ function M.stdlib()
     for _, module in ipairs(STDLIB) do
         local relative = module:gsub('%.', '/')
         local found = nil
+        -- read as text, never required: running one would assign into the real library
         for template in package.path:gmatch '[^;]+' do
             local path = template:gsub('%?', relative)
             local f = io.open(path, 'rb')
@@ -91,12 +85,12 @@ end
 --- @param c CompilerContext
 --- @return Diag[]
 local function run_parse(c)
+    -- the Lua file comes first, so its node ids don't depend on the `---@meta` files
     local root, diags = parse.append(c.src, c.text, c.file, false)
     c.root = root
     if root == 0 then
         return diags
     end
-    -- the `---@meta` files come after the Lua file, with the file ids after its own
     local ids = {}
     for id in pairs(c.files) do
         if id ~= c.file then

@@ -1,14 +1,12 @@
 local arena = require 'clavius.ir.arena'
 local driver = require 'clavius.driver'
 
--- Clavius trusts the shipped specs without proof, so this test checks them against LuaJIT (design §10):
--- each function is called on every combination of edge values that meets its `---@pre`s. It must raise
--- no error, return a value of its declared type, and meet its `---@post`s.
+-- Checks the shipped specs against LuaJIT, since Clavius trusts them without proof. Each function is
+-- called on every combination of edge values that meets its `---@pre`s, and must raise no error, return
+-- a value of its declared type and meet its `---@post`s.
 --
--- The clauses are read from the spec files and run as Lua. Spec arithmetic is exact and LuaJIT's isn't,
--- but the edge values are within ±2^53, where doubles hold integers exactly, and the shipped clauses only
--- compare and negate them, so running a clause gives its exact value. A spec whose clauses compute more
--- than that needs this test to guard against rounding first.
+-- The clauses run as Lua, which is exact only while they compare and negate values within ±2^53, as the
+-- shipped ones do.
 
 local B = 2 ^ 53
 

@@ -553,7 +553,7 @@ end
 --- @param src SrcArena
 --- @param text string
 --- @param file FileId
---- @param meta boolean|nil whether the file is a `---@meta` file, whose functions' directives are read
+--- @param meta boolean|nil whether the file is a `---@meta` file
 --- @mut src
 --- @return Chunk|nil chunk
 --- @return Diag[] diags

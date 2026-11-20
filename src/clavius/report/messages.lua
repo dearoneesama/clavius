@@ -172,9 +172,8 @@ function M.diag(d, spans, text)
     return ('%s: %s: %s'):format(position(text, span.start), d.code, template:format(unpack(args)))
 end
 
---- Formats the failing obligation `id` as `line:col: kind: message [O17]`. Its node is in the Lua file,
---- whose text is `text`. The clause it quotes may be in another file of the run, such as the `---@pre`
---- of a library function in a `---@meta` file, whose text `texts` gives.
+--- Formats the failing obligation `id` as `line:col: kind: message [O17]`. A clause that it quotes from
+--- another file of the run, such as a library spec's `---@pre`, is read from `texts`.
 --- @param id integer
 --- @param o Obligation
 --- @param src SrcArena

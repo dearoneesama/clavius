@@ -50,7 +50,7 @@ end
 --- @class ValidateSource
 --- @field src SrcArena
 --- @field index NodeIndex
---- @field ops table<NodeId, ResolvedOp> the operation of each call, and of each operator with rules of its own, from `types`
+--- @field ops table<NodeId, ResolvedOp> the operations that `types` resolved
 
 --- One obligation that a source node needs: its kind, and the clause for a contract kind or 0.
 --- @class NeededKey

@@ -59,13 +59,11 @@ M.UNOPS = { unm = true, ['not'] = true }
 --- @type table<string, boolean>
 M.TYPES = { int53 = true, boolean = true }
 
---- Library functions that marked code may call and that Clavius encodes itself. Other library functions
---- are called through the specs of the `---@meta` files in the run.
+--- Library functions that marked code may call and that Clavius encodes itself rather than by a spec.
 --- @type table<string, boolean>
 M.CALLS = { assert = true, error = true }
 
---- The idioms that are written as a library call but encoded as an operation (design §6).
---- `math.floor(a / b)` is integer division: only this direct form counts.
+--- Library calls that are encoded as an operation, such as `math.floor(a / b)` as integer division.
 --- @type table<string, string>
 M.IDIOMS = { ['math.floor'] = 'int.floordiv' }
 
@@ -85,8 +83,7 @@ M.META_DIRECTIVES = {
 --- @type table<string, boolean>
 M.FUNCTION_DIRECTIVES = { ClvMarker = true, ClvUnsafe = true, ClvPre = true, ClvPost = true, ClvParam = true, ClvReturn = true }
 
---- The flags of trusted code: an `---@extern` function in a `---@meta` file, or an `---@unsafe` one.
---- They are parsed and listed in the trust report now, and take effect in M14.
+--- Directive kinds that only trusted functions may have: `---@extern` and `---@unsafe` ones.
 --- @type table<string, boolean>
 M.TRUST_FLAGS = { ClvNoCallback = true, ClvMayRaise = true }
 
@@ -211,8 +208,8 @@ M.GLOBALS = {
 --- - `global`: a global outside the library. Verified code must never use one.
 --- @alias GlobalUse 'supported' | 'banned' | 'library' | 'global'
 
---- If `call` is `math.floor(a / b)`, returns the `/` node, looking through parentheses. The callee must
---- be the global `math.floor`, which `resolve` decides; this only checks the form.
+--- If `call` has the form `f(a / b)`, returns the `/` node, looking through parentheses. Whether `f` is
+--- `math.floor` is for `resolve` to decide.
 --- @param src SrcArena
 --- @param call SrcCall
 --- @return NodeId|nil

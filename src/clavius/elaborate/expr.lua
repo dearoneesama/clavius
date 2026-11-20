@@ -76,8 +76,8 @@ end
 
 --- Lowers a call of a local, library or host function. The arguments are evaluated and each `---@pre`
 --- checked on them. The value, if any, is then arbitrary but for its type and the callee's `---@post`s,
---- which are assumed: proved in a verified callee, and trusted in an `---@unsafe` one, a library spec or
---- a host function. Returns the value's term, or nil when the callee has no `---@return`.
+--- which are assumed: proved in a verified callee, and trusted in any other. Returns the value's term, or
+--- nil when the callee has no `---@return`.
 --- @param b Builder
 --- @param id NodeId
 --- @param out NodeId[]
@@ -121,19 +121,15 @@ function M.call(b, id, out)
         builder.assume(b, out, trusted and 'trusted' or 'callee_post', M.clause(b, cond, subst), id, decl)
         assumed = true
     end
-    -- a trusted callee that the call assumes nothing of (no `---@post`, and no value or a `boolean` one,
-    -- which has no type fact) is still trusted to return, having raised no error and written nothing it
-    -- may not; the assumption puts it in the trust report
+    -- this lists a trusted callee in the trust report even when the call assumes nothing of it
     if trusted and not assumed then
         builder.assume(b, out, 'trusted', builder.add(b, { tag = 'Bool', value = true }, id), id, decl)
     end
     return value
 end
 
---- Returns Lua's floored quotient and remainder of `a` and `b`, from the core's Euclidean ones. The two
---- differ only when `b < 0` and the remainder isn't 0: `7 // -3` is -3 with remainder -2, and
---- Euclidean division gives -2 with remainder 1. With `b == 0` both are unspecified, as spec code's
---- partial operations are (design §6).
+--- Returns Lua's floored quotient and remainder of `a` and `d`, built from the core's Euclidean ones.
+--- Both are unspecified when `d == 0`.
 --- @param b Builder
 --- @param a NodeId
 --- @param d NodeId the divisor
@@ -168,8 +164,8 @@ local function check_divisor(b, out, d, origin)
     builder.check(b, out, 'div_zero', builder.add(b, { tag = 'BinOp', op = '!=', lhs = d, rhs = zero }, origin), origin)
 end
 
---- Lowers `math.floor(a / b)`, integer division. Its result needs no range check: `|a / b| <= |a|` when
---- `b ~= 0`, and the double LuaJIT computes floors to the exact result (design §6).
+--- Lowers `math.floor(a / b)`, integer division. LuaJIT computes it exactly, and it needs no range check
+--- since `|a / b| <= |a|`.
 --- @param b Builder
 --- @param id NodeId
 --- @param out NodeId[]
@@ -188,9 +184,8 @@ local function floordiv(b, id, out)
     return (floored(b, l, r, id))
 end
 
---- Lowers `a % b` with Lua's floored semantics. LuaJIT computes it as `a - math.floor(a / b) * b` in
---- doubles, which is exact only while that product, `a - a % b`, is within ±2^53: `2^53 % -3` gives
---- 0 where the floored remainder is -1. So besides the divisor, it checks that range.
+--- Lowers `a % b` with Lua's floored semantics. LuaJIT computes `a - math.floor(a / b) * b` in doubles,
+--- so it also checks that the product is within ±2^53.
 --- @param b Builder
 --- @param id NodeId
 --- @param n SrcBinOp

@@ -1,6 +1,5 @@
--- Verified code calls host functions that a `---@meta` file declares with `---@extern`, and trusts their
--- contracts. extern.meta.lua is its `--meta` file. The host provides the functions at runtime; here,
--- unmarked glue does.
+-- Verified code calls the host functions that extern.meta.lua declares, and trusts their contracts.
+-- Here unmarked code stands in for the host.
 host = {
     damage = function(hp, dmg)
         return math.max(0, hp - dmg)

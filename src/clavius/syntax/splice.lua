@@ -21,7 +21,7 @@ local directive = require 'clavius.syntax.directive'
 --- @field next integer the first directive not taken yet
 --- @field code_parser CodeParser
 --- @field diags Diag[]
---- @field meta boolean whether the file is a `---@meta` file, where the directives above every function definition are read
+--- @field meta boolean whether the file is a `---@meta` file
 
 --- The directive nodes of a function or a loop, and whether a function's body is marked code.
 --- @class Placement

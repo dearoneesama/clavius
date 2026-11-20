@@ -24,7 +24,7 @@
 --- | 'type_fact' # a value of a declared type satisfies that type's predicate
 --- | 'branch' # the condition of the branch being taken
 --- | 'callee_post' # a verified callee's `---@post`, proved where the callee returns
---- | 'trusted' # what an `---@unsafe` callee, a library spec or a host function promises, or what a verified function assumes on entry about outside callers
+--- | 'trusted' # what a trusted callee promises, or what a verified function assumes on entry about outside callers
 --- | 'invariant' # a loop invariant at the loop's head, checked on entry and after each iteration
 --- | 'back_edge' # `false` at the end of an iteration that iterates again
 
@@ -36,7 +36,7 @@
 --- @class Assumption
 --- @field kind Justification
 --- @field node NodeId the source node it comes from
---- @field decl NodeId|nil for a trusted one, the Function whose contract or callers it trusts: a local function, or a function in a `---@meta` file
+--- @field decl NodeId|nil for a trusted one, the Function whose contract or callers it trusts
 
 local M = {}
 

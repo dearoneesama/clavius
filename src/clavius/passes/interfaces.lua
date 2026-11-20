@@ -1,6 +1,5 @@
--- The interfaces stage: `resolve` and `types` on each `---@meta` file of a run, and the Interface that
--- the run's Lua modules call into. A `---@meta` file holds trusted specs: shipped ones for the standard
--- library, or the project's `---@extern` host functions. Nothing in it is verified.
+-- The interfaces stage: resolves and types the `---@meta` files of a run into the Interface that its Lua
+-- modules call. A `---@meta` file holds the trusted specs of library or host functions.
 
 local diag = require 'clavius.ir.diag'
 local resolve = require 'clavius.passes.resolve'
@@ -13,8 +12,7 @@ local types = require 'clavius.passes.types'
 
 local M = {}
 
---- Builds the Interface of a run's `---@meta` files, in their order. A name declared twice, in one file
---- or in two, is an error: each library or host function has one contract.
+--- Builds the Interface of a run's `---@meta` files. Each name may be declared once in the run.
 --- @param src SrcArena
 --- @param metas MetaRoot[]
 --- @return Interface iface

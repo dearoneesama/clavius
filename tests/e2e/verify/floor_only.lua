@@ -1,5 +1,5 @@
--- Integer division is encoded, not called through a spec, yet it relies on glue leaving `math.floor`
--- alone, so the trust report says so even though the run uses no stdlib spec.
+-- Integer division uses no spec, yet the trust report lists that it relies on `math.floor` being left
+-- alone.
 ---@clavius begin
 local half = math.floor(9 / 2)
 assert(half == 4)
