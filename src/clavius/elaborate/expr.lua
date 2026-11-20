@@ -74,9 +74,10 @@ function M.clause(b, cond, subst)
 end
 
 --- Lowers a call of a local function. The arguments are evaluated and each `---@pre` checked on them.
---- The value, if any, is then arbitrary but for its type and the callee's `---@post`s, which are
---- assumed: proved in a verified callee, and trusted in an `---@unsafe` one. Returns the value's term,
---- or nil when the callee has no `---@return`.
+--- A call that stays in its caller's cycle of recursive calls also checks that the callee's measure at
+--- the arguments is below the caller's on entry. The value, if any, is then arbitrary but for its type
+--- and the callee's `---@post`s, which are assumed: proved in a verified callee, and trusted in an
+--- `---@unsafe` one. Returns the value's term, or nil when the callee has no `---@return`.
 --- @param b Builder
 --- @param id NodeId
 --- @param out NodeId[]
@@ -96,6 +97,24 @@ function M.call(b, id, out)
     for _, pre in ipairs(arena.directives(b.src, fn, 'ClvPre')) do
         local cond = (b.src.nodes[pre] --[[@as SrcClvPre]]).cond
         builder.check(b, out, 'pre', M.clause(b, cond, subst), id, pre)
+    end
+    local caller = b.fn and b.fn.id
+    local cycle = caller and b.termination.cycle[caller]
+    if cycle ~= nil and cycle == b.termination.cycle[fn_id] then
+        local mine = arena.directives(b.src, b.src.nodes[caller] --[[@as SrcFunction]], 'ClvDecrease')[1]
+        local theirs = arena.directives(b.src, fn, 'ClvDecrease')[1]
+        local entry_measure = b.src.nodes[mine] --[[@as SrcClvDecrease]]
+        local call_measure = b.src.nodes[theirs] --[[@as SrcClvDecrease]]
+        -- the caller's measure on entry, and the callee's at the arguments
+        local before, after = {}, {}
+        for i, m in ipairs(entry_measure.measures) do
+            before[i] = M.clause(b, m, assert(b.fn).entry)
+        end
+        for i, m in ipairs(call_measure.measures) do
+            after[i] = M.clause(b, m, subst)
+        end
+        -- this check makes it sound to assume the callee's `---@post`s below, by induction on the measure
+        builder.check(b, out, 'decrease', builder.decreases(b, before, after, id), id, theirs)
     end
     local trusted = arena.has_directive(b.src, fn, 'ClvUnsafe')
     local decl = trusted and fn_id or nil

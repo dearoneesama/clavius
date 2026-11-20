@@ -252,6 +252,30 @@ describe('validate', function()
         ---@clavius end
     ]=]
 
+    -- the obligations of a recursive call that elaborate emits, by id
+    local RECURSION = [=[
+        ---@clavius
+        ---@param n integer
+        ---@pre n >= 0
+        ---@decrease n
+        local function down(n)
+            if n > 0 then
+                down(n - 1) -- 1 (range); 2 (pre); 3 (decrease): the call stays in the cycle
+            end
+        end
+        ---@clavius begin
+        down(3) -- 4 (pre): a call from outside the cycle checks no measure
+        ---@clavius end
+    ]=]
+
+    it('accepts the obligations of a recursive call that elaborate emits', function()
+        assert.are.same({}, coverage(RECURSION, {}, nil))
+    end)
+
+    it('reports a call in a cycle whose measure has no Check', function()
+        assert.are.same({ { 'E-internal-coverage', 'Call', 'decrease', 'down(n - 1)' } }, coverage(RECURSION, { [3] = true }, nil))
+    end)
+
     it('accepts the loop obligations that elaborate emits', function()
         assert.are.same({}, coverage(LOOPS, {}, nil))
     end)

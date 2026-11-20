@@ -496,9 +496,10 @@ end
 --- @param res Resolution
 --- @param info TypeInfo
 --- @param effects Effects
+--- @param termination Termination
 --- @return CoreProgram
-function M.run(src, root, res, info, effects)
-    local b = builder.new(src, res, info, effects)
+function M.run(src, root, res, info, effects, termination)
+    local b = builder.new(src, res, info, effects, termination)
     local units = {}
     local regions = 0
     local top = src.nodes[root] --[[@as SrcBlock]]

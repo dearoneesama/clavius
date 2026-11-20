@@ -15,6 +15,7 @@ local arena = require 'clavius.ir.arena'
 --- @field res Resolution
 --- @field info TypeInfo
 --- @field effects Effects
+--- @field termination Termination
 --- @field core CoreArena
 --- @field obligations Obligation[]
 --- @field assumptions Assumption[]
@@ -37,13 +38,15 @@ local INT53_MAX = '9007199254740992'
 --- @param res Resolution
 --- @param info TypeInfo
 --- @param effects Effects
+--- @param termination Termination
 --- @return Builder
-function M.new(src, res, info, effects)
+function M.new(src, res, info, effects, termination)
     return {
         src = src,
         res = res,
         info = info,
         effects = effects,
+        termination = termination,
         core = arena.new_core(),
         obligations = {},
         assumptions = {},
@@ -178,6 +181,7 @@ end
 --- @mut b
 --- @return NodeId
 function M.decreases(b, before, after, origin)
+    assert(#before == #after, 'builder: measures of different lengths')
     -- built from the last position, where only a decrease will do
     local cond = nil
     for i = #before, 1, -1 do

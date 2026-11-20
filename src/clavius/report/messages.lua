@@ -144,6 +144,12 @@ local COUNTER_FAILURES = {
     invariant_preserved = "the loop counter's range may not hold again after an iteration",
 }
 
+--- What a failing obligation on a call that stays in its caller's cycle of recursive calls means.
+--- @type table<string, string>
+local CALL_FAILURES = {
+    decrease = 'this call may not decrease the measure `%s`, or the measure may be negative on entry',
+}
+
 --- @param text string
 --- @param offset integer
 --- @return string `line:col`
@@ -175,9 +181,14 @@ end
 --- @return string
 function M.failure(id, o, src, text)
     local span = src.spans[o.node]
+    local template = FAILURES[o.kind]
+    if src.nodes[o.node].tag == 'Call' and CALL_FAILURES[o.kind] then
+        template = CALL_FAILURES[o.kind]
+    elseif o.clause == nil and COUNTER_FAILURES[o.kind] then
+        template = COUNTER_FAILURES[o.kind]
+    end
     -- a clause is quoted without its tag
     local quoted = span
-    local template = FAILURES[o.kind]
     if o.clause ~= nil then
         local clause = src.nodes[o.clause]
         if clause.tag == 'ClvDecrease' then
@@ -186,8 +197,6 @@ function M.failure(id, o, src, text)
         elseif clause.tag == 'ClvPre' or clause.tag == 'ClvPost' or clause.tag == 'ClvInvariant' then
             quoted = src.spans[clause.cond]
         end
-    elseif COUNTER_FAILURES[o.kind] then
-        template = COUNTER_FAILURES[o.kind]
     end
     local snippet = text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
     local message = assert(template, ('messages: no message for %s'):format(o.kind)):format(snippet)
