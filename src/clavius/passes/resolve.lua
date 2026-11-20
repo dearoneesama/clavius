@@ -369,7 +369,7 @@ local function visit_directives(st, id, scope)
     end
 end
 
---- Resolves a loop's directives in `scope`. A loop has one measure, of one expression.
+--- Resolves a loop's directives in `scope`. A loop has at most one measure.
 --- @param st ResolveState
 --- @param loop SrcWhile|SrcRepeat|SrcFornum
 --- @param scope integer
@@ -386,8 +386,6 @@ local function visit_loop_directives(st, loop, scope, unit)
         elseif dn.tag == 'ClvDecrease' then
             if unit ~= 0 and measured then
                 report(st, 'E-misplaced-directive', d, { 'repeated-decrease' })
-            elseif unit ~= 0 and #dn.measures > 1 then
-                report(st, 'E-unsupported-feature', d, { 'decrease-list' })
             end
             measured = true
             for _, m in ipairs(dn.measures) do

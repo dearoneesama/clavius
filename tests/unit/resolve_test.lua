@@ -356,7 +356,6 @@ describe('resolve', function()
                 i = 2 --! E-unsupported-feature
             end
             ---@decrease n, n
-            --! E-unsupported-feature
             while n > 0 do n = n - 1 end
             ---@decrease n
             ---@decrease n

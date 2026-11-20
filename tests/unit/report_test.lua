@@ -50,7 +50,7 @@ describe('report.messages', function()
             ---@clavius begin
             local i = 0
             ---@invariant i  >=  0
-            ---@decrease 3 - i
+            ---@decrease 3 - i,  0
             while i < 3 do i = i + 1 end
             for k = 1, 2 do end
             ---@clavius end
@@ -65,7 +65,7 @@ describe('report.messages', function()
             end
         end
         assert.are.same({
-            '5:1: decrease: an iteration may start with the measure `3 - i` negative, or may not decrease it [O4]',
+            '5:1: decrease: an iteration may start with the measure `3 - i, 0` negative, or may not decrease it [O4]',
             '5:1: invariant_entry: the loop invariant `i >= 0` may not hold when the loop starts [O1]',
             '5:1: invariant_preserved: the loop invariant `i >= 0` may not hold again after an iteration [O3]',
             "6:1: for_bound: this loop's limit plus its step may leave ±2^53 [O5]",

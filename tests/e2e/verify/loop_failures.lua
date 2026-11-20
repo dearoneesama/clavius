@@ -36,6 +36,20 @@ local function below_zero(n)
     until i <= -5
 end
 
+-- an earlier expression of the measure may not grow, even when a later one decreases
+---@param n integer
+---@pre n >= 0 and n < 1000
+local function earlier_grows(n)
+    local i = 0
+    local j = 0
+    ---@invariant 0 <= j and j <= n and i == j
+    ---@decrease i, n - j
+    while j < n do --! decrease
+        i = i + 1
+        j = j + 1
+    end
+end
+
 -- a `break` after breaking the invariant leaves the code after the loop without it
 ---@param n integer
 ---@pre n >= 0 and n < 1000

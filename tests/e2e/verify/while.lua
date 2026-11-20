@@ -116,6 +116,28 @@ local function retry(tries)
     return tries
 end
 
+-- a measure of several expressions decreases lexicographically, so a later one may grow when an
+-- earlier one decreases
+---@param n integer
+---@pre n >= 0 and n < 1000
+---@post result == n
+---@return integer
+local function grid(n)
+    local i = 0
+    local j = 0
+    ---@invariant 0 <= i and i <= n and 0 <= j and j <= n
+    ---@decrease n - i, n - j
+    while i < n do
+        if j < n then
+            j = j + 1
+        else
+            i = i + 1
+            j = 0
+        end
+    end
+    return i
+end
+
 assert(count(5) == 5)
 assert(double(4) == 8)
 assert(drain(3) == 0)
@@ -123,6 +145,7 @@ assert(evens(5) >= 5)
 assert(root(10) <= 10)
 assert(frame(3, 6) >= 3)
 assert(retry(3) == 0)
+assert(grid(3) == 3)
 
 -- loops at the top level of a region, one inside the other
 local k = 0

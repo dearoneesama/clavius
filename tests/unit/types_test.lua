@@ -219,7 +219,8 @@ describe('types', function()
             --! E-type-mismatch
             while n do end --! E-unsupported-feature
             ---@invariant on
-            ---@decrease n
+            ---@decrease n, on
+            --! E-type-mismatch
             repeat local m = n until m --! E-unsupported-feature
             for i = on, 2, 1.5 do end --! E-type-mismatch E-unsupported-type
             ---@invariant i

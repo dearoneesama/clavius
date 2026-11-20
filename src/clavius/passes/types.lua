@@ -285,7 +285,7 @@ function expression(st, id)
     return ty
 end
 
---- Types a loop's directives: an invariant is a boolean and a measure an `int53`.
+--- Types a loop's directives: an invariant is a boolean and each expression of a measure an `int53`.
 --- @param st TypesState
 --- @param loop SrcWhile|SrcRepeat|SrcFornum
 --- @mut st
@@ -295,7 +295,9 @@ local function loop_directives(st, loop)
         if dn.tag == 'ClvInvariant' then
             want_bool(st, dn.cond, expression(st, dn.cond))
         elseif dn.tag == 'ClvDecrease' then
-            want_int(st, dn.measures[1], expression(st, dn.measures[1]))
+            for _, m in ipairs(dn.measures) do
+                want_int(st, m, expression(st, m))
+            end
         end
     end
 end

@@ -113,7 +113,6 @@ local PHRASES = {
     ['truthiness'] = 'a condition or an operand of `and`, `or` or `not` that is not a boolean',
     ['for-step'] = 'a numeric `for` loop whose step is neither omitted nor a nonzero integer literal',
     ['loop-variable-write'] = "assigning a numeric `for` loop's variable",
-    ['decrease-list'] = 'a `---@decrease` with more than one expression',
     ['spec-block'] = 'a `--[[@spec` block',
     ['lemma-block'] = 'a `--[[@lemma` block',
     ['proof-block'] = 'a `--[[@proof` block',
@@ -179,7 +178,8 @@ function M.failure(id, o, src, text)
     if o.clause ~= nil then
         local clause = src.nodes[o.clause]
         if clause.tag == 'ClvDecrease' then
-            quoted = src.spans[clause.measures[1]]
+            local first = src.spans[clause.measures[1]]
+            quoted = arena.span(first.file, first.start, src.spans[clause.measures[#clause.measures]].finish)
         elseif clause.tag == 'ClvPre' or clause.tag == 'ClvPost' or clause.tag == 'ClvInvariant' then
             quoted = src.spans[clause.cond]
         end

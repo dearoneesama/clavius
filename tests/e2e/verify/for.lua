@@ -93,7 +93,23 @@ local function first_square(n)
     return found
 end
 
+-- a measure list on a numeric `for` is checked like any other, though the counter already ends the loop
+---@param n integer
+---@pre n >= 0 and n < 1000
+---@post result == n
+---@return integer
+local function measured(n)
+    local c = 0
+    ---@invariant c == i - 1
+    ---@decrease n - i, c
+    for i = 1, n do
+        c = c + 1
+    end
+    return c
+end
+
 assert(count(3) == 3)
+assert(measured(3) == 3)
 assert(down() == 11)
 assert(steps() == 9)
 assert(empty() == 0)
