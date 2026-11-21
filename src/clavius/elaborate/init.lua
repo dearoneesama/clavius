@@ -61,14 +61,14 @@ local function check_invariants(b, out, kind, id)
 end
 
 --- Starts an iteration at a loop's head, which stands for every iteration. The locals that the loop
---- writes become arbitrary but for their types and the invariants. Returns the variable that holds the
---- measure's value at the head, or nil when the loop has no `---@decrease`.
+--- writes become arbitrary but for their types and the invariants. Returns the variables that hold the
+--- values of the measure's expressions at the head, or nil when the loop has no `---@decrease`.
 --- @param b Builder
 --- @param out NodeId[]
 --- @param id NodeId the loop
 --- @mut b
 --- @mut out
---- @return string|nil top
+--- @return string[]|nil top
 local function loop_head(b, out, id)
     local loop = b.src.nodes[id] --[[@as SrcWhile|SrcRepeat|SrcFornum]]
     for _, w in ipairs(b.effects.writes[id] or {}) do
@@ -87,19 +87,21 @@ local function loop_head(b, out, id)
     if d == nil then
         return nil
     end
-    local measure = (b.src.nodes[d] --[[@as SrcClvDecrease]]).measures[1]
-    local top = builder.temp(b, 'int', d)
-    builder.emit(b, out, { tag = 'Assign', target = top, value = expr.clause(b, measure, {}) }, d)
+    local decrease = b.src.nodes[d] --[[@as SrcClvDecrease]]
+    local top = {}
+    for i, m in ipairs(decrease.measures) do
+        top[i] = builder.temp(b, 'int', d)
+        builder.emit(b, out, { tag = 'Assign', target = top[i], value = expr.clause(b, m, {}) }, d)
+    end
     return top
 end
 
---- Ends an iteration that iterates again: checks the invariants, and that the measure was
---- non-negative at the head and is smaller now. The path then ends, since the head stands for the next
---- iteration.
+--- Ends an iteration that iterates again: checks the invariants, and that the measure is below its
+--- value at the head. The path then ends, since the head stands for the next iteration.
 --- @param b Builder
 --- @param out NodeId[]
 --- @param id NodeId the loop
---- @param top string|nil the measure's value at the head
+--- @param top string[]|nil the values of the measure's expressions at the head
 --- @mut b
 --- @mut out
 local function loop_back(b, out, id, top)
@@ -107,15 +109,14 @@ local function loop_back(b, out, id, top)
     if top ~= nil then
         local loop = b.src.nodes[id] --[[@as SrcWhile|SrcRepeat|SrcFornum]]
         local d = arena.directives(b.src, loop, 'ClvDecrease')[1]
-        local measure = (b.src.nodes[d] --[[@as SrcClvDecrease]]).measures[1] -- its one expression
-        local before = builder.add(b, { tag = 'Var', name = top }, d) -- m_top, its value at the head
-        local zero = builder.add(b, { tag = 'Int', text = '0' }, d)
-        local bounded = builder.add(b, { tag = 'BinOp', op = '<=', lhs = zero, rhs = before }, d) -- 0 <= m_top
-        -- m_next < m_top, where m_next is the measure lowered again here, after the body
-        local smaller = builder.add(b, { tag = 'BinOp', op = '<', lhs = expr.clause(b, measure, {}), rhs = before }, d) -- m_next < m_top
-        local cond = builder.add(b, { tag = 'BinOp', op = 'and', lhs = bounded, rhs = smaller }, d) -- bounded and smaller
-        -- only m_top is bounded, so the last iteration may leave the measure negative
-        builder.check(b, out, 'decrease', cond, id, d)
+        local decrease = b.src.nodes[d] --[[@as SrcClvDecrease]]
+        -- m_top, the values at the head, and m_next, the measure lowered again here, after the body
+        local before, after = {}, {}
+        for i, m in ipairs(decrease.measures) do
+            before[i] = builder.add(b, { tag = 'Var', name = top[i] }, d)
+            after[i] = expr.clause(b, m, {})
+        end
+        builder.check(b, out, 'decrease', builder.decreases(b, before, after, d), id, d)
     end
     -- end the path: the head's havoc and invariants already cover the next iteration, and falling through
     -- would reach the code after the loop without testing the condition again
@@ -352,7 +353,9 @@ end
 --- @decrease id
 function statement(b, id, out)
     local n = b.src.nodes[id]
-    if n.tag == 'Local' then
+    if b.res.defined[id] ~= nil or (n.tag == 'Local' and #n.values == 0) then -- luacheck: ignore 542
+        -- a function definition is a unit of its own, and a forward declaration declares only functions
+    elseif n.tag == 'Local' then
         local terms = {}
         for i, v in ipairs(n.values) do
             terms[i] = expr.lower(b, v, out)
@@ -413,8 +416,6 @@ function statement(b, id, out)
         end
         check_posts(b, out, id)
         builder.emit(b, out, { tag = 'Exit', label = 'body' }, id)
-    elseif n.tag == 'LocalFunction' then -- luacheck: ignore 542
-        -- a unit of its own
     else
         error(('elaborate: unhandled statement %s'):format(n.tag))
     end
@@ -424,11 +425,11 @@ end
 --- arguments that meet its `---@pre`s, since some may be outside verification; verified ones check the
 --- `---@pre`s. Its body runs in a Block labeled `body`, which `return` exits.
 --- @param b Builder
---- @param def SrcLocalFunction
+--- @param binder NodeId the Binder that the function's definition defines
 --- @mut b
 --- @return NodeId unit
-local function function_unit(b, def)
-    local fn_id = def.func
+local function function_unit(b, binder)
+    local fn_id = b.res.functions[binder]
     local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
     builder.start_unit(b)
     local body = {}
@@ -471,17 +472,17 @@ local function function_unit(b, def)
     end
     b.fn = nil
     builder.emit(b, body, { tag = 'Block', label = 'body', body = inner }, fn_id)
-    return builder.add(b, { tag = 'Unit', name = builder.name_of(b, def.binder), vars = b.vars, body = body }, fn_id)
+    return builder.add(b, { tag = 'Unit', name = builder.name_of(b, binder), vars = b.vars, body = body }, fn_id)
 end
 
---- Returns whether a top-level `local function` is verified: marked `---@clavius`, or in a region and not
---- `---@unsafe`.
+--- Returns whether a top-level function definition is verified: marked `---@clavius`, or in a region and
+--- not `---@unsafe`.
 --- @param b Builder
---- @param def SrcLocalFunction
+--- @param binder NodeId the Binder that it defines
 --- @param in_region boolean
 --- @return boolean
-local function is_verified(b, def, in_region)
-    local fn = b.src.nodes[def.func] --[[@as SrcFunction]]
+local function is_verified(b, binder, in_region)
+    local fn = b.src.nodes[b.res.functions[binder]] --[[@as SrcFunction]]
     if arena.has_directive(b.src, fn, 'ClvMarker') then
         return true
     end
@@ -495,24 +496,27 @@ end
 --- @param res Resolution
 --- @param info TypeInfo
 --- @param effects Effects
+--- @param termination Termination
 --- @return CoreProgram
-function M.run(src, root, res, info, effects)
-    local b = builder.new(src, res, info, effects)
+function M.run(src, root, res, info, effects, termination)
+    local b = builder.new(src, res, info, effects, termination)
     local units = {}
     local regions = 0
     local top = src.nodes[root] --[[@as SrcBlock]]
     for _, id in ipairs(top.statements) do
         local n = src.nodes[id]
-        if n.tag == 'LocalFunction' and is_verified(b, n, false) then
-            units[#units + 1] = function_unit(b, n)
+        local binder = res.defined[id]
+        if binder ~= nil and is_verified(b, binder, false) then
+            units[#units + 1] = function_unit(b, binder)
         elseif n.tag == 'ClvRegion' then
             local others = {}
             for _, s in ipairs(n.statements) do
                 local sn = src.nodes[s]
-                if sn.tag ~= 'LocalFunction' then
+                local defines = res.defined[s]
+                if defines ~= nil and is_verified(b, defines, true) then
+                    units[#units + 1] = function_unit(b, defines)
+                elseif defines == nil and not (sn.tag == 'Local' and #sn.values == 0) then
                     others[#others + 1] = s
-                elseif is_verified(b, sn, true) then
-                    units[#units + 1] = function_unit(b, sn)
                 end
             end
             if #others > 0 then

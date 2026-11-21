@@ -51,6 +51,7 @@ end
 --- @field src SrcArena
 --- @field index NodeIndex
 --- @field ops table<NodeId, ResolvedOp> the operations that `types` resolved
+--- @field cycle table<NodeId, NodeId> the smallest Function id in each recursive Function's cycle
 
 --- One obligation that a source node needs: its kind, and the clause for a contract kind or 0.
 --- @class NeededKey
@@ -155,7 +156,13 @@ local function needed(source, id)
     elseif n.tag == 'Call' and op ~= nil and op.op == 'int.floordiv' then
         keys[1] = { kind = 'div_zero', clause = 0 }
     elseif n.tag == 'Call' and op ~= nil then
-        add_clauses(keys, 'pre', arena.directives(src, src.nodes[assert(op.callee)] --[[@as SrcFunction]], 'ClvPre'))
+        local callee = src.nodes[assert(op.callee)] --[[@as SrcFunction]]
+        add_clauses(keys, 'pre', arena.directives(src, callee, 'ClvPre'))
+        -- a call that stays in its caller's cycle checks the callee's measure
+        local cycle = source.cycle[source.index.unit[id]]
+        if cycle ~= nil and cycle == source.cycle[op.callee] then
+            add_clauses(keys, 'decrease', arena.directives(src, callee, 'ClvDecrease'))
+        end
     elseif n.tag == 'Call' then
         local callee = src.nodes[n.func]
         keys[1] = { kind = (callee.tag == 'Id' and callee.name == 'assert') and 'assert' or 'unreachable', clause = 0 }

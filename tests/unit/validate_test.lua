@@ -176,7 +176,7 @@ describe('validate', function()
             prog.obligations[relabel].kind = 'assert'
         end
         local out = {}
-        local source = { src = c.src, index = assert(c.index), ops = assert(c.info).ops }
+        local source = { src = c.src, index = assert(c.index), ops = assert(c.info).ops, cycle = assert(c.termination).cycle }
         for i, d in ipairs(validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, source)) do
             local s = assert(d.span)
             out[i] = { d.code, d.args[1], d.args[2], program:sub(s.start, s.finish):match '^[^\n]*' }
@@ -273,6 +273,30 @@ describe('validate', function()
         end
         ---@clavius end
     ]=]
+
+    -- the obligations of a recursive call that elaborate emits, by id
+    local RECURSION = [=[
+        ---@clavius
+        ---@param n integer
+        ---@pre n >= 0
+        ---@decrease n
+        local function down(n)
+            if n > 0 then
+                down(n - 1) -- 1 (range); 2 (pre); 3 (decrease): the call stays in the cycle
+            end
+        end
+        ---@clavius begin
+        down(3) -- 4 (pre): a call from outside the cycle checks no measure
+        ---@clavius end
+    ]=]
+
+    it('accepts the obligations of a recursive call that elaborate emits', function()
+        assert.are.same({}, coverage(RECURSION, {}, nil))
+    end)
+
+    it('reports a call in a cycle whose measure has no Check', function()
+        assert.are.same({ { 'E-internal-coverage', 'Call', 'decrease', 'down(n - 1)' } }, coverage(RECURSION, { [3] = true }, nil))
+    end)
 
     it('accepts the loop obligations that elaborate emits', function()
         assert.are.same({}, coverage(LOOPS, {}, nil))

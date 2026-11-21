@@ -81,8 +81,11 @@ local PHRASES = {
     ['return-name-clash'] = "a parameter has the name of the function's value",
     ['marked-unsafe'] = "a function can't be both `---@clavius` and `---@unsafe`",
     ['untrusted-flag'] = '`---@no_callback` and `---@may_raise` belong on an `---@unsafe` function',
-    ['repeated-decrease'] = 'this loop already has a `---@decrease`',
+    ['repeated-decrease'] = 'this loop or function already has a `---@decrease`',
     ['missing-decrease'] = 'a `while` or `repeat` loop needs a `---@decrease` above it',
+    ['missing-function-decrease'] = 'a recursive function needs a `---@decrease` above it',
+    ['decrease-length'] = 'the measures in a recursion cycle need the same number of expressions; pad the shorter ones with constants',
+    ['unsafe-decrease'] = "an `---@unsafe` function's body is never checked, so it takes no `---@decrease`",
     -- `---@meta` files
     ['missing-extern'] = 'a function in a `---@meta` file given with `--meta` needs `---@extern` above it',
     ['marked-meta'] = 'a `---@meta` file holds only specs, so nothing in it can be marked',
@@ -105,11 +108,11 @@ local PHRASES = {
     ['call'] = 'a call of anything but `assert`, `error`, a `local function` by its name, or a function that a `---@meta` file declares',
     ['call-args'] = "a call whose arguments and the callee's parameters differ in number",
     ['call-in-contract'] = 'a call in a contract or a loop annotation',
-    ['recursion'] = 'recursion',
     ['unmarked-callee'] = 'a call to a function that is neither `---@clavius` nor `---@unsafe`',
     ['reassigned-function'] = 'a call to a function that is assigned somewhere in the file',
     ['reassigned-alias'] = 'a call through a library alias that is assigned somewhere in the file',
-    ['function-value'] = 'a function other than a top-level `local function`, or one used as a value',
+    ['forward-gap'] = 'a call to a function whose `local` declaration and definition have other code between them',
+    ['function-value'] = 'a function other than a top-level `local function` or `function f` after `local f`, or one used as a value',
     ['return-outside-function'] = '`return` outside a function',
     ['multiple-returns'] = 'more than one return value',
     ['call-value'] = '`assert` or `error` used other than as a call statement',
@@ -120,7 +123,6 @@ local PHRASES = {
     ['truthiness'] = 'a condition or an operand of `and`, `or` or `not` that is not a boolean',
     ['for-step'] = 'a numeric `for` loop whose step is neither omitted nor a nonzero integer literal',
     ['loop-variable-write'] = "assigning a numeric `for` loop's variable",
-    ['decrease-list'] = 'a `---@decrease` with more than one expression',
     ['spec-block'] = 'a `--[[@spec` block',
     ['lemma-block'] = 'a `--[[@lemma` block',
     ['proof-block'] = 'a `--[[@proof` block',
@@ -149,6 +151,12 @@ local FAILURES = {
 local COUNTER_FAILURES = {
     invariant_entry = "the loop counter's range may not hold when the loop starts",
     invariant_preserved = "the loop counter's range may not hold again after an iteration",
+}
+
+--- What a failing obligation on a call that stays in its caller's cycle of recursive calls means.
+--- @type table<string, string>
+local CALL_FAILURES = {
+    decrease = 'this call may not decrease the measure `%s`, or the measure may be negative on entry',
 }
 
 --- @param text string
@@ -183,18 +191,22 @@ end
 --- @return string
 function M.failure(id, o, src, files)
     local span = src.spans[o.node]
+    local template = FAILURES[o.kind]
+    if src.nodes[o.node].tag == 'Call' and CALL_FAILURES[o.kind] then
+        template = CALL_FAILURES[o.kind]
+    elseif o.clause == nil and COUNTER_FAILURES[o.kind] then
+        template = COUNTER_FAILURES[o.kind]
+    end
     -- a clause is quoted without its tag
     local quoted = span
-    local template = FAILURES[o.kind]
     if o.clause ~= nil then
         local clause = src.nodes[o.clause]
         if clause.tag == 'ClvDecrease' then
-            quoted = src.spans[clause.measures[1]]
+            local first = src.spans[clause.measures[1]]
+            quoted = arena.span(first.file, first.start, src.spans[clause.measures[#clause.measures]].finish)
         elseif clause.tag == 'ClvPre' or clause.tag == 'ClvPost' or clause.tag == 'ClvInvariant' then
             quoted = src.spans[clause.cond]
         end
-    elseif COUNTER_FAILURES[o.kind] then
-        template = COUNTER_FAILURES[o.kind]
     end
     local snippet = files[quoted.file].text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
     local message = assert(template, ('messages: no message for %s'):format(o.kind)):format(snippet)

@@ -61,9 +61,9 @@ Clavius is being developed, so this table may change over time and may not refle
 |Function types|-|
 |LuaLS Unions, enums and casts|-|
 |LuaLS Generics|-|
-|Loops with invariants (`---@invariant`) and termination measures (`---@decrease`)|Limited: numeric `for`'s step must be literal, and `---@decrease` takes one expression|
+|Loops with invariants (`---@invariant`) and termination measures (`---@decrease`)|Numeric `for`'s step must be literal|
 |Custom iterators|-|
-|Recursion with Clavius' termination measures|-|
+|Recursion with termination measures|Yes|
 |Varargs and multiple return values|-|
 |Module state and closures|-|
 |Standard library calls, including integer division (`math.floor(a / b)`) and modulo (`%`)|Partial|
@@ -138,7 +138,8 @@ program.lua
  effects ───── finds locals each loop writes, which its encoding havocs
     │
     ▼
- termination ─ checks that every applicable loops have a termination measure
+ termination ─ finds recursion cycles, and checks that they and every applicable loops have a
+    │          termination measure
     │
     ▼
  elaborate ─── converts the Clavius AST into Core IL: an intermediate

@@ -92,7 +92,7 @@ describe('report.messages', function()
             ---@clavius begin
             local i = 0
             ---@invariant i  >=  0
-            ---@decrease 3 - i
+            ---@decrease 3 - i,  0
             while i < 3 do i = i + 1 end
             for k = 1, 2 do end
             ---@clavius end
@@ -107,13 +107,34 @@ describe('report.messages', function()
             end
         end
         assert.are.same({
-            '5:1: decrease: an iteration may start with the measure `3 - i` negative, or may not decrease it [O4]',
+            '5:1: decrease: an iteration may start with the measure `3 - i, 0` negative, or may not decrease it [O4]',
             '5:1: invariant_entry: the loop invariant `i >= 0` may not hold when the loop starts [O1]',
             '5:1: invariant_preserved: the loop invariant `i >= 0` may not hold again after an iteration [O3]',
             "6:1: for_bound: this loop's limit plus its step may leave ±2^53 [O5]",
             "6:1: invariant_entry: the loop counter's range may not hold when the loop starts [O6]",
             "6:1: invariant_preserved: the loop counter's range may not hold again after an iteration [O7]",
         }, messages.failures(kinds, prog.obligations, c.src, c.files))
+    end)
+
+    it("quotes the callee's measure at a call in a cycle of recursive calls", function()
+        local text = stringx.dedent [=[
+            local g
+            ---@clavius begin
+            ---@param n integer
+            ---@decrease n,  1
+            local function f(n) g(n) end
+            ---@param n integer
+            ---@decrease n - 1, 0
+            function g(n) f(n) end
+            ---@clavius end
+        ]=]
+        local c = driver.run_until('validate', text, 1)
+        assert.are.same({}, c.diags)
+        local prog = assert(c.prog)
+        assert.are.same({
+            '5:21: decrease: this call may not decrease the measure `n - 1, 0`, or the measure may be negative on entry [O1]',
+            '8:15: decrease: this call may not decrease the measure `n, 1`, or the measure may be negative on entry [O2]',
+        }, messages.failures({ 1, 2 }, prog.obligations, c.src, c.files))
     end)
 
     it('orders diagnostics by position, then code', function()

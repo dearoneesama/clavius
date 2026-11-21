@@ -12,14 +12,15 @@
 --- | 'missing_return' # a function with a `---@return` never reaches the end of its body
 --- | 'invariant_entry' # a loop's `---@invariant`, or the range of a numeric `for`'s counter, holds when the loop starts
 --- | 'invariant_preserved' # a loop's invariant, or the counter's range, holds again after an iteration
---- | 'decrease' # a loop's `---@decrease` measure is non-negative when an iteration starts and smaller when it ends
+--- | 'decrease' # a `---@decrease` measure decreases, on a loop's back edge or at a recursive call
 --- | 'for_bound' # a numeric `for`'s limit plus its step stays within ±2^53, so the counter can pass it
 --- | 'div_zero' # the divisor of `%` or of `math.floor(a / b)` isn't 0
 --- | 'mod_range' # `a - a % b` stays within ±2^53, so LuaJIT computes `a % b` exactly
 
 --- Why an assumption may be made. Nothing proves a `trusted` one, so the trust report lists each. The
 --- `false` of a `back_edge` ends an iteration whose checks are done, since the loop's head, with its
---- havoc and invariants, stands for every later iteration.
+--- havoc and invariants, stands for every later iteration. At a recursive call, `callee_post` holds by
+--- induction on the measure that the call decreases.
 --- @alias Justification
 --- | 'type_fact' # a value of a declared type satisfies that type's predicate
 --- | 'branch' # the condition of the branch being taken

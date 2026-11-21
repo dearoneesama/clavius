@@ -207,6 +207,31 @@ describe('types', function()
         )
     end)
 
+    it('checks measures, and calls to functions defined below against their signatures', function()
+        markers.expect_diags(
+            'types',
+            [=[
+            local g
+            ---@clavius begin
+            ---@param n integer
+            ---@param on boolean
+            ---@decrease n, on
+            --! E-type-mismatch
+            ---@return integer
+            local function f(n, on)
+                return g(on) --! E-type-mismatch E-type-mismatch
+            end
+            ---@param n integer
+            ---@return boolean
+            function g(n)
+                return n > 0
+            end
+            local x = g(1)
+            ---@clavius end
+            ]=]
+        )
+    end)
+
     it('checks loop conditions, bounds, invariants and measures', function()
         local c = markers.expect_diags(
             'types',
@@ -220,7 +245,8 @@ describe('types', function()
             --! E-type-mismatch
             while n do end --! E-unsupported-feature
             ---@invariant on
-            ---@decrease n
+            ---@decrease n, on
+            --! E-type-mismatch
             repeat local m = n until m --! E-unsupported-feature
             for i = on, 2, 1.5 do end --! E-type-mismatch E-unsupported-type
             ---@invariant i

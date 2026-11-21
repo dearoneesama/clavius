@@ -10,7 +10,8 @@ local support = require 'clavius.ir.support'
 --- @class Resolution
 --- @field decl table<NodeId, NodeId> what each Id refers to: a Binder, or in a `---@post` the ClvReturn of the function's value; an Id with no entry names a global
 --- @field names table<NodeId, string> the unique name of each Binder and ClvReturn
---- @field functions table<NodeId, NodeId> the Function node of each `local function`'s Binder
+--- @field functions table<NodeId, NodeId> the Function node of each function definition's Binder
+--- @field defined table<NodeId, NodeId> the Binder that each top-level function definition defines
 --- @field constants table<NodeId, NodeId> the initializer of each constant: a top-level local whose initializer is a number or boolean literal, and which is never assigned
 --- @field assigned table<NodeId, boolean> the Binders that an assignment anywhere in the file targets
 --- @field library table<NodeId, NodeId> the `---@meta` Function that each library or host call calls
@@ -30,11 +31,13 @@ local support = require 'clavius.ir.support'
 --- @field scope_names table<string, NodeId>[] the locals declared so far in each scope
 --- @field unit_of table<NodeId, NodeId> the unit root, a ClvRegion or a Function, that declared each local of marked code
 --- @field binders integer locals so far
---- @field top_functions table<NodeId, boolean> the Function nodes of top-level `local function`s
---- @field binder_of table<NodeId, NodeId> the Binder of each `local function`'s Function node
+--- @field top_functions table<NodeId, boolean> the Function nodes of top-level function definitions
+--- @field binder_of table<NodeId, NodeId> the Binder of each function definition's Function node
+--- @field forward table<NodeId, boolean> the `local`s without values that declare only functions
+--- @field gapped table<NodeId, boolean> forward-declared functions that may be called while still nil
 --- @field verified table<NodeId, boolean> the Function nodes whose bodies are marked code
 --- @field loop_vars table<NodeId, boolean> the Binders of numeric `for` loops, which marked code may not assign
---- @field fn NodeId|nil the Binder of the `local function` whose body is being visited
+--- @field fn NodeId|nil the Binder of the function definition whose body is being visited
 --- @field in_clause boolean whether a contract clause is being visited
 --- @field outer_reads PendingUse[]
 --- @field calls PendingUse[]
@@ -200,8 +203,9 @@ local function check_builtin_args(st, id, n, name)
     end
 end
 
---- Checks a call in marked code of a local: it must be a `local function` that is verified or
---- `---@unsafe`, other than the one being defined, and the arguments must match its parameters.
+--- Checks a call in marked code of a local: it must be a function definition whose parameters the
+--- arguments match. Whether the callee is verified or `---@unsafe` is checked once the whole file is
+--- resolved, since a forward-declared callee may be defined below.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param n SrcCall
@@ -217,11 +221,7 @@ local function check_local_call(st, id, n, scope)
     end
     --- @cast b NodeId
     local fn = st.src.nodes[fn_id] --[[@as SrcFunction]]
-    if b == st.fn then
-        report(st, 'E-unsupported-feature', id, { 'recursion' })
-    elseif not (st.verified[fn_id] or arena.has_directive(st.src, fn, 'ClvUnsafe')) then
-        report(st, 'E-unsupported-feature', id, { 'unmarked-callee' })
-    elseif fn.vararg or #n.args ~= #fn.params then
+    if fn.vararg or #n.args ~= #fn.params then
         report(st, 'E-unsupported-feature', id, { 'call-args' })
     else
         st.calls[#st.calls + 1] = { id = id, binder = b }
@@ -370,7 +370,7 @@ end
 
 --- Checks a function's directives and resolves its contract. A `---@param` must name a parameter once, a
 --- `---@return` declares the name that `---@post` calls the value by, and a clause sees the parameters,
---- plus the value in a `---@post`.
+--- plus the value in a `---@post`. A measure sees what a `---@pre` sees.
 --- @param st ResolveState
 --- @param id NodeId the Function
 --- @param scope integer the scope of the parameters
@@ -389,6 +389,7 @@ local function visit_directives(st, id, scope)
     if st.meta_kind == 'extern' and not arena.has_directive(st.src, fn, 'ClvExtern') then
         report(st, 'E-misplaced-directive', id, { 'missing-extern' })
     end
+    local measures = {}
     for _, d in ipairs(fn.directives) do
         local dn = st.src.nodes[d]
         if support.TRUST_FLAGS[dn.tag] and not st.meta_kind then
@@ -408,6 +409,12 @@ local function visit_directives(st, id, scope)
             returns[#returns + 1] = d
         elseif dn.tag == 'ClvPre' or dn.tag == 'ClvPost' then
             clauses[#clauses + 1] = d
+        elseif dn.tag == 'ClvDecrease' and unsafe then
+            report(st, 'E-misplaced-directive', d, { 'unsafe-decrease' })
+        elseif dn.tag == 'ClvDecrease' and #measures > 0 then
+            report(st, 'E-misplaced-directive', d, { 'repeated-decrease' })
+        elseif dn.tag == 'ClvDecrease' then
+            measures = dn.measures
         elseif dn.tag == 'ClvUnsafe' and arena.has_directive(st.src, fn, 'ClvMarker') then
             report(st, 'E-misplaced-directive', d, { 'marked-unsafe' })
         end
@@ -428,9 +435,12 @@ local function visit_directives(st, id, scope)
         local clause = st.src.nodes[d] --[[@as SrcClvPre|SrcClvPost]]
         visit_clause(st, clause.cond, clause.tag == 'ClvPost' and post_scope or scope, id)
     end
+    for _, m in ipairs(measures) do
+        visit_clause(st, m, scope, id)
+    end
 end
 
---- Resolves a loop's directives in `scope`. A loop has one measure, of one expression.
+--- Resolves a loop's directives in `scope`. A loop has at most one measure.
 --- @param st ResolveState
 --- @param loop SrcWhile|SrcRepeat|SrcFornum
 --- @param scope integer
@@ -447,8 +457,6 @@ local function visit_loop_directives(st, loop, scope, unit)
         elseif dn.tag == 'ClvDecrease' then
             if unit ~= 0 and measured then
                 report(st, 'E-misplaced-directive', d, { 'repeated-decrease' })
-            elseif unit ~= 0 and #dn.measures > 1 then
-                report(st, 'E-unsupported-feature', d, { 'decrease-list' })
             end
             measured = true
             for _, m in ipairs(dn.measures) do
@@ -544,7 +552,7 @@ function visit(st, id, scope, unit)
         elseif n.tag == 'UnOp' and not support.UNOPS[n.op] then
             report(st, 'E-unsupported-feature', id, { n.op })
             unit = 0
-        elseif n.tag == 'Local' and #n.values ~= #n.names then
+        elseif n.tag == 'Local' and #n.values ~= #n.names and not st.forward[id] then
             report(st, 'E-unsupported-feature', id, { 'local-values' })
         elseif n.tag == 'Function' and not st.top_functions[id] then
             report(st, 'E-unsupported-feature', id, { 'function-value' })
@@ -575,6 +583,11 @@ function visit(st, id, scope, unit)
         use(st, id, scope, unit)
     elseif n.tag == 'Call' then
         visit_call(st, id, scope, unit, false)
+        return
+    elseif n.tag == 'Set' and st.out.defined[id] ~= nil then
+        -- the definition of a forward-declared function, which is no assignment that marked code sees
+        st.out.decl[n.targets[1]] = st.out.defined[id]
+        visit(st, n.values[1], scope, unit)
         return
     elseif n.tag == 'Set' then
         visit_set(st, id, scope, unit)
@@ -659,10 +672,71 @@ local function top_level(src, root)
     return out
 end
 
+--- Finds the top-level function definitions. Besides `local function f`, mutual recursion needs a
+--- function declared by a top-level `local g` without values and defined by the first top-level
+--- `function g(…)` or `g = function(…)` that assigns that local. Its definition is gapped when code
+--- that may run sits between the two: anything but a function definition or a `local` without values.
+--- That code could call a function that calls `g` while `g` is still nil.
+--- @param st ResolveState
+--- @param statements NodeId[] the top-level statements
+--- @mut st
+local function find_definitions(st, statements)
+    local src = st.src
+    --- @type table<string, NodeId>
+    local latest = {} -- name -> the Binder of its latest top-level declaration
+    --- @type table<NodeId, integer>
+    local declared_at = {} -- the position of the `local` without values that declares a Binder
+    for i, id in ipairs(statements) do
+        local n = src.nodes[id]
+        if n.tag == 'LocalFunction' then
+            local name = (src.nodes[n.binder] --[[@as SrcBinder]]).name
+            latest[name] = n.binder
+            st.out.defined[id] = n.binder
+            st.top_functions[n.func] = true
+        elseif n.tag == 'Local' then
+            for _, b in ipairs(n.names) do
+                local name = (src.nodes[b] --[[@as SrcBinder]]).name
+                latest[name] = b
+                if #n.values == 0 then
+                    declared_at[b] = i
+                end
+            end
+        elseif n.tag == 'Set' and #n.targets == 1 and #n.values == 1 and src.nodes[n.values[1]].tag == 'Function' then
+            local target = src.nodes[n.targets[1]]
+            local b = target.tag == 'Id' and latest[target.name] or nil
+            if b ~= nil and declared_at[b] ~= nil and st.out.functions[b] == nil then
+                st.out.functions[b] = n.values[1]
+                st.out.defined[id] = b
+                st.binder_of[n.values[1]] = b
+                st.top_functions[n.values[1]] = true
+                -- the window may hold only what runs no code: function definitions and `local`s without
+                -- values. it's a syntactic rule, so a constant or a call that can't reach `g` is
+                -- rejected too. telling those apart would need the callees that `types` finds
+                for k = declared_at[b] + 1, i - 1 do
+                    local between = src.nodes[statements[k]]
+                    if st.out.defined[statements[k]] == nil and not (between.tag == 'Local' and #between.values == 0) then
+                        st.gapped[b] = true
+                    end
+                end
+            end
+        end
+    end
+    for _, id in ipairs(statements) do
+        local n = src.nodes[id]
+        if n.tag == 'Local' and #n.values == 0 then
+            local all = true
+            for _, b in ipairs(n.names) do
+                all = all and st.out.functions[b] ~= nil
+            end
+            st.forward[id] = all
+        end
+    end
+end
+
 --- Returns an empty Resolution.
 --- @return Resolution
 local function new_resolution()
-    return { decl = {}, names = {}, functions = {}, constants = {}, assigned = {}, library = {}, floordiv = {} }
+    return { decl = {}, names = {}, functions = {}, defined = {}, constants = {}, assigned = {}, library = {}, floordiv = {} }
 end
 
 --- Makes the state for resolving one file into `out`.
@@ -682,6 +756,8 @@ local function new_state(src, iface, meta_kind, out)
         binders = 0,
         top_functions = {},
         binder_of = {},
+        forward = {},
+        gapped = {},
         verified = {},
         loop_vars = {},
         fn = nil,
@@ -742,13 +818,13 @@ function M.run(src, root, iface)
     for _, id in ipairs(top.statements) do
         st.top_statements[id] = true
     end
+    local statements = top_level(src, root)
+    find_definitions(st, statements)
     -- the Binders of top-level locals with a literal initializer, and the initializers
     local candidates, values = {}, {}
-    for _, id in ipairs(top_level(src, root)) do
+    for _, id in ipairs(statements) do
         local n = src.nodes[id]
-        if n.tag == 'LocalFunction' then
-            st.top_functions[n.func] = true
-        elseif n.tag == 'Local' then
+        if n.tag == 'Local' then
             for i, b in ipairs(n.names) do
                 if n.values[i] ~= nil and is_literal(src, n.values[i]) then
                     candidates[#candidates + 1] = b
@@ -768,10 +844,16 @@ function M.run(src, root, iface)
             report(st, 'E-unsupported-feature', r.id, { 'outer-local' })
         end
     end
-    -- unmarked code can't swap out a function that verified code relies on
     for _, c in ipairs(st.calls) do
-        if st.out.assigned[c.binder] then
+        local fn_id = st.out.functions[c.binder]
+        local fn = src.nodes[fn_id] --[[@as SrcFunction]]
+        if not (st.verified[fn_id] or arena.has_directive(src, fn, 'ClvUnsafe')) then
+            report(st, 'E-unsupported-feature', c.id, { 'unmarked-callee' })
+        -- unmarked code can't swap out a function that verified code relies on
+        elseif st.out.assigned[c.binder] then
             report(st, 'E-unsupported-feature', c.id, { 'reassigned-function' })
+        elseif st.gapped[c.binder] then
+            report(st, 'E-unsupported-feature', c.id, { 'forward-gap' })
         end
     end
     for _, c in ipairs(st.alias_calls) do

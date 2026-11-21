@@ -35,7 +35,32 @@ local function half(n)
     return i
 end
 
+-- a measure of three expressions: each branch decreases a different one, and the ones after it may grow
+---@post result == 2
+---@return integer
+local function odometer()
+    local a = 0
+    local b = 0
+    local c = 0
+    ---@invariant 0 <= a and a < 2 and 0 <= b and b <= 2 and 0 <= c and c <= 2
+    ---@decrease 2 - a, 2 - b, 2 - c
+    repeat
+        if c < 2 then
+            c = c + 1
+        elseif b < 2 then
+            b = b + 1
+            c = 0
+        else
+            a = a + 1
+            b = 0
+            c = 0
+        end
+    until a == 2
+    return a
+end
+
 assert(count(4) == 4)
 assert(half(9) <= 9)
+assert(odometer() == 2)
 
 ---@clavius end

@@ -15,6 +15,7 @@ local arena = require 'clavius.ir.arena'
 --- @field res Resolution
 --- @field info TypeInfo
 --- @field effects Effects
+--- @field termination Termination
 --- @field core CoreArena
 --- @field obligations Obligation[]
 --- @field assumptions Assumption[]
@@ -37,13 +38,15 @@ local INT53_MAX = '9007199254740992'
 --- @param res Resolution
 --- @param info TypeInfo
 --- @param effects Effects
+--- @param termination Termination
 --- @return Builder
-function M.new(src, res, info, effects)
+function M.new(src, res, info, effects, termination)
     return {
         src = src,
         res = res,
         info = info,
         effects = effects,
+        termination = termination,
         core = arena.new_core(),
         obligations = {},
         assumptions = {},
@@ -161,6 +164,41 @@ function M.is_int53(b, t, origin)
     local hi = M.add(b, { tag = 'BinOp', op = '<=', lhs = t, rhs = M.add(b, { tag = 'Int', text = INT53_MAX }, origin) }, origin)
     return M.add(b, { tag = 'BinOp', op = 'and', lhs = lo, rhs = hi }, origin)
 end
+
+--- Returns the term that says the measure `after` is below `before` in the lexicographic order: at
+--- some position the expression was non-negative and is now smaller, and every expression before that
+--- position is unchanged. Both lists have the same length. Only `before` is bounded below, so the
+--- step to `after` may overshoot below zero.
+--- e.g. for `(a1, b1)` below `(a0, b0)`:
+---
+---     (BinOp or
+---       (BinOp and (BinOp <= (Int 0) a0) (BinOp < a1 a0))
+---       (BinOp and (BinOp == a1 a0) (BinOp and (BinOp <= (Int 0) b0) (BinOp < b1 b0))))
+--- @param b Builder
+--- @param before NodeId[]
+--- @param after NodeId[]
+--- @param origin NodeId
+--- @mut b
+--- @return NodeId
+function M.decreases(b, before, after, origin)
+    assert(#before == #after, 'builder: measures of different lengths')
+    -- built from the last position, where only a decrease will do
+    local cond = nil
+    for i = #before, 1, -1 do
+        local zero = M.add(b, { tag = 'Int', text = '0' }, origin)
+        local bounded = M.add(b, { tag = 'BinOp', op = '<=', lhs = zero, rhs = before[i] }, origin)
+        local smaller = M.add(b, { tag = 'BinOp', op = '<', lhs = after[i], rhs = before[i] }, origin)
+        local here = M.add(b, { tag = 'BinOp', op = 'and', lhs = bounded, rhs = smaller }, origin) -- decreases at i
+        if cond ~= nil then
+            local same = M.add(b, { tag = 'BinOp', op = '==', lhs = after[i], rhs = before[i] }, origin)
+            local later = M.add(b, { tag = 'BinOp', op = 'and', lhs = same, rhs = cond }, origin) -- decreases after i
+            here = M.add(b, { tag = 'BinOp', op = 'or', lhs = here, rhs = later }, origin)
+        end
+        cond = here
+    end
+    return assert(cond, 'builder: a measure with no expression')
+end
+
 --- Returns the core sort of a type.
 --- @param ty Type
 --- @return 'int' | 'bool'

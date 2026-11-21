@@ -64,8 +64,9 @@ local function section(out, heading, entries, width)
     end
 end
 
---- Returns the name that a trusted Function is called by: a `local function`'s name, or the name that a
---- `---@meta` file declares it under, such as `math.min`.
+--- Returns the name that a trusted Function is called by: the name of the local that a `local function f`
+--- or, after `local f`, a `function f` defines, or the name that a `---@meta` file declares it under, such
+--- as `math.min`.
 --- @param src SrcArena
 --- @param index NodeIndex
 --- @param id NodeId
@@ -75,7 +76,7 @@ local function name_of(src, index, id)
     if def.tag == 'LocalFunction' then
         return (src.nodes[def.binder] --[[@as SrcBinder]]).name
     end
-    -- `function a.b(…) end` in a `---@meta` file
+    -- `function f(…) end` after `local f`, or `function a.b(…) end` in a `---@meta` file
     local set = def --[[@as SrcSet]]
     local _, path = support.global_path(src, set.targets[1])
     return assert(path)
