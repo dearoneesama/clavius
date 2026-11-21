@@ -71,7 +71,7 @@ describe('interfaces', function()
 
     it('rejects marked code in a `---@meta` file, and a name declared twice', function()
         assert.are.same(
-            { 'host.lua 10 E-misplaced-directive', 'host.lua 2 E-misplaced-directive', 'host.lua 8 E-misplaced-directive' },
+            { 'host.lua 2 E-misplaced-directive', 'host.lua 8 E-misplaced-directive' },
             diags(
                 'interfaces',
                 'local x = 1',
@@ -83,9 +83,41 @@ describe('interfaces', function()
                 ---@extern
                 function host.f() end
                 ---@extern
-                function math.min(a, b) end
-                ---@extern
                 function host.f() end
+                ]=]
+            )
+        )
+    end)
+
+    it('rejects a host function with the name of a Lua global or a library function', function()
+        -- each would replace a built-in, a ban or a shipped spec with a trusted contract
+        assert.are.same(
+            {
+                'host.lua 10 E-misplaced-directive',
+                'host.lua 13 E-misplaced-directive',
+                'host.lua 4 E-misplaced-directive',
+                'host.lua 7 E-misplaced-directive',
+            },
+            diags(
+                'interfaces',
+                'local x = 1',
+                [=[
+                ---@meta
+                ---@extern
+                ---@param v boolean
+                function assert(v) end
+                ---@extern
+                ---@param n integer
+                function pcall(n) end
+                ---@extern
+                ---@param x integer
+                function math.min(x) end
+                ---@extern
+                ---@param n integer
+                function _G.f(n) end
+                ---@extern
+                ---@param n integer
+                function host.f(n) end
                 ]=]
             )
         )
@@ -139,7 +171,7 @@ describe('interfaces', function()
             local b = math.min(1) --! E-unsupported-feature
             local c = math.floor(a) --! E-unsupported-call
             local d = math.sqrt(4) --! E-unsupported-call
-            local f = math.max --! E-unsupported-call
+            local f = math.max --! E-unsupported-feature
             local e = host.f(1) --! E-banned-global
             ---@clavius end
             ]=]
@@ -167,9 +199,11 @@ describe('interfaces', function()
         table.sort(ops)
         assert.are.same({ 'floor(7 / 2) int.floordiv', 'm(a, 1) call' }, ops)
         assert.are.same({ 'main 6 E-unsupported-feature' }, diags('resolve', text:gsub('m%(a, 1%)', 'h(a)'), meta))
+        -- a declared host function used as a value, rather than the global it belongs to
+        assert.are.same({ 'main 6 E-unsupported-feature' }, diags('resolve', text:gsub('m%(a, 1%)', 'host.f'), meta))
     end)
 
-    it('records the resolved operation of each call and idiom', function()
+    it('records the resolved operation of each call, integer division and `%`', function()
         local text = stringx.dedent [=[
             ---@clavius
             ---@param a integer

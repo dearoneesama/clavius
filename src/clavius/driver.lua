@@ -29,7 +29,6 @@ local write = require 'clavius.sexpr.write'
 --- One Lua file on its way through the stages. Each stage fills in its fields.
 --- @class CompilerContext
 --- @field file FileId
---- @field text string
 --- @field files table<FileId, SourceFile> the Lua file and the `---@meta` files
 --- @field src SrcArena
 --- @field root NodeId
@@ -53,15 +52,9 @@ local M = {}
 --- The modules whose files hold the shipped specs, read in this order.
 local STDLIB = { 'clavius.meta.math' }
 
---- @type MetaSource[]|nil
-local stdlib_cache = nil
-
 --- Returns the shipped `---@meta` files of the standard library, found through `package.path`.
 --- @return MetaSource[]
 function M.stdlib()
-    if stdlib_cache then
-        return stdlib_cache
-    end
     local out = {}
     for _, module in ipairs(STDLIB) do
         local relative = module:gsub('%.', '/')
@@ -78,7 +71,6 @@ function M.stdlib()
         end
         out[#out + 1] = assert(found, ('clavius: the shipped specs %s are missing from package.path'):format(module))
     end
-    stdlib_cache = out
     return out
 end
 
@@ -86,7 +78,7 @@ end
 --- @return Diag[]
 local function run_parse(c)
     -- the Lua file comes first, so its node ids don't depend on the `---@meta` files
-    local root, diags = parse.append(c.src, c.text, c.file, false)
+    local root, diags = parse.append(c.src, c.files[c.file].text, c.file, false)
     c.root = root
     if root == 0 then
         return diags
@@ -208,7 +200,6 @@ function M.run_until(stage, text, file, metas, name)
     --- @type CompilerContext
     local c = {
         file = file,
-        text = text,
         files = files,
         src = { nodes = {}, spans = {} },
         root = 0,
@@ -246,17 +237,6 @@ function M.dump_core(c)
         first = first + size
     end
     return table.concat(groups, '\n')
-end
-
---- Returns the text of each file of a run, by its id.
---- @param c CompilerContext
---- @return table<FileId, string>
-function M.texts(c)
-    local out = {}
-    for id, f in pairs(c.files) do
-        out[id] = f.text
-    end
-    return out
 end
 
 --- Prints what the last stage run on a compiler context produced: the source arena with the side tables so

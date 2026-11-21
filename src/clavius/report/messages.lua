@@ -87,6 +87,7 @@ local PHRASES = {
     ['missing-extern'] = 'a function in a `---@meta` file given with `--meta` needs `---@extern` above it',
     ['marked-meta'] = 'a `---@meta` file holds only specs, so nothing in it can be marked',
     ['repeated-declaration'] = 'this function is already declared in a `---@meta` file of the run',
+    ['library-name'] = "a host function can't have the name of a Lua global or of a library function",
     -- node kinds
     Index = 'indexing',
     Table = 'a table constructor',
@@ -112,6 +113,7 @@ local PHRASES = {
     ['return-outside-function'] = '`return` outside a function',
     ['multiple-returns'] = 'more than one return value',
     ['call-value'] = '`assert` or `error` used other than as a call statement',
+    ['library-value'] = 'a library or host function used as a value',
     ['assert-args'] = '`assert` with arguments other than a condition and a literal message',
     ['error-args'] = '`error` with arguments that are not literals',
     ['outer-local'] = 'a local declared outside this region',
@@ -172,15 +174,14 @@ function M.diag(d, spans, text)
     return ('%s: %s: %s'):format(position(text, span.start), d.code, template:format(unpack(args)))
 end
 
---- Formats the failing obligation `id` as `line:col: kind: message [O17]`. A clause that it quotes from
---- another file of the run, such as a library spec's `---@pre`, is read from `texts`.
+--- Formats the failing obligation `id` as `line:col: kind: message [O17]`. The clause it quotes may sit in
+--- another file of the run, such as a library spec's `---@pre`.
 --- @param id integer
 --- @param o Obligation
 --- @param src SrcArena
---- @param text string
---- @param texts table<FileId, string>|nil
+--- @param files table<FileId, SourceFile>
 --- @return string
-function M.failure(id, o, src, text, texts)
+function M.failure(id, o, src, files)
     local span = src.spans[o.node]
     -- a clause is quoted without its tag
     local quoted = span
@@ -195,10 +196,9 @@ function M.failure(id, o, src, text, texts)
     elseif COUNTER_FAILURES[o.kind] then
         template = COUNTER_FAILURES[o.kind]
     end
-    local quoted_text = texts and texts[quoted.file] or text
-    local snippet = quoted_text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
+    local snippet = files[quoted.file].text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
     local message = assert(template, ('messages: no message for %s'):format(o.kind)):format(snippet)
-    return ('%s: %s: %s [O%d]'):format(position(text, span.start), o.kind, message, id)
+    return ('%s: %s: %s [O%d]'):format(position(files[span.file].text, span.start), o.kind, message, id)
 end
 
 --- A message with its sort key.
@@ -246,14 +246,13 @@ end
 --- @param failed integer[] obligation ids
 --- @param obligations Obligation[]
 --- @param src SrcArena
---- @param text string
---- @param texts table<FileId, string>|nil the text of each file of the run, for clauses in other files
+--- @param files table<FileId, SourceFile> every file of the run
 --- @return string[]
-function M.failures(failed, obligations, src, text, texts)
+function M.failures(failed, obligations, src, files)
     local list = {}
     for i, id in ipairs(failed) do
         local o = obligations[id]
-        list[i] = { start = src.spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = M.failure(id, o, src, text, texts) }
+        list[i] = { start = src.spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = M.failure(id, o, src, files) }
     end
     return in_order(list)
 end

@@ -58,6 +58,7 @@ Clavius is being developed, so this table may change over time and may not refle
 |Arrays|-|
 |Maps|-|
 |Structures|-|
+|Function types|-|
 |LuaLS Unions, enums and casts|-|
 |LuaLS Generics|-|
 |Loops with invariants (`---@invariant`) and termination measures (`---@decrease`)|Limited: numeric `for`'s step must be literal, and `---@decrease` takes one expression|

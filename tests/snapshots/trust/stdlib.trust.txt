@@ -1,6 +1,6 @@
 Trust report: stdlib.lua
 
-  stdlib specs (Clavius dev)
+  stdlib specs (clavius dev)
     math.min  clavius/meta/math.lua:12
     math.max  clavius/meta/math.lua:20
 

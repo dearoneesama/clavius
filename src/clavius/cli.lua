@@ -152,7 +152,7 @@ local function run_lua(args, text, out, err)
         err:write(('clavius: %s\n'):format(run_err))
         return M.EXIT_ERROR
     end
-    local failures = messages.failures(failed, prog.obligations, c.src, text, driver.texts(c))
+    local failures = messages.failures(failed, prog.obligations, c.src, c.files)
     write_lines(out, args.file, failures)
     local report = {}
     if args.trust_report then

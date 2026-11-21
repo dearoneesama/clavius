@@ -136,7 +136,7 @@ end
 
 --- Returns the obligations that the source node `id` in marked code needs. This follows from what
 --- `clavius.ir.support` lets marked code use: every `+`, `-`, `*` and `%` is on `int53`, every call is
---- to `assert`, `error`, a local function or a function a `---@meta` file declares, or is the idiom
+--- to `assert`, `error`, a local function or a function a `---@meta` file declares, or is
 --- `math.floor(a / b)`, every `return` is in a verified function, and every numeric `for` has a literal
 --- step.
 --- @param source ValidateSource
@@ -149,7 +149,7 @@ local function needed(source, id)
     local op = source.ops[id]
     if n.tag == 'BinOp' and RANGE_CHECKED[n.op] then
         keys[1] = { kind = 'range', clause = 0 }
-    elseif n.tag == 'BinOp' and n.op == 'mod' then
+    elseif n.tag == 'BinOp' and op ~= nil and op.op == 'int.mod' then
         keys[1] = { kind = 'div_zero', clause = 0 }
         keys[2] = { kind = 'mod_range', clause = 0 }
     elseif n.tag == 'Call' and op ~= nil and op.op == 'int.floordiv' then

@@ -14,23 +14,7 @@ local support = require 'clavius.ir.support'
 --- @field constants table<NodeId, NodeId> the initializer of each constant: a top-level local whose initializer is a number or boolean literal, and which is never assigned
 --- @field assigned table<NodeId, boolean> the Binders that an assignment anywhere in the file targets
 --- @field library table<NodeId, NodeId> the `---@meta` Function that each library or host call calls
---- @field idioms table<NodeId, string> the operation of each library idiom call, such as `int.floordiv`
-
---- What the `---@meta` files of a run declare, for the files that call into them.
---- @class Interface
---- @field functions table<string, NodeId> the Function node of each declared name, such as `math.min`
---- @field kinds table<NodeId, MetaKind> the kind of file that declares each Function
---- @field res Resolution the resolution of the `---@meta` files: their parameters and contracts
---- @field info TypeInfo the types of their parameters, values and contract clauses
-
---- A function that a `---@meta` file declares: the name it is called by, and its Function node.
---- @class MetaFunction
---- @field name string
---- @field fn NodeId
-
---- A shipped `---@meta` file of the standard library, or one of the project's with `---@extern` host
---- functions.
---- @alias MetaKind 'stdlib' | 'extern'
+--- @field floordiv table<NodeId, boolean> the calls that are `math.floor(a / b)`, integer division
 
 --- A read in marked code of a local declared outside its unit, or a call that marked code makes. Both
 --- are checked once the whole file is resolved.
@@ -124,17 +108,9 @@ end
 --- @return string|nil base
 --- @return string|nil path
 local function global_name(st, id, scope)
-    local n = st.src.nodes[id]
-    -- print
-    if n.tag == 'Id' and lookup(st, scope, n.name) == nil then
-        return n.name, n.name
-    -- math.floor
-    elseif n.tag == 'Index' then
-        local obj = st.src.nodes[n.obj]
-        local key = st.src.nodes[n.key]
-        if obj.tag == 'Id' and key.tag == 'Literal' and key.kind == 'string' and lookup(st, scope, obj.name) == nil then
-            return obj.name, ('%s.%s'):format(obj.name, key.text)
-        end
+    local base, path = support.global_path(st.src, id)
+    if base ~= nil and lookup(st, scope, base) == nil then
+        return base, path
     end
     return nil, nil
 end
@@ -147,7 +123,9 @@ end
 --- @mut st
 local function report_global(st, id, base, path)
     local use = support.global_use(base, path)
-    if use == 'supported' then
+    if st.iface ~= nil and st.iface.functions[path] ~= nil then
+        report(st, 'E-unsupported-feature', id, { 'library-value' })
+    elseif use == 'supported' then
         report(st, 'E-unsupported-feature', id, { 'call-value' })
     elseif use == 'banned' then
         report(st, 'E-banned-call', id, { path })
@@ -194,7 +172,7 @@ local function record_aliases(st, n, scope)
         local path = v and select(2, global_name(st, v, scope))
         local fn = path and st.iface and st.iface.functions[path]
         local stdlib = fn and st.iface.kinds[fn] == 'stdlib'
-        if path ~= nil and (support.IDIOMS[path] or stdlib) then
+        if path ~= nil and (path == support.FLOORDIV or stdlib) then
             st.alias_path[b] = path
         end
     end
@@ -275,10 +253,10 @@ local function visit_call(st, id, scope, unit, is_statement)
         st.alias_calls[#st.alias_calls + 1] = { id = id, binder = alias }
     end
     -- `math.floor(a / b)` is an operation, so a contract may use it too
-    local quotient = path ~= nil and support.IDIOMS[path] and support.floordiv_arg(st.src, n)
+    local quotient = path == support.FLOORDIV and support.floordiv_arg(st.src, n)
     if unit ~= 0 and quotient and not is_statement then
         local q = st.src.nodes[quotient] --[[@as SrcBinOp]]
-        st.out.idioms[id] = support.IDIOMS[path]
+        st.out.floordiv[id] = true
         visit(st, q.lhs, scope, unit)
         visit(st, q.rhs, scope, unit)
         return
@@ -681,15 +659,22 @@ local function top_level(src, root)
     return out
 end
 
---- Makes the state for resolving one file.
+--- Returns an empty Resolution.
+--- @return Resolution
+function M.new_resolution()
+    return { decl = {}, names = {}, functions = {}, constants = {}, assigned = {}, library = {}, floordiv = {} }
+end
+
+--- Makes the state for resolving one file into `out`.
 --- @param src SrcArena
 --- @param iface Interface|nil
 --- @param meta_kind MetaKind|nil
+--- @param out Resolution
 --- @return ResolveState
-local function new_state(src, iface, meta_kind)
+local function new_state(src, iface, meta_kind, out)
     return {
         src = src,
-        out = { decl = {}, names = {}, functions = {}, constants = {}, assigned = {}, library = {}, idioms = {} },
+        out = out,
         diags = {},
         scope_parent = {},
         scope_names = {},
@@ -712,63 +697,22 @@ local function new_state(src, iface, meta_kind)
     }
 end
 
---- If a top-level statement defines a global function, as `function math.min(x, y) end` does, returns
---- the function's name and its Function node.
---- @param st ResolveState
---- @param id NodeId
---- @return string|nil name
---- @return NodeId|nil fn
-local function global_definition(st, id)
-    local n = st.src.nodes[id]
-    if n.tag ~= 'Set' or #n.targets ~= 1 or #n.values ~= 1 or st.src.nodes[n.values[1]].tag ~= 'Function' then
-        return nil, nil
-    end
-    local _, path = global_name(st, n.targets[1], 0)
-    if path == nil then
-        return nil, nil
-    end
-    return path, n.values[1]
-end
-
---- Resolves a `---@meta` file: the parameters and contracts of the functions it declares. Returns the
---- resolution, the declared functions in file order, and the diagnostics.
+--- Resolves a `---@meta` file: the parameters and contracts of `fns`, the functions it declares. The
+--- resolution goes into `out`, which the run's `---@meta` files share.
 --- @param src SrcArena
 --- @param root NodeId
 --- @param kind MetaKind
---- @return Resolution res
---- @return MetaFunction[] declared
+--- @param fns NodeId[] the Function nodes
+--- @param out Resolution
+--- @mut out
 --- @return Diag[] diags
-function M.meta(src, root, kind)
-    local st = new_state(src, nil, kind)
-    --- @type table<string, NodeId>
-    local functions = {}
-    --- @type MetaFunction[]
-    local declared = {}
-    local block = src.nodes[root] --[[@as SrcBlock]]
-    for _, id in ipairs(block.statements) do
-        local n = src.nodes[id]
-        local name, fn = global_definition(st, id)
-        if n.tag == 'LocalFunction' then
-            fn = n.func
-        end
-        -- a `---@meta` file is never verified, so nothing in it may be marked
-        local marked = fn ~= nil and arena.has_directive(src, src.nodes[fn] --[[@as SrcFunction]], 'ClvMarker')
-        if n.tag == 'ClvRegion' or marked then
-            report(st, 'E-misplaced-directive', id, { 'marked-meta' })
-        elseif name ~= nil and functions[name] ~= nil then
-            report(st, 'E-misplaced-directive', id, { 'repeated-declaration' })
-        elseif name ~= nil then
-            --- @cast fn NodeId
-            functions[name] = fn
-            declared[#declared + 1] = { name = name, fn = fn }
-            st.meta_functions[fn] = true
-        end
-    end
-    if #st.diags > 0 then
-        return st.out, declared, st.diags
+function M.meta(src, root, kind, fns, out)
+    local st = new_state(src, nil, kind, out)
+    for _, fn in ipairs(fns) do
+        st.meta_functions[fn] = true
     end
     visit(st, root, 0, 0)
-    return st.out, declared, st.diags
+    return st.diags
 end
 
 --- Resolves a parsed file. The names that the run's `---@meta` files declare are callable from its
@@ -779,7 +723,7 @@ end
 --- @return Resolution res
 --- @return Diag[] diags
 function M.run(src, root, iface)
-    local st = new_state(src, iface, nil)
+    local st = new_state(src, iface, nil, M.new_resolution())
     -- the run's resolution covers the `---@meta` files too, since a call lowers its callee's contract
     if iface ~= nil then
         for id = 1, #src.nodes do

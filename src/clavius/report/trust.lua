@@ -12,7 +12,7 @@
 --     callers outside verification
 --       inc       prog.lua:15
 --
---     stdlib specs (Clavius dev)
+--     stdlib specs (clavius dev)
 --       math.min  clavius/meta/math.lua:14
 --
 --     stdlib unchanged
@@ -31,6 +31,7 @@
 
 local arena = require 'clavius.ir.arena'
 local clavius = require 'clavius'
+local support = require 'clavius.ir.support'
 
 local M = {}
 
@@ -76,12 +77,8 @@ local function name_of(src, index, id)
     end
     -- `function a.b(…) end` in a `---@meta` file
     local set = def --[[@as SrcSet]]
-    local target = src.nodes[set.targets[1]]
-    if target.tag == 'Index' then
-        local key = src.nodes[target.key] --[[@as SrcLiteral]]
-        return ('%s.%s'):format((src.nodes[target.obj] --[[@as SrcId]]).name, key.text)
-    end
-    return (target --[[@as SrcId]]).name
+    local _, path = support.global_path(src, set.targets[1])
+    return assert(path)
 end
 
 --- Returns the trust report of a run as lines, or no lines when it trusted nothing. The trusted
@@ -143,9 +140,10 @@ function M.report(prog, src, index, files, main)
         starts[def_span.file] = starts[def_span.file] or arena.line_starts(f.text)
         local fn = src.nodes[id] --[[@as SrcFunction]]
         local flags = {}
-        for _, tag in ipairs { 'ClvNoCallback', 'ClvMayRaise' } do
-            if arena.has_directive(src, fn, tag) then
-                flags[#flags + 1] = tag == 'ClvNoCallback' and '@no_callback' or '@may_raise'
+        for _, d in ipairs(fn.directives) do
+            local tag = src.nodes[d].tag
+            if support.TRUST_FLAGS[tag] then
+                flags[#flags + 1] = '@' .. support.DIRECTIVE_TAGS[tag]
             end
         end
         local entry = {
@@ -169,7 +167,7 @@ function M.report(prog, src, index, files, main)
     section(out, '@unsafe functions', unsafe, width)
     section(out, '@extern functions', externs, width)
     section(out, 'callers outside verification', callers, width)
-    section(out, ('stdlib specs (Clavius %s)'):format(clavius.VERSION), stdlib, width)
+    section(out, ('stdlib specs (clavius %s)'):format(clavius.VERSION), stdlib, width)
     if #stdlib > 0 or floor_idiom then
         out[#out + 1] = ''
         out[#out + 1] = '  stdlib unchanged'

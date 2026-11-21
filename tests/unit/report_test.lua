@@ -22,7 +22,7 @@ describe('report.messages', function()
             '3:20: range: x + 1 may leave ±2^53 [O1]',
             '5:15: unreachable: this `error` may be reached [O2]',
             '5:27: assert: this assertion may fail [O3]',
-        }, messages.failures({ 3, 2, 1 }, prog.obligations, c.src, text))
+        }, messages.failures({ 3, 2, 1 }, prog.obligations, c.src, c.files))
     end)
 
     it('quotes the condition of a failing contract clause', function()
@@ -42,7 +42,7 @@ describe('report.messages', function()
         assert.are.same({
             '5:7: post: the function may return here without satisfying its postcondition `n > 1` [O1]',
             '7:1: pre: this call may not satisfy its precondition `n > 0` [O2]',
-        }, messages.failures({ 1, 2 }, prog.obligations, c.src, text))
+        }, messages.failures({ 1, 2 }, prog.obligations, c.src, c.files))
     end)
 
     it('names the divisor and the inexact remainder, and quotes a library spec from its own file', function()
@@ -84,7 +84,7 @@ describe('report.messages', function()
             '9:11: div_zero: the divisor of `9007199254740992 % -3` may be 0 [O4]',
             '9:11: mod_range: `9007199254740992 % -3` may be computed inexactly, since the dividend minus the remainder may leave ±2^53 [O5]',
             '12:1: pre: this call may not satisfy its precondition `n >= 0` [O6]',
-        }, messages.failures(ids, prog.obligations, c.src, text, driver.texts(c)))
+        }, messages.failures(ids, prog.obligations, c.src, c.files))
     end)
 
     it("quotes a loop's invariant and measure, and names its counter and bound", function()
@@ -113,7 +113,7 @@ describe('report.messages', function()
             "6:1: for_bound: this loop's limit plus its step may leave ±2^53 [O5]",
             "6:1: invariant_entry: the loop counter's range may not hold when the loop starts [O6]",
             "6:1: invariant_preserved: the loop counter's range may not hold again after an iteration [O7]",
-        }, messages.failures(kinds, prog.obligations, c.src, text))
+        }, messages.failures(kinds, prog.obligations, c.src, c.files))
     end)
 
     it('orders diagnostics by position, then code', function()

@@ -128,28 +128,22 @@ function M.call(b, id, out)
     return value
 end
 
---- Returns Lua's floored quotient and remainder of `a` and `d`, built from the core's Euclidean ones.
---- Both are unspecified when `d == 0`.
+--- Returns the core's Euclidean remainder of `a` and `d`, and the condition under which Lua's floored
+--- division differs from it: a negative divisor and a remainder that isn't 0. Both are unspecified when
+--- `d == 0`.
 --- @param b Builder
 --- @param a NodeId
 --- @param d NodeId the divisor
 --- @param origin NodeId
 --- @mut b
---- @return NodeId quotient
 --- @return NodeId remainder
-local function floored(b, a, d, origin)
+--- @return NodeId differs
+local function euclidean(b, a, d, origin)
     local zero = builder.add(b, { tag = 'Int', text = '0' }, origin)
-    local one = builder.add(b, { tag = 'Int', text = '1' }, origin)
-    local q = builder.add(b, { tag = 'BinOp', op = 'div', lhs = a, rhs = d }, origin)
     local r = builder.add(b, { tag = 'BinOp', op = 'mod', lhs = a, rhs = d }, origin)
     local negative = builder.add(b, { tag = 'BinOp', op = '<', lhs = d, rhs = zero }, origin)
     local inexact = builder.add(b, { tag = 'BinOp', op = '!=', lhs = r, rhs = zero }, origin)
-    local fix = builder.add(b, { tag = 'BinOp', op = 'and', lhs = negative, rhs = inexact }, origin)
-    local q_fixed = builder.add(b, { tag = 'BinOp', op = '-', lhs = q, rhs = one }, origin)
-    local r_fixed = builder.add(b, { tag = 'BinOp', op = '+', lhs = r, rhs = d }, origin)
-    local quotient = builder.add(b, { tag = 'Ite', cond = fix, if_true = q_fixed, if_false = q }, origin)
-    local remainder = builder.add(b, { tag = 'Ite', cond = fix, if_true = r_fixed, if_false = r }, origin)
-    return quotient, remainder
+    return r, builder.add(b, { tag = 'BinOp', op = 'and', lhs = negative, rhs = inexact }, origin)
 end
 
 --- Adds the check that a divisor isn't 0: `n % 0` is NaN, and `math.floor(n / 0)` is an infinity or NaN.
@@ -181,7 +175,11 @@ local function floordiv(b, id, out)
     if not b.spec then
         check_divisor(b, out, r, id)
     end
-    return (floored(b, l, r, id))
+    local _, differs = euclidean(b, l, r, id)
+    local one = builder.add(b, { tag = 'Int', text = '1' }, id)
+    local q_euclid = builder.add(b, { tag = 'BinOp', op = 'div', lhs = l, rhs = r }, id)
+    local q_fixed = builder.add(b, { tag = 'BinOp', op = '-', lhs = q_euclid, rhs = one }, id)
+    return builder.add(b, { tag = 'Ite', cond = differs, if_true = q_fixed, if_false = q_euclid }, id)
 end
 
 --- Lowers `a % b` with Lua's floored semantics. LuaJIT computes `a - math.floor(a / b) * b` in doubles,
@@ -197,11 +195,11 @@ end
 local function mod(b, id, n, out)
     local l = M.lower(b, n.lhs, out)
     local r = M.lower(b, n.rhs, out)
+    local r_euclid, differs = euclidean(b, l, r, id)
+    local r_fixed = builder.add(b, { tag = 'BinOp', op = '+', lhs = r_euclid, rhs = r }, id)
+    local remainder = builder.add(b, { tag = 'Ite', cond = differs, if_true = r_fixed, if_false = r_euclid }, id)
     if not b.spec then
         check_divisor(b, out, r, id)
-    end
-    local _, remainder = floored(b, l, r, id)
-    if not b.spec then
         local product = builder.add(b, { tag = 'BinOp', op = '-', lhs = l, rhs = remainder }, id)
         builder.check(b, out, 'mod_range', builder.is_int53(b, product, id), id)
     end
@@ -218,6 +216,7 @@ end
 --- @return NodeId term
 function M.lower(b, id, out)
     local n = b.src.nodes[id]
+    local op = b.info.ops[id]
     if n.tag == 'Literal' and n.kind == 'number' then
         return builder.add(b, { tag = 'Int', text = int_text(n.text) }, id)
     elseif n.tag == 'Literal' then
@@ -231,7 +230,7 @@ function M.lower(b, id, out)
             return M.lower(b, b.res.constants[decl], out)
         end
         return builder.add(b, { tag = 'Var', name = builder.name_of(b, id) }, id)
-    elseif n.tag == 'Call' and b.info.ops[id].op == 'int.floordiv' then
+    elseif n.tag == 'Call' and op.op == 'int.floordiv' then
         return floordiv(b, id, out)
     elseif n.tag == 'Call' then
         -- `types` has made sure the callee has a value
@@ -251,7 +250,7 @@ function M.lower(b, id, out)
         return builder.add(b, { tag = 'BinOp', op = '-', lhs = zero, rhs = M.lower(b, n.arg, out) }, id)
     elseif n.tag == 'BinOp' and (n.op == 'and' or n.op == 'or') then
         return short_circuit(b, id, n, out)
-    elseif n.tag == 'BinOp' and n.op == 'mod' then
+    elseif n.tag == 'BinOp' and op ~= nil and op.op == 'int.mod' then
         return mod(b, id, n, out)
     elseif n.tag == 'BinOp' then
         local l = M.lower(b, n.lhs, out)

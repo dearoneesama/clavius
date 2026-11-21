@@ -250,7 +250,7 @@ function expression(st, id)
         else
             ty = st.out.types[constant or decl]
         end
-    elseif n.tag == 'Call' and st.res.idioms[id] ~= nil then
+    elseif n.tag == 'Call' and st.res.floordiv[id] then
         -- math.floor(a / b)
         local q = st.src.nodes[assert(support.floordiv_arg(st.src, n))] --[[@as SrcBinOp]]
         local ok_l = want_int(st, q.lhs, expression(st, q.lhs))
@@ -426,22 +426,24 @@ local function func(st, fn, verified)
     end
 end
 
---- Types the functions that a resolved `---@meta` file declares: their signatures and contracts.
+--- Types the functions that a resolved `---@meta` file declares: their signatures and contracts. The
+--- types go into `out`, which the run's `---@meta` files share.
 --- @param src SrcArena
 --- @param res Resolution
 --- @param fns NodeId[] the Function nodes
---- @return TypeInfo info
+--- @param out TypeInfo
+--- @mut out
 --- @return Diag[] diags
-function M.meta(src, res, fns)
+function M.meta(src, res, fns, out)
     --- @type TypesState
-    local st = { src = src, res = res, out = { types = {}, ops = {} }, diags = {}, result = nil, typed = {} }
+    local st = { src = src, res = res, out = out, diags = {}, result = nil, typed = {} }
     for _, id in ipairs(fns) do
         signature(st, src.nodes[id] --[[@as SrcFunction]])
     end
     for _, id in ipairs(fns) do
         func(st, src.nodes[id] --[[@as SrcFunction]], false)
     end
-    return st.out, st.diags
+    return st.diags
 end
 
 --- Types the marked code of a resolved file: its regions, the functions in them and those marked

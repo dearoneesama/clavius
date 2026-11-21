@@ -63,9 +63,8 @@ M.TYPES = { int53 = true, boolean = true }
 --- @type table<string, boolean>
 M.CALLS = { assert = true, error = true }
 
---- Library calls that are encoded as an operation, such as `math.floor(a / b)` as integer division.
---- @type table<string, string>
-M.IDIOMS = { ['math.floor'] = 'int.floordiv' }
+--- The library function whose call `math.floor(a / b)` is integer division rather than a call.
+M.FLOORDIV = 'math.floor'
 
 --- Directive kinds that a function in a `---@meta` file may have.
 --- @type table<string, boolean>
@@ -207,6 +206,27 @@ M.GLOBALS = {
 --- - `library`: a part of the library that Clavius has no rule for, such as `print` or `math.floor`;
 --- - `global`: a global outside the library. Verified code must never use one.
 --- @alias GlobalUse 'supported' | 'banned' | 'library' | 'global'
+
+--- Returns the name that `id` would give a global, as its base and its path: `print` and `print` for an
+--- Id, or `math` and `math.floor` for a field of one. Returns nil for any other expression. Whether the
+--- base is a local instead is for `resolve` to decide.
+--- @param src SrcArena
+--- @param id NodeId
+--- @return string|nil base
+--- @return string|nil path
+function M.global_path(src, id)
+    local n = src.nodes[id]
+    if n.tag == 'Id' then
+        return n.name, n.name
+    elseif n.tag == 'Index' then
+        local obj = src.nodes[n.obj]
+        local key = src.nodes[n.key]
+        if obj.tag == 'Id' and key.tag == 'Literal' and key.kind == 'string' then
+            return obj.name, ('%s.%s'):format(obj.name, key.text)
+        end
+    end
+    return nil, nil
+end
 
 --- If `call` has the form `f(a / b)`, returns the `/` node, looking through parentheses. Whether `f` is
 --- `math.floor` is for `resolve` to decide.
