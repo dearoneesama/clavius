@@ -426,24 +426,23 @@ local function func(st, fn, verified)
     end
 end
 
---- Types the functions that a resolved `---@meta` file declares: their signatures and contracts. The
---- types go into `out`, which the run's `---@meta` files share.
+--- Types the functions that the resolved `---@meta` files of a run declare: their signatures and
+--- contracts.
 --- @param src SrcArena
 --- @param res Resolution
 --- @param fns NodeId[] the Function nodes
---- @param out TypeInfo
---- @mut out
+--- @return TypeInfo info
 --- @return Diag[] diags
-function M.meta(src, res, fns, out)
+function M.meta(src, res, fns)
     --- @type TypesState
-    local st = { src = src, res = res, out = out, diags = {}, result = nil, typed = {} }
+    local st = { src = src, res = res, out = { types = {}, ops = {} }, diags = {}, result = nil, typed = {} }
     for _, id in ipairs(fns) do
         signature(st, src.nodes[id] --[[@as SrcFunction]])
     end
     for _, id in ipairs(fns) do
         func(st, src.nodes[id] --[[@as SrcFunction]], false)
     end
-    return st.diags
+    return st.out, st.diags
 end
 
 --- Types the marked code of a resolved file: its regions, the functions in them and those marked

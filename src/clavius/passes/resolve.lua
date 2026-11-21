@@ -40,7 +40,7 @@ local support = require 'clavius.ir.support'
 --- @field calls PendingUse[]
 --- @field iface Interface|nil what the run's `---@meta` files declare
 --- @field meta_kind MetaKind|nil the kind of `---@meta` file being resolved, or nil for a Lua module
---- @field meta_functions table<NodeId, boolean> the Function nodes that a `---@meta` file declares
+--- @field meta_functions table<NodeId, boolean> the Function nodes that the run's `---@meta` files declare
 --- @field top_statements table<NodeId, boolean> the file's top-level statements, outside regions
 --- @field alias_path table<NodeId, string> the library name of each alias Binder, such as `math.floor`
 --- @field alias_calls PendingUse[] the calls in marked code through an alias
@@ -661,7 +661,7 @@ end
 
 --- Returns an empty Resolution.
 --- @return Resolution
-function M.new_resolution()
+local function new_resolution()
     return { decl = {}, names = {}, functions = {}, constants = {}, assigned = {}, library = {}, floordiv = {} }
 end
 
@@ -697,22 +697,29 @@ local function new_state(src, iface, meta_kind, out)
     }
 end
 
---- Resolves a `---@meta` file: the parameters and contracts of `fns`, the functions it declares. The
---- resolution goes into `out`, which the run's `---@meta` files share.
+--- Resolves the `---@meta` files of a run: the parameters and contracts of `fns`, the functions they
+--- declare.
 --- @param src SrcArena
---- @param root NodeId
---- @param kind MetaKind
+--- @param metas MetaRoot[]
 --- @param fns NodeId[] the Function nodes
---- @param out Resolution
---- @mut out
+--- @return Resolution res
 --- @return Diag[] diags
-function M.meta(src, root, kind, fns, out)
-    local st = new_state(src, nil, kind, out)
+function M.meta(src, metas, fns)
+    local out = new_resolution()
+    local declared = {}
     for _, fn in ipairs(fns) do
-        st.meta_functions[fn] = true
+        declared[fn] = true
     end
-    visit(st, root, 0, 0)
-    return st.diags
+    local diags = {}
+    for _, m in ipairs(metas) do
+        local st = new_state(src, nil, m.kind, out)
+        st.meta_functions = declared
+        visit(st, m.root, 0, 0)
+        for _, d in ipairs(st.diags) do
+            diags[#diags + 1] = d
+        end
+    end
+    return out, diags
 end
 
 --- Resolves a parsed file. The names that the run's `---@meta` files declare are callable from its
@@ -723,7 +730,7 @@ end
 --- @return Resolution res
 --- @return Diag[] diags
 function M.run(src, root, iface)
-    local st = new_state(src, iface, nil, M.new_resolution())
+    local st = new_state(src, iface, nil, new_resolution())
     -- the run's resolution covers the `---@meta` files too, since a call lowers its callee's contract
     if iface ~= nil then
         for id = 1, #src.nodes do

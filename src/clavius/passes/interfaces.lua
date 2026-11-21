@@ -44,16 +44,19 @@ local function definition(src, id)
     return base, path, n.values[1]
 end
 
---- Adds the functions that a `---@meta` file declares to `iface`, and returns their Function nodes.
+--- Adds the functions that a `---@meta` file declares to `functions` and `kinds`, and their Function nodes
+--- to `fns`.
 --- @param src SrcArena
 --- @param m MetaRoot
---- @param iface Interface
+--- @param functions table<string, NodeId>
+--- @param kinds table<NodeId, MetaKind>
+--- @param fns NodeId[]
 --- @param diags Diag[]
---- @mut iface
+--- @mut functions
+--- @mut kinds
+--- @mut fns
 --- @mut diags
---- @return NodeId[] fns
-local function declare(src, m, iface, diags)
-    local fns = {}
+local function declare(src, m, functions, kinds, fns, diags)
     local block = src.nodes[m.root] --[[@as SrcBlock]]
     for _, id in ipairs(block.statements) do
         local n = src.nodes[id]
@@ -68,43 +71,43 @@ local function declare(src, m, iface, diags)
         elseif name ~= nil and m.kind == 'extern' and support.global_use(assert(base), name) ~= 'global' then
             -- a host function can't stand in for a library function, a banned one or `assert`
             diags[#diags + 1] = diag.at_node('E-misplaced-directive', id, { 'library-name' })
-        elseif name ~= nil and iface.functions[name] ~= nil then
+        elseif name ~= nil and functions[name] ~= nil then
             diags[#diags + 1] = diag.at_node('E-misplaced-directive', id, { 'repeated-declaration' })
         elseif name ~= nil then
             --- @cast fn NodeId
-            iface.functions[name] = fn
-            iface.kinds[fn] = m.kind
+            functions[name] = fn
+            kinds[fn] = m.kind
             fns[#fns + 1] = fn
         end
     end
-    return fns
 end
 
---- Builds the Interface of a run's `---@meta` files. Each name may be declared once in the run.
+--- Builds the Interface of a run's `---@meta` files. Each name may be declared once in the run. Each step
+--- runs on every file, and the build stops at the first step that reports a diagnostic.
 --- @param src SrcArena
 --- @param metas MetaRoot[]
---- @return Interface iface
+--- @return Interface|nil iface nil when there is a diagnostic
 --- @return Diag[] diags
 function M.run(src, metas)
-    --- @type Interface
-    local iface = { functions = {}, kinds = {}, res = resolve.new_resolution(), info = { types = {}, ops = {} } }
+    local functions = {}
+    local kinds = {}
+    local fns = {}
     local diags = {}
     for _, m in ipairs(metas) do
-        local before = #diags
-        local fns = declare(src, m, iface, diags)
-        if #diags == before then
-            local res_diags = resolve.meta(src, m.root, m.kind, fns, iface.res)
-            for _, d in ipairs(res_diags) do
-                diags[#diags + 1] = d
-            end
-            if #res_diags == 0 then
-                for _, d in ipairs(types.meta(src, iface.res, fns, iface.info)) do
-                    diags[#diags + 1] = d
-                end
-            end
-        end
+        declare(src, m, functions, kinds, fns, diags)
     end
-    return iface, diags
+    if #diags > 0 then
+        return nil, diags
+    end
+    local res, res_diags = resolve.meta(src, metas, fns)
+    if #res_diags > 0 then
+        return nil, res_diags
+    end
+    local info, type_diags = types.meta(src, res, fns)
+    if #type_diags > 0 then
+        return nil, type_diags
+    end
+    return { functions = functions, kinds = kinds, res = res, info = info }, {}
 end
 
 return M
