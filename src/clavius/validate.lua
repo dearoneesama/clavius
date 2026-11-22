@@ -137,8 +137,7 @@ end
 
 --- Returns the obligations that the source node `id` in marked code needs. This follows from what
 --- `clavius.ir.support` lets marked code use: every `+`, `-` and `*` is on `int53`, every call is to
---- `assert`, `error` or a local function, every `return` is in a verified function, and every numeric
---- `for` has a literal step.
+--- `assert`, `error` or a local function, and every `return` is in a verified function.
 --- @param source ValidateSource
 --- @param id NodeId
 --- @return NeededKey[]
@@ -168,6 +167,9 @@ local function needed(source, id)
         add_clauses(keys, 'post', arena.directives(src, n, 'ClvPost'))
     elseif n.tag == 'While' or n.tag == 'Repeat' or n.tag == 'Fornum' then
         if n.tag == 'Fornum' then
+            if n.step ~= nil and arena.nonzero_literal(src, n.step) == nil then
+                keys[#keys + 1] = { kind = 'for_step', clause = 0 }
+            end
             -- the counter's range is an invariant too, with no clause
             keys[#keys + 1] = { kind = 'for_bound', clause = 0 }
             keys[#keys + 1] = { kind = 'invariant_entry', clause = 0 }

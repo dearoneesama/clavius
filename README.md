@@ -60,7 +60,7 @@ Clavius is being developed, so this table may change over time and may not refle
 |Structures|-|
 |LuaLS Unions, enums and casts|-|
 |LuaLS Generics|-|
-|Loops with invariants (`---@invariant`) and termination measures (`---@decrease`)|Numeric `for`'s step must be literal|
+|Loops with invariants (`---@invariant`) and termination measures (`---@decrease`)|Yes|
 |Custom iterators|-|
 |Recursion with termination measures|Yes|
 |Varargs and multiple return values|-|

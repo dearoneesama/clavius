@@ -112,30 +112,114 @@
       (Check 13 (BinOp == (Var result$3) (Var n$2)))
       (Exit body)
       (Check 14 (Bool false))])])
+(Unit g$8
+  [(VarDecl n$9 int) (VarDecl d$10 int) (VarDecl $t1 int) (VarDecl $t2 int) (VarDecl k$11 int)]
+  [(Assume 12
+     (BinOp and
+       (BinOp <= (Int -9007199254740992) (Var n$9))
+       (BinOp <= (Var n$9) (Int 9007199254740992))))
+   (Assume 13
+     (BinOp and
+       (BinOp <= (Int -9007199254740992) (Var d$10))
+       (BinOp <= (Var d$10) (Int 9007199254740992))))
+   (Assume 14
+     (BinOp and
+       (BinOp and
+         (BinOp and (BinOp >= (Var n$9) (Int 0)) (BinOp < (Var n$9) (Int 100)))
+         (BinOp >= (Var d$10) (Int -3)))
+       (BinOp <= (Var d$10) (Int 3))))
+   (Block body
+     [(Assign $t1 (Var n$9))
+      (Assign $t2 (Var d$10))
+      (Check 15 (BinOp != (Var $t2) (Int 0)))
+      (Branch
+        (BinOp or
+          (BinOp and (BinOp < (Int 0) (Var $t2)) (BinOp <= (Int 1) (Var $t1)))
+          (BinOp and (BinOp < (Var $t2) (Int 0)) (BinOp >= (Int 1) (Var $t1))))
+        [(Check 16
+           (BinOp and
+             (BinOp <= (Int -9007199254740992) (BinOp + (Var $t1) (Var $t2)))
+             (BinOp <= (BinOp + (Var $t1) (Var $t2)) (Int 9007199254740992))))
+         (Assign k$11 (Int 1))
+         (Check 17
+           (BinOp or
+             (BinOp and
+               (BinOp < (Int 0) (Var $t2))
+               (BinOp and
+                 (BinOp <= (Int 1) (Var k$11))
+                 (BinOp <= (Var k$11) (BinOp + (Var $t1) (Var $t2)))))
+             (BinOp and
+               (BinOp < (Var $t2) (Int 0))
+               (BinOp and
+                 (BinOp <= (BinOp + (Var $t1) (Var $t2)) (Var k$11))
+                 (BinOp <= (Var k$11) (Int 1))))))
+         (Block loop$1
+           [(Havoc k$11)
+            (Assume 15
+              (BinOp or
+                (BinOp and
+                  (BinOp < (Int 0) (Var $t2))
+                  (BinOp and
+                    (BinOp <= (Int 1) (Var k$11))
+                    (BinOp <= (Var k$11) (BinOp + (Var $t1) (Var $t2)))))
+                (BinOp and
+                  (BinOp < (Var $t2) (Int 0))
+                  (BinOp and
+                    (BinOp <= (BinOp + (Var $t1) (Var $t2)) (Var k$11))
+                    (BinOp <= (Var k$11) (Int 1))))))
+            (Branch
+              (BinOp or
+                (BinOp and (BinOp < (Int 0) (Var $t2)) (BinOp <= (Var k$11) (Var $t1)))
+                (BinOp and (BinOp < (Var $t2) (Int 0)) (BinOp >= (Var k$11) (Var $t1))))
+              [(Assign k$11 (BinOp + (Var k$11) (Var $t2)))
+               (Check 18
+                 (BinOp or
+                   (BinOp and
+                     (BinOp < (Int 0) (Var $t2))
+                     (BinOp and
+                       (BinOp <= (Int 1) (Var k$11))
+                       (BinOp <= (Var k$11) (BinOp + (Var $t1) (Var $t2)))))
+                   (BinOp and
+                     (BinOp < (Var $t2) (Int 0))
+                     (BinOp and
+                       (BinOp <= (BinOp + (Var $t1) (Var $t2)) (Var k$11))
+                       (BinOp <= (Var k$11) (Int 1))))))
+               (Assume 16 (Bool false))]
+              [])])]
+        [])])])
 
-(obligation 1 :kind invariant_entry :node 50 :clause 29)
-(obligation 2 :kind range :node 47)
-(obligation 3 :kind invariant_preserved :node 50 :clause 29)
-(obligation 4 :kind decrease :node 50 :clause 33)
-(obligation 5 :kind range :node 57)
-(obligation 6 :kind decrease :node 67 :clause 54)
-(obligation 7 :kind for_bound :node 83)
-(obligation 8 :kind invariant_entry :node 83)
-(obligation 9 :kind invariant_entry :node 83 :clause 71)
-(obligation 10 :kind range :node 80)
-(obligation 11 :kind invariant_preserved :node 83)
-(obligation 12 :kind invariant_preserved :node 83 :clause 71)
-(obligation 13 :kind post :node 85 :clause 15)
-(obligation 14 :kind missing_return :node 87)
+(obligation 1 :kind invariant_entry :node 49 :clause 28)
+(obligation 2 :kind range :node 46)
+(obligation 3 :kind invariant_preserved :node 49 :clause 28)
+(obligation 4 :kind decrease :node 49 :clause 32)
+(obligation 5 :kind range :node 56)
+(obligation 6 :kind decrease :node 66 :clause 53)
+(obligation 7 :kind for_bound :node 82)
+(obligation 8 :kind invariant_entry :node 82)
+(obligation 9 :kind invariant_entry :node 82 :clause 70)
+(obligation 10 :kind range :node 79)
+(obligation 11 :kind invariant_preserved :node 82)
+(obligation 12 :kind invariant_preserved :node 82 :clause 70)
+(obligation 13 :kind post :node 84 :clause 14)
+(obligation 14 :kind missing_return :node 86)
+(obligation 15 :kind for_step :node 117)
+(obligation 16 :kind for_bound :node 117)
+(obligation 17 :kind invariant_entry :node 117)
+(obligation 18 :kind invariant_preserved :node 117)
 
-(assumption 1 :kind trusted :node 19 :decl 87)
-(assumption 2 :kind trusted :node 11 :decl 87)
-(assumption 3 :kind type_fact :node 50)
-(assumption 4 :kind invariant :node 29)
-(assumption 5 :kind back_edge :node 50)
-(assumption 6 :kind type_fact :node 67)
-(assumption 7 :kind back_edge :node 67)
-(assumption 8 :kind invariant :node 83)
-(assumption 9 :kind type_fact :node 83)
-(assumption 10 :kind invariant :node 71)
-(assumption 11 :kind back_edge :node 83)
+(assumption 1 :kind trusted :node 18 :decl 86)
+(assumption 2 :kind trusted :node 10 :decl 86)
+(assumption 3 :kind type_fact :node 49)
+(assumption 4 :kind invariant :node 28)
+(assumption 5 :kind back_edge :node 49)
+(assumption 6 :kind type_fact :node 66)
+(assumption 7 :kind back_edge :node 66)
+(assumption 8 :kind invariant :node 82)
+(assumption 9 :kind type_fact :node 82)
+(assumption 10 :kind invariant :node 70)
+(assumption 11 :kind back_edge :node 82)
+(assumption 12 :kind trusted :node 110 :decl 119)
+(assumption 13 :kind trusted :node 111 :decl 119)
+(assumption 14 :kind trusted :node 108 :decl 119)
+(assumption 15 :kind invariant :node 117)
+(assumption 16 :kind back_edge :node 117)

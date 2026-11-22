@@ -106,4 +106,20 @@ local function far(n)
     for i = 1, n do end --! for_bound
 end
 
+-- a step that may be 0, which never ends the loop on LuaJIT or Lua 5.1 to 5.3, whatever the bounds:
+--
+--                    1, 3, 0       3, 1, 0       2, 2, 0
+--   LuaJIT 2.1       never ends    no iteration  never ends
+--   Lua 5.1 to 5.3   no iteration  never ends    never ends
+--   Lua 5.4          error         error         error
+---@param s integer
+---@pre s >= -10 and s <= 10
+local function zero_step(s)
+    for i = 1, 3, s do end --! for_step
+end
+
+local function zero_literal()
+    for i = 1, 3, 0 do end --! for_step
+end
+
 ---@clavius end

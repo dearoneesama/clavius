@@ -114,7 +114,6 @@ local PHRASES = {
     ['error-args'] = '`error` with arguments that are not literals',
     ['outer-local'] = 'a local declared outside this region',
     ['truthiness'] = 'a condition or an operand of `and`, `or` or `not` that is not a boolean',
-    ['for-step'] = 'a numeric `for` loop whose step is neither omitted nor a nonzero integer literal',
     ['loop-variable-write'] = "assigning a numeric `for` loop's variable",
     ['spec-block'] = 'a `--[[@spec` block',
     ['lemma-block'] = 'a `--[[@lemma` block',
@@ -135,6 +134,7 @@ local FAILURES = {
     invariant_preserved = 'the loop invariant `%s` may not hold again after an iteration',
     decrease = 'an iteration may start with the measure `%s` negative, or may not decrease it',
     for_bound = "this loop's limit plus its step may leave ±2^53",
+    for_step = "this loop's step may be 0",
 }
 
 --- What a failing obligation that the counter of a numeric `for` needs means. It has no clause.

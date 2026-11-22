@@ -429,17 +429,13 @@ describe('resolve', function()
         )
     end)
 
-    it('rejects loop forms that this version does not verify', function()
+    it('rejects loop forms that do not verify', function()
         markers.expect_diags(
             'resolve',
             [=[
             ---@clavius begin
             local n = 3
-            for i = 1, 2, 3 do end
-            for i = 1, 2, -1 do end
-            for i = 1, 2, n do end --! E-unsupported-feature
-            for i = 1, 2, 0 do end --! E-unsupported-feature
-            for i = 1, 2, -0 do end --! E-unsupported-feature
+            for i = 1, 2, n do end
             for i = 1, 2 do
                 i = 2 --! E-unsupported-feature
             end

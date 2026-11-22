@@ -14,6 +14,7 @@
 --- | 'invariant_preserved' # a loop's invariant, or the counter's range, holds again after an iteration
 --- | 'decrease' # a `---@decrease` measure decreases, on a loop's back edge or at a recursive call
 --- | 'for_bound' # a numeric `for`'s limit plus its step stays within ±2^53, so the counter can pass it
+--- | 'for_step' # a numeric `for`'s step is not 0
 
 --- Why an assumption may be made. Nothing proves a `trusted` one, so the trust report lists each. The
 --- `false` of a `back_edge` ends an iteration whose checks are done, since the loop's head, with its
@@ -52,6 +53,7 @@ M.OBLIGATION_KINDS = {
     invariant_preserved = true,
     decrease = true,
     for_bound = true,
+    for_step = true,
 }
 
 --- The justifications an `Assume` may have as a set.

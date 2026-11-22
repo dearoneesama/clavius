@@ -45,7 +45,7 @@ describe('report.messages', function()
         }, messages.failures({ 1, 2 }, prog.obligations, c.src, text))
     end)
 
-    it("quotes a loop's invariant and measure, and names its counter and bound", function()
+    it("quotes a loop's invariant and measure, and names its counter, bound and step", function()
         local text = stringx.dedent [=[
             ---@clavius begin
             local i = 0
@@ -53,6 +53,7 @@ describe('report.messages', function()
             ---@decrease 3 - i,  0
             while i < 3 do i = i + 1 end
             for k = 1, 2 do end
+            for k = 1, 2, i do end
             ---@clavius end
         ]=]
         local c = driver.run_until('validate', text, 1)
@@ -71,6 +72,10 @@ describe('report.messages', function()
             "6:1: for_bound: this loop's limit plus its step may leave ±2^53 [O5]",
             "6:1: invariant_entry: the loop counter's range may not hold when the loop starts [O6]",
             "6:1: invariant_preserved: the loop counter's range may not hold again after an iteration [O7]",
+            "7:1: for_bound: this loop's limit plus its step may leave ±2^53 [O9]",
+            "7:1: for_step: this loop's step may be 0 [O8]",
+            "7:1: invariant_entry: the loop counter's range may not hold when the loop starts [O10]",
+            "7:1: invariant_preserved: the loop counter's range may not hold again after an iteration [O11]",
         }, messages.failures(kinds, prog.obligations, c.src, text))
     end)
 

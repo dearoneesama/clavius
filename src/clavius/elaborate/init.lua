@@ -244,9 +244,58 @@ local function bound_once(b, id, out)
     return builder.add(b, { tag = 'Var', name = name }, id)
 end
 
---- Lowers `for i = start, limit, step do body end`, whose step is a nonzero literal. The loop runs only
---- when `start` is within `limit`. Its counter `i` then goes from `start` to `limit + step`, by whole
---- steps, which is an invariant that Clavius generates and checks like the written ones.
+--- Returns `at <= limit` when the step is positive, and `at >= limit` when it is negative.
+--- @param b Builder
+--- @param up boolean
+--- @param at NodeId
+--- @param limit NodeId
+--- @param origin NodeId
+--- @mut b
+--- @return NodeId
+local function within(b, up, at, limit, origin)
+    return builder.add(b, { tag = 'BinOp', op = up and '<=' or '>=', lhs = at, rhs = limit }, origin)
+end
+
+--- Returns the counter's range: `start <= i <= last` when the step is positive, and `last <= i <= start`
+--- when it is negative.
+--- @param b Builder
+--- @param up boolean
+--- @param counter NodeId
+--- @param start NodeId
+--- @param last NodeId
+--- @param origin NodeId
+--- @mut b
+--- @return NodeId
+local function counter_range(b, up, counter, start, last, origin)
+    local lo = up and start or last -- the smaller end
+    local hi = up and last or start -- the larger end
+    local above = builder.add(b, { tag = 'BinOp', op = '<=', lhs = lo, rhs = counter }, origin)
+    local below = builder.add(b, { tag = 'BinOp', op = '<=', lhs = counter, rhs = hi }, origin)
+    return builder.add(b, { tag = 'BinOp', op = 'and', lhs = above, rhs = below }, origin)
+end
+
+--- Returns `(0 < step and when_up) or (step < 0 and when_down)`.
+--- @param b Builder
+--- @param step NodeId
+--- @param when_up NodeId
+--- @param when_down NodeId
+--- @param origin NodeId
+--- @mut b
+--- @return NodeId
+local function by_sign(b, step, when_up, when_down, origin)
+    local zero = builder.add(b, { tag = 'Int', text = '0' }, origin)
+    local up = builder.add(b, { tag = 'BinOp', op = '<', lhs = zero, rhs = step }, origin)
+    local down = builder.add(b, { tag = 'BinOp', op = '<', lhs = step, rhs = zero }, origin)
+    local first = builder.add(b, { tag = 'BinOp', op = 'and', lhs = up, rhs = when_up }, origin)
+    local second = builder.add(b, { tag = 'BinOp', op = 'and', lhs = down, rhs = when_down }, origin)
+    return builder.add(b, { tag = 'BinOp', op = 'or', lhs = first, rhs = second }, origin)
+end
+
+--- Lowers `for i = start, limit, step do body end`. The loop runs only when `start` is within `limit`.
+--- Its counter `i` then goes from `start` to `limit + step`, which is an invariant that Clavius generates
+--- and checks like the written ones. A step that is a nonzero literal fixes the direction, and the
+--- counter also moves by whole steps. Any other step is read once and checked to be nonzero, and each
+--- comparison splits on its sign.
 --- e.g.
 ---
 ---     ---@invariant s >= 0
@@ -290,31 +339,50 @@ end
 local function lower_fornum(b, id, n, out)
     local start = bound_once(b, n.start, out)
     local limit = bound_once(b, n.limit, out)
-    local step = n.step and expr.lower(b, n.step, out) or builder.add(b, { tag = 'Int', text = '1' }, id)
-    local step_text = (b.core.nodes[step] --[[@as CoreInt]]).text
-    local up = step_text:sub(1, 1) ~= '-'
-    -- how the counter compares with the limit while the loop runs
-    local within = up and '<=' or '>='
+    local literal, negative = nil, false
+    if n.step ~= nil then
+        literal, negative = arena.nonzero_literal(b.src, n.step)
+    end
+    local abs = '1' -- |step| as digits, when the step is a literal
+    local step
+    if n.step == nil then
+        step = builder.add(b, { tag = 'Int', text = abs }, id)
+    elseif literal ~= nil then
+        abs = expr.int_text((b.src.nodes[literal] --[[@as SrcLiteral]]).text)
+        step = builder.add(b, { tag = 'Int', text = negative and ('-' .. abs) or abs }, n.step)
+    else
+        step = bound_once(b, n.step, out)
+        -- checked even when the loop doesn't run: LuaJIT never ends `for i = 1, 3, 0`, Lua 5.1 `for i = 3, 1, 0`
+        local zero = builder.add(b, { tag = 'Int', text = '0' }, id)
+        builder.check(b, out, 'for_step', builder.add(b, { tag = 'BinOp', op = '!=', lhs = step, rhs = zero }, id), id)
+    end
     local i = builder.name_of(b, n.var)
     builder.var(b, i, 'int', n.var)
     local counter = builder.add(b, { tag = 'Var', name = i }, n.var)
     local last = builder.add(b, { tag = 'BinOp', op = '+', lhs = limit, rhs = step }, id)
 
-    -- the counter's range: start <= i <= limit + step counting up, limit + step <= i <= start counting down
-    local lo = up and start or last -- the smaller end
-    local hi = up and last or start -- the larger end
-    local above = builder.add(b, { tag = 'BinOp', op = '<=', lhs = lo, rhs = counter }, id) -- lo <= i
-    local below = builder.add(b, { tag = 'BinOp', op = '<=', lhs = counter, rhs = hi }, id) -- i <= hi
-    local range = builder.add(b, { tag = 'BinOp', op = 'and', lhs = above, rhs = below }, id) -- lo <= i <= hi
-    local abs = up and step_text or step_text:sub(2) -- |step|, as digits
-    -- every integer is a whole number of steps of 1 from start
-    if abs ~= '1' then
-        local diff = builder.add(b, { tag = 'BinOp', op = '-', lhs = counter, rhs = start }, id) -- i - start
-        local size = builder.add(b, { tag = 'Int', text = abs }, id) -- |step|
-        local rem = builder.add(b, { tag = 'BinOp', op = 'mod', lhs = diff, rhs = size }, id) -- (i - start) mod |step|
-        local zero = builder.add(b, { tag = 'Int', text = '0' }, id)
-        local whole = builder.add(b, { tag = 'BinOp', op = '==', lhs = rem, rhs = zero }, id) -- a whole number of steps from start
-        range = builder.add(b, { tag = 'BinOp', op = 'and', lhs = range, rhs = whole }, id) -- lo <= i <= hi and whole steps
+    local guard, cond, range
+    if n.step == nil or literal ~= nil then
+        local up = not negative
+        guard = within(b, up, start, limit, id)
+        cond = within(b, up, counter, limit, id)
+        range = counter_range(b, up, counter, start, last, id)
+        -- every integer is a whole number of steps of 1 from start
+        if abs ~= '1' then
+            local diff = builder.add(b, { tag = 'BinOp', op = '-', lhs = counter, rhs = start }, id) -- i - start
+            local size = builder.add(b, { tag = 'Int', text = abs }, id) -- |step|
+            local rem = builder.add(b, { tag = 'BinOp', op = 'mod', lhs = diff, rhs = size }, id) -- (i - start) mod |step|
+            local zero = builder.add(b, { tag = 'Int', text = '0' }, id)
+            local whole = builder.add(b, { tag = 'BinOp', op = '==', lhs = rem, rhs = zero }, id) -- a whole number of steps from start
+            range = builder.add(b, { tag = 'BinOp', op = 'and', lhs = range, rhs = whole }, id) -- lo <= i <= hi and whole steps
+        end
+    else
+        -- linear in either direction; whole steps of a variable size would be nonlinear
+        guard = by_sign(b, step, within(b, true, start, limit, id), within(b, false, start, limit, id), id)
+        cond = by_sign(b, step, within(b, true, counter, limit, id), within(b, false, counter, limit, id), id)
+        local up_range = counter_range(b, true, counter, start, last, id)
+        local down_range = counter_range(b, false, counter, start, last, id)
+        range = by_sign(b, step, up_range, down_range, id)
     end
 
     local runs = {}
@@ -335,11 +403,9 @@ local function lower_fornum(b, id, n, out)
     builder.emit(b, again, { tag = 'Assign', target = i, value = stepped }, id)
     builder.check(b, again, 'invariant_preserved', range, id) -- the stepped counter is within its range
     loop_back(b, again, id, top) -- check the invariants and the measure, then end the path
-    local cond = builder.add(b, { tag = 'BinOp', op = within, lhs = counter, rhs = limit }, id) -- i <= limit, or >= counting down
     -- one more iteration while i is within limit, and otherwise the exit, which falls past the Branch
     builder.emit(b, inner, { tag = 'Branch', cond = cond, then_body = again, else_body = {} }, id)
     builder.emit(b, runs, { tag = 'Block', label = label, body = inner }, id)
-    local guard = builder.add(b, { tag = 'BinOp', op = within, lhs = start, rhs = limit }, id) -- start <= limit, or >= counting down
     -- an empty loop runs nothing and checks nothing
     builder.emit(b, out, { tag = 'Branch', cond = guard, then_body = runs, else_body = {} }, id)
 end

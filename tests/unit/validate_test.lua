@@ -280,6 +280,22 @@ describe('validate', function()
         assert.are.same({}, coverage(LOOPS, {}, nil))
     end)
 
+    it('reports a numeric `for` with a variable step whose step has no Check', function()
+        local program = [=[
+            ---@clavius begin
+            ---@param d integer
+            ---@pre d >= 1 and d <= 3
+            local function f(d)
+                -- 1 (for_step); 2 (for_bound); 3 and 4 of the counter's range
+                for k = 1, 2, d do
+                end
+            end
+            ---@clavius end
+        ]=]
+        assert.are.same({}, coverage(program, {}, nil))
+        assert.are.same({ { 'E-internal-coverage', 'Fornum', 'for_step', 'for k = 1, 2, d do' } }, coverage(program, { [1] = true }, nil))
+    end)
+
     it('reports a loop whose invariant, measure or counter obligation has no Check', function()
         assert.are.same({
             { 'E-internal-coverage', 'While', 'invariant_entry', 'while i < 3 do' },

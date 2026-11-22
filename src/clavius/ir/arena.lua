@@ -101,6 +101,31 @@ function M.directives(a, n, tag)
     return out
 end
 
+--- Returns the nonzero number literal under an expression's parentheses and minus signs, and
+--- whether an odd number of minus signs negates it. Returns nil for any other expression.
+--- @param a SrcArena
+--- @param id NodeId
+--- @return NodeId|nil literal
+--- @return boolean negative
+function M.nonzero_literal(a, id)
+    --- noncomplete: does not handle all possible constant expression forms
+    local negative = false
+    local n = a.nodes[id]
+    while n.tag == 'Paren' or n.tag == 'UnOp' and n.op == 'unm' do
+        if n.tag == 'Paren' then
+            id = n.expr
+        else
+            id = n.arg
+            negative = not negative
+        end
+        n = a.nodes[id]
+    end
+    if n.tag == 'Literal' and n.kind == 'number' and tonumber(n.text) ~= 0 then
+        return id, negative
+    end
+    return nil, false
+end
+
 --- Adds a core node whose children are already in the arena and returns its id. Raises an error if a
 --- child id isn't smaller than the new id.
 --- @param a CoreArena
