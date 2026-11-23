@@ -476,6 +476,13 @@ describe('syntax.splice', function()
             if y > 0 then
                 --[[@proof assert(y > 0) ]] --! E-unsupported-feature
             end
+            ---@unsafe
+            ---@return integer
+            local function u()
+                --[[@proof assert(true) ]]
+                local a = 1 --[[@as integer]]
+                return a
+            end
             ---@clavius end
             ---@clavius
             local function f()

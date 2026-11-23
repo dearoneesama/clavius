@@ -51,7 +51,7 @@ local splice = require 'clavius.syntax.splice'
 --- @field comments Comment[] short comments in source order
 --- @field regions SpliceRegion[]
 --- @field annotations LongAnnotation[] the long comments that start with a tag
---- @field marked Span[] the regions and the functions marked outside them
+--- @field marks MarkedSpan[] where the marking changes, each after the spans that hold it
 
 --- @class ConvertState
 --- @field src SrcArena
@@ -62,7 +62,7 @@ local splice = require 'clavius.syntax.splice'
 --- @field loops integer the loops around the code being converted, inside its function
 --- @field cursor SpliceCursor|nil the directives, when converting a whole file
 --- @field marked boolean whether the code being converted is marked
---- @field marked_spans Span[]
+--- @field marks MarkedSpan[]
 
 local M = {}
 
@@ -208,8 +208,8 @@ local function func(st, node, placed)
     if st.cursor then
         -- a directive in the parameter list is above no statement
         splice.dangle(st.cursor, header_end, st.marked)
-        if marked and not st.marked then
-            st.marked_spans[#st.marked_spans + 1] = node_span(st, node)
+        if marked ~= st.marked then
+            st.marks[#st.marks + 1] = { span = node_span(st, node), marked = marked }
         end
     end
     local outer_vararg, outer_loops, outer_marked = st.vararg, st.loops, st.marked
@@ -525,7 +525,7 @@ end
 --- @param shift integer
 --- @return ConvertState
 local function new_state(src, file, shift)
-    return { src = src, file = file, shift = shift, diags = {}, vararg = true, loops = 0, cursor = nil, marked = false, marked_spans = {} }
+    return { src = src, file = file, shift = shift, diags = {}, vararg = true, loops = 0, cursor = nil, marked = false, marks = {} }
 end
 
 --- Runs luacheck's parser. Returns its AST, comments and hanging semicolons, or nil and the one syntax
@@ -578,7 +578,7 @@ function M.convert(src, text, file)
     end
     local regions = splice.regions(top_spans, directives, st.diags)
     for _, r in ipairs(regions) do
-        st.marked_spans[#st.marked_spans + 1] = r.span
+        st.marks[#st.marks + 1] = { span = r.span, marked = true }
     end
     --- @type CodeParser
     local function code(text_of_code, start)
@@ -592,7 +592,7 @@ function M.convert(src, text, file)
         reject(st, node_span(st, r), 'empty-statement')
     end
     local long = scan_tokens(st, source)
-    local chunk = { statements = statements, comments = short, regions = regions, annotations = comments.annotations(long), marked = st.marked_spans }
+    local chunk = { statements = statements, comments = short, regions = regions, annotations = comments.annotations(long), marks = st.marks }
     return chunk, st.diags
 end
 

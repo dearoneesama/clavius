@@ -13,6 +13,12 @@ local directive = require 'clavius.syntax.directive'
 --- @field last integer
 --- @field span Span
 
+--- A span where the marking changes: a region, or a function whose body is marked differently from the
+--- code around it.
+--- @class MarkedSpan
+--- @field span Span
+--- @field marked boolean
+
 --- A file's directives, and how far the converter has taken them.
 --- @class SpliceCursor
 --- @field src SrcArena
@@ -335,17 +341,19 @@ function M.place(cur, above, below, marked)
     return { directives = ids, marked = marker or (marked and not unsafe) }
 end
 
---- Returns whether `offset` lies within one of the spans.
---- @param spans Span[]
+--- Returns whether `offset` is in marked code. The innermost span that holds it says so, and code that
+--- none holds is unmarked.
+--- @param marks MarkedSpan[] each after the spans that hold it
 --- @param offset integer
 --- @return boolean
-local function within(spans, offset)
-    for _, s in ipairs(spans) do
-        if contains(s, offset) then
-            return true
+local function marked_at(marks, offset)
+    local marked = false
+    for _, m in ipairs(marks) do
+        if contains(m.span, offset) then
+            marked = m.marked
         end
     end
-    return false
+    return marked
 end
 
 --- Builds the root Block over the top-level statements and the ClvRegion node of each region. Returns
@@ -360,9 +368,9 @@ end
 function M.run(src, chunk, root_span)
     local diags = {}
     for _, a in ipairs(chunk.annotations) do
-        if a.tag == 'spec' or a.tag == 'lemma' or (a.tag == 'proof' and within(chunk.marked, a.span.start)) then
+        if a.tag == 'spec' or a.tag == 'lemma' or (a.tag == 'proof' and marked_at(chunk.marks, a.span.start)) then
             diags[#diags + 1] = diag.at_span('E-unsupported-feature', a.span, { a.tag .. '-block' })
-        elseif a.tag ~= 'proof' and within(chunk.marked, a.span.start) then
+        elseif a.tag ~= 'proof' and marked_at(chunk.marks, a.span.start) then
             diags[#diags + 1] = diag.at_span('E-unsupported-directive', a.span, { a.tag })
         end
     end
