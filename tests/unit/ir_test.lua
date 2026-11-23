@@ -1,6 +1,7 @@
 local arena = require 'clavius.ir.arena'
 local core_nodes = require 'clavius.ir.core_nodes'
 local diag = require 'clavius.ir.diag'
+local parse = require 'clavius.syntax.parse'
 local source_nodes = require 'clavius.ir.source_nodes'
 
 describe('ir.arena', function()
@@ -59,6 +60,40 @@ describe('ir.arena', function()
         local text = "x\n'é你' y"
         -- `y` is byte 11, after a 2-byte and a 3-byte character
         assert.are.same({ 2, 6 }, { arena.line_col(text, arena.line_starts(text), 11) })
+    end)
+
+    it('finds a nonzero literal under parentheses and minus signs', function()
+        -- an expression, then its literal's text and whether it is negated, or nil when it has none
+        local cases = {
+            { '2', '2', false },
+            { '0x10', '0x10', false },
+            { '-2', '2', true },
+            { '(2)', '2', false },
+            { '-(2)', '2', true },
+            { '- -3', '3', false },
+            { '-(-(-1))', '1', true },
+            { '((-(4)))', '4', true },
+            { '0' },
+            { '-0' },
+            { '0x0' },
+            { '-(-(0))' },
+            { 'k' },
+            { '-k' },
+            { '1 + 1' },
+        }
+        for _, c in ipairs(cases) do
+            local p = parse.run(('local x = %s\n'):format(c[1]), 1)
+            local value = nil
+            for _, n in ipairs(p.src.nodes) do
+                if n.tag == 'Local' then
+                    value = n.values[1]
+                    break
+                end
+            end
+            local literal, negative = arena.nonzero_literal(p.src, assert(value))
+            local text = literal and (p.src.nodes[literal] --[[@as SrcLiteral]]).text
+            assert.are.same({ c[1], c[2], c[3] or false }, { c[1], text, negative })
+        end
     end)
 end)
 

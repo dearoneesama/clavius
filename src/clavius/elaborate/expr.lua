@@ -16,7 +16,7 @@ local RANGE_CHECKED = { add = true, sub = true, mul = true }
 --- Returns the decimal digits of an int53 literal.
 --- @param text string a decimal or hexadecimal integer
 --- @return string
-local function int_text(text)
+function M.int_text(text)
     return ('%.0f'):format(assert(tonumber(text)))
 end
 
@@ -237,7 +237,7 @@ function M.lower(b, id, out)
     local n = b.src.nodes[id]
     local op = b.info.ops[id]
     if n.tag == 'Literal' and n.kind == 'number' then
-        return builder.add(b, { tag = 'Int', text = int_text(n.text) }, id)
+        return builder.add(b, { tag = 'Int', text = M.int_text(n.text) }, id)
     elseif n.tag == 'Literal' then
         return builder.add(b, { tag = 'Bool', value = n.kind == 'true' }, id)
     elseif n.tag == 'Id' then
@@ -262,7 +262,7 @@ function M.lower(b, id, out)
         -- -x stays within ±2^53 when x does, so it needs no check
         local arg = b.src.nodes[n.arg]
         if arg.tag == 'Literal' then
-            local text = int_text(arg.text)
+            local text = M.int_text(arg.text)
             return builder.add(b, { tag = 'Int', text = text == '0' and text or '-' .. text }, id)
         end
         local zero = builder.add(b, { tag = 'Int', text = '0' }, id)

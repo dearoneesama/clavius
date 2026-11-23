@@ -14,6 +14,7 @@
 --- | 'invariant_preserved' # a loop's invariant, or the counter's range, holds again after an iteration
 --- | 'decrease' # a `---@decrease` measure decreases, on a loop's back edge or at a recursive call
 --- | 'for_bound' # a numeric `for`'s limit plus its step stays within ±2^53, so the counter can pass it
+--- | 'for_step' # a numeric `for`'s step is not 0
 --- | 'div_zero' # the divisor of `%` or of `math.floor(a / b)` isn't 0
 --- | 'mod_range' # `a - a % b` stays within ±2^53, so LuaJIT computes `a % b` exactly
 
@@ -54,6 +55,7 @@ M.OBLIGATION_KINDS = {
     invariant_preserved = true,
     decrease = true,
     for_bound = true,
+    for_step = true,
     div_zero = true,
     mod_range = true,
 }

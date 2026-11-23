@@ -466,22 +466,6 @@ local function visit_loop_directives(st, loop, scope, unit)
     end
 end
 
---- Returns whether a numeric `for` has a step that marked code may use: none, or a nonzero integer
---- literal, perhaps negated.
---- @param src SrcArena
---- @param step NodeId|nil
---- @return boolean
-local function literal_step(src, step)
-    if step == nil then
-        return true
-    end
-    local n = src.nodes[step]
-    if n.tag == 'UnOp' and n.op == 'unm' then
-        n = src.nodes[n.arg]
-    end
-    return n.tag == 'Literal' and n.kind == 'number' and tonumber(n.text) ~= 0
-end
-
 --- Visits a function. In marked code, or when it is `---@unsafe`, the function is a unit root for its
 --- contract. Its body is marked code unless it is `---@unsafe`.
 --- @param st ResolveState
@@ -563,8 +547,6 @@ function visit(st, id, scope, unit)
         elseif n.tag == 'Return' and #n.values > 1 then
             report(st, 'E-unsupported-feature', id, { 'multiple-returns' })
             unit = 0
-        elseif n.tag == 'Fornum' and not literal_step(st.src, n.step) then
-            report(st, 'E-unsupported-feature', id, { 'for-step' })
         end
     end
 
