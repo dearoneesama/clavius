@@ -9,7 +9,7 @@ local BINOPS = "'add' | 'sub' | 'mul' | 'div' | 'mod' | 'pow' | 'concat' | 'eq' 
 
 local DOC = [[
 A statement node is a Local, LocalFunction, Set, Call, Block, If, While, Repeat, Fornum, Forin,
-  Return, Break, Goto or Label node.
+  Return, Break, Goto, Label, ClvSpec, ClvLemma, ClvProof, ClvGhost or ClvAssert node.
 An expression node is an Id, Literal, Dots, Function, Table, Index, Call, BinOp, UnOp or Paren node.
 A type node is a `ClvType*` node that stands for a whole type, such as ClvTypeName or ClvTypeUnion.
 A directive is a node made from a ---@ annotation, such as ClvPre.]]
@@ -131,6 +131,28 @@ local NODES = {
     { tag = 'BinOp', fields = { { 'op', BINOPS }, { 'lhs', 'node', 'an expression node' }, { 'rhs', 'node', 'an expression node' } } },
     { tag = 'UnOp', fields = { { 'op', "'not' | 'unm' | 'len'" }, { 'arg', 'node', 'an expression node' } } },
     { tag = 'Paren', doc = 'A parenthesized expression. It truncates a call to one value.', fields = { { 'expr', 'node', 'an expression node' } } },
+    -- ghost code: in comments, so LuaJIT never runs it
+    {
+        tag = 'ClvSpec',
+        doc = 'A `--[[@spec … ]]` block of spec functions. It is not a scope.',
+        fields = { { 'statements', 'node[]', 'statement nodes' } },
+    },
+    {
+        tag = 'ClvLemma',
+        doc = 'A `--[[@lemma … ]]` block of lemmas. It is not a scope.',
+        fields = { { 'statements', 'node[]', 'statement nodes' } },
+    },
+    {
+        tag = 'ClvProof',
+        doc = 'Proof code: a `--[[@proof … ]]` block, which is a scope, or a `---@proof` line of lemma calls.',
+        fields = { { 'block', 'boolean' }, { 'statements', 'node[]', 'statement nodes' } },
+    },
+    {
+        tag = 'ClvGhost',
+        doc = 'A `---@ghost` line: one `local` or assignment of ghost state.',
+        fields = { { 'statement', 'node', 'a statement node' } },
+    },
+    { tag = 'ClvAssert', doc = '`---@assert cond`.', fields = { { 'cond', 'node', 'an expression node' } } },
     { tag = 'ClvTypeName', doc = 'A named type in an annotation, such as `int53`, `Seq` or `a.b`.', fields = { { 'name', 'string' } } },
     {
         tag = 'ClvTypeLiteral',

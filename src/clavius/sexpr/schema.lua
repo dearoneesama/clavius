@@ -119,6 +119,22 @@ M.source = {
     Paren = {
         { name = 'expr', shape = 'node' },
     },
+    ClvSpec = {
+        { name = 'statements', shape = 'list' },
+    },
+    ClvLemma = {
+        { name = 'statements', shape = 'list' },
+    },
+    ClvProof = {
+        { name = 'block', shape = 'bool' },
+        { name = 'statements', shape = 'list' },
+    },
+    ClvGhost = {
+        { name = 'statement', shape = 'node' },
+    },
+    ClvAssert = {
+        { name = 'cond', shape = 'node' },
+    },
     ClvTypeName = {
         { name = 'name', shape = 'str' },
     },
