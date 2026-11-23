@@ -2,7 +2,8 @@
 
 --- The part of a code after `E-` names its family: `syntax`, `misplaced` (an annotation in the wrong
 --- place), `unsupported` (a feature Clavius doesn't verify), `banned` (a feature verified code must
---- not use), `type` (legal Lua that the type rules reject) or `internal` (a bug in Clavius).
+--- not use), `type` (legal Lua that the type rules reject), `mode` (code that does what its mode, exec
+--- or ghost, rules out) or `internal` (a bug in Clavius).
 --- @alias DiagCode
 --- | 'E-syntax' # the file doesn't parse, or uses unsupported syntax
 --- | 'E-misplaced-directive' # a directive where it can't apply, such as an unpaired `---@clavius end`
@@ -14,6 +15,7 @@
 --- | 'E-banned-goto' # a `goto` or label in verified code
 --- | 'E-banned-call' # a library function that verified code must not use, such as `pcall`
 --- | 'E-type-mismatch' # an operand or value of the wrong type, such as `1 + true`
+--- | 'E-mode' # exec code that uses ghost code, or ghost code that does what proof code can't
 --- | 'E-internal-node' # a core node where its kind doesn't belong, such as a statement among terms
 --- | 'E-internal-check' # a `Check` with no obligation of a known kind
 --- | 'E-internal-assume' # an `Assume` with no allowed justification

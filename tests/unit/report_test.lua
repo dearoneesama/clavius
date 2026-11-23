@@ -119,6 +119,11 @@ describe('report.messages', function()
         assert.are.equal("1:1: E-banned-global: the global `call` can't be used in verified code", messages.diag(d, {}, 'x'))
     end)
 
+    it('words mode errors by their key', function()
+        local d = diag.at_span('E-mode', arena.span(1, 1, 1), { 'ghost-return' })
+        assert.are.equal("1:1: E-mode: ghost code in exec code can't `return`", messages.diag(d, {}, 'x'))
+    end)
+
     it('names features in plain words', function()
         local d = diag.at_span('E-unsupported-feature', arena.span(1, 1, 1), { 'Forin' })
         local expected = "1:1: E-unsupported-feature: a generic `for` loop isn't supported in this version; leave this code unmarked"

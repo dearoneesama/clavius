@@ -452,6 +452,9 @@ function visit(st, id, scope, unit)
         and arena.has_directive(st.src, n --[[@as SrcFunction]], 'ClvMarker')
     then
         unit = id
+    elseif unit == 0 and (tag == 'ClvSpec' or tag == 'ClvLemma') then
+        -- spec and lemma blocks are checked wherever they sit
+        unit = id
     end
     -- what marked code may use
     if unit ~= 0 then

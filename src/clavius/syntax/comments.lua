@@ -1,5 +1,10 @@
--- Annotations in comments: `---@tag args` directives from short comments, and long comments that
--- start with a tag, such as `--[[@spec` blocks.
+-- Annotations in comments: `---@tag args` directives from short comments, long comments that start
+-- with a tag, such as `--[[@spec` blocks, and the ghost code in comments. Unmasking ghost code blanks
+-- out its comment markers and tag, so it becomes code at its own offsets:
+--
+--   ---@ghost local seen = 0       becomes       local seen = 0
+--   --[[@proof lemma(n) ]]         becomes       lemma(n)
+--   ---@assert seen > 0            becomes       local _ = seen > 0
 
 --- A directive such as `---@clavius begin`, or its LuaLS spelling `--- @clavius begin`.
 --- @class Directive
@@ -15,12 +20,31 @@
 --- @field tag string
 --- @field span Span the whole comment
 
+--- What a ghost comment holds: a `--[[@spec`, `--[[@lemma` or `--[[@proof` block, or a `---@proof`,
+--- `---@ghost` or `---@assert` line.
+--- @alias GhostKind 'spec' | 'lemma' | 'proof' | 'proof_line' | 'ghost' | 'assert'
+
+--- A comment that holds ghost code. Its code lies between `head` and `close`.
+--- @class GhostRange
+--- @field kind GhostKind
+--- @field span Span the whole comment
+--- @field head integer the last offset of the comment's opening and tag
+--- @field close integer the first offset of a block's closing bracket, or `span.finish + 1` for a line
+
 local arena = require 'clavius.ir.arena'
 
 local M = {}
 
 -- the text follows the comment's `--`, so `---@tag` arrives as `-@tag`; LuaLS allows any spaces before `@`
 local HEAD = '^%-%s*@'
+
+local BLOCK_KINDS = { spec = 'spec', lemma = 'lemma', proof = 'proof' }
+
+--- @type table<string, GhostKind>
+local LINE_KINDS = { ghost = 'ghost', proof = 'proof_line', assert = 'assert' }
+
+-- an `---@assert E` line becomes this statement, which is no wider than its opening and tag
+local ASSERT = 'local _ ='
 
 --- Returns the directives among short comments in their order.
 --- @param comments Comment[]
@@ -69,6 +93,85 @@ function M.annotations(long_comments)
         end
     end
     return out
+end
+
+--- Returns the comments of `text` that hold ghost code, in source order. A line counts only when no code
+--- comes before it on its line.
+--- @param short Comment[]
+--- @param long Comment[]
+--- @param text string
+--- @return GhostRange[]
+function M.ghost_ranges(short, long, text)
+    local out = {}
+    for _, c in ipairs(long) do
+        local lead, tag = c.text:match '^(%s*)@([%a_][%w_]*)'
+        local kind = tag and BLOCK_KINDS[tag]
+        if kind then
+            local level = #text:match('^%-%-%[(=*)%[', c.span.start)
+            -- `--[`, the `=`s and `[` come before the text, and the `@` is one byte before the tag
+            local head = c.span.start + 3 + level + #lead + 1 + #tag
+            out[#out + 1] = { kind = kind, span = c.span, head = head, close = c.span.finish - level - 1 }
+        end
+    end
+    for _, c in ipairs(short) do
+        local prefix, tag = c.text:match '^(%-%s*@)([%a_][%w_]*)'
+        local kind = tag and LINE_KINDS[tag]
+        -- the start of its line, unless code comes first
+        local i = c.span.start - 1
+        while i >= 1 and text:byte(i) ~= 10 and text:sub(i, i):match '%s' do -- 10 = \n
+            i = i - 1
+        end
+        if kind and (i < 1 or text:byte(i) == 10) then
+            -- the text starts after `--`
+            local head = c.span.start + 1 + #prefix + #tag
+            out[#out + 1] = { kind = kind, span = c.span, head = head, close = c.span.finish + 1 }
+        end
+    end
+    --- @param a GhostRange
+    --- @param b GhostRange
+    --- @return boolean
+    local function before_range(a, b)
+        return a.span.start < b.span.start
+    end
+    table.sort(out, before_range)
+    return out
+end
+
+--- Returns the ghost comment that holds `offset`, if any.
+--- @param ranges GhostRange[]
+--- @param offset integer
+--- @return GhostRange|nil
+function M.ghost_at(ranges, offset)
+    for _, gr in ipairs(ranges) do
+        if arena.contains(gr.span, offset) then
+            return gr
+        end
+    end
+    return nil
+end
+
+--- Returns `text` with the comment markers and tags of `ranges` blanked out, and each `---@assert E` line
+--- turned into the statement `local _ = E`. Every offset stays where it was.
+--- @param text string
+--- @param ranges GhostRange[] in source order
+--- @return string
+function M.unmask(text, ranges)
+    local parts = {}
+    local at = 1
+    for _, gr in ipairs(ranges) do
+        local width = gr.head - gr.span.start + 1
+        parts[#parts + 1] = text:sub(at, gr.span.start - 1)
+        if gr.kind == 'assert' then
+            parts[#parts + 1] = (' '):rep(width - #ASSERT) .. ASSERT
+        else
+            parts[#parts + 1] = (' '):rep(width)
+        end
+        parts[#parts + 1] = text:sub(gr.head + 1, gr.close - 1)
+        parts[#parts + 1] = (' '):rep(gr.span.finish - gr.close + 1)
+        at = gr.span.finish + 1
+    end
+    parts[#parts + 1] = text:sub(at)
+    return table.concat(parts)
 end
 
 return M

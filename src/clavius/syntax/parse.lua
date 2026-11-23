@@ -16,7 +16,10 @@ local M = {}
 --   ---@clavius begin
 --   ---@param n integer
 --   ---@pre n > 0
---   local function f(n) return n end
+--   local function f(n)
+--       ---@assert n > 0
+--       return n
+--   end
 --
 --   ---@param m integer
 --   ---@return integer
@@ -24,20 +27,26 @@ local M = {}
 --   ---@clavius end
 --
 -- 1. luacheck's parser reads the whole text: an AST with two `Localrec` statements, and the short
---    comments with their offsets and lines. Directives are only comments to it.
+--    comments with their offsets and lines. Directives and ghost code are only comments to it.
 -- 2. `comments.directives` turns each `---@` comment into a Directive: its tag, its arguments and their
 --    span, and the `---` lines below it that a type may continue onto.
 -- 3. `splice.regions` pairs `begin` with `end` against the offsets of the top-level statements, before
 --    any of them is converted: statements 1 and 2 form a region, so both are marked code.
--- 4. The converter walks the statements. Before each one, `splice.take` hands it the directives above it.
--- 5. `splice.place` parses the directives above a function or loop in marked code with `directive.parse`.
+-- 4. `comments.ghost_ranges` finds the comments that hold ghost code, and `comments.unmask` turns their
+--    markers and tags into spaces, so the code sits at its own offsets. Spec and lemma blocks are
+--    unmasked anywhere, and other ghost code only in marked code, which a first conversion of the text
+--    as written finds. Steps 1 to 3 then run again on the unmasked text.
+-- 5. The converter walks the statements. Before each one, `splice.take` hands it the directives above
+--    it. The statements of each ghost comment become one ClvSpec, ClvLemma, ClvProof, ClvGhost or
+--    ClvAssert node, so the `---@assert` becomes `(ClvAssert (BinOp gt (Id n) (Literal number 0)))`.
+-- 6. `splice.place` parses the directives above a function or loop in marked code with `directive.parse`.
 --    Types become ClvType nodes through `typeexpr`. Lua code, such as the `n > 0`, is parsed by
 --    `luacheck.expressions` as `return n > 0`, with spans moved to where it is in the file. So
 --    `---@pre n > 0` becomes `(ClvPre (BinOp gt (Id n) (Literal number 0)))`.
--- 6. The function is converted after its directive nodes, and they become its `directives` field:
+-- 7. The function is converted after its directive nodes, and they become its `directives` field:
 --    `(Function [(ClvParam n …) (ClvPre …)] [(Binder n)] false (Block …))`.
--- 7. `splice.run` wraps statements 1 and 2 in a ClvRegion under the root Block, and reports the
---    long-comment annotations that marked code may not have, such as `--[[@spec`.
+-- 8. `splice.run` wraps statements 1 and 2 in a ClvRegion under the root Block, and reports the
+--    long-comment annotations that marked code may not have, such as `--[[@as T]]`.
 
 --- Parses one file. Returns the arena and every syntax and annotation error.
 --- @param text string

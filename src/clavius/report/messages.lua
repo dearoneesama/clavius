@@ -20,6 +20,7 @@ local TEMPLATES = {
     ['E-banned-global'] = "the global `%s` can't be used in verified code",
     ['E-banned-goto'] = "`goto` and labels can't be used in verified code",
     ['E-type-mismatch'] = 'expected %s, found %s',
+    ['E-mode'] = '%s',
     ['E-internal-node'] = '%s where a %s belongs',
     ['E-internal-check'] = 'Check O%s has no obligation of a known kind',
     ['E-internal-assume'] = 'Assume A%s has no allowed justification',
@@ -32,7 +33,7 @@ local TEMPLATES = {
 --- The codes whose arguments are keys of `PHRASES`. The arguments of other codes are names from the
 --- program and must never be read as keys.
 --- @type table<string, boolean>
-local KEYED = { ['E-syntax'] = true, ['E-misplaced-directive'] = true, ['E-unsupported-feature'] = true }
+local KEYED = { ['E-syntax'] = true, ['E-misplaced-directive'] = true, ['E-unsupported-feature'] = true, ['E-mode'] = true }
 
 --- What the keys in diagnostic arguments stand for. An argument that isn't a key, such as one of
 --- luacheck's syntax errors, is used as it is.
@@ -86,6 +87,11 @@ local PHRASES = {
     ['decrease-length'] = 'the measures in a recursion cycle need the same number of expressions; pad the shorter ones with constants',
     ['unsafe-decrease'] = "an `---@unsafe` function's body is never checked, so it takes no `---@decrease`",
     -- node kinds
+    ClvSpec = 'a `--[[@spec` block',
+    ClvLemma = 'a `--[[@lemma` block',
+    ClvProof = 'proof code',
+    ClvGhost = 'a `---@ghost` line',
+    ClvAssert = 'an `---@assert` line',
     Index = 'indexing',
     Table = 'a table constructor',
     Forin = 'a generic `for` loop',
@@ -115,9 +121,15 @@ local PHRASES = {
     ['outer-local'] = 'a local declared outside this region',
     ['truthiness'] = 'a condition or an operand of `and`, `or` or `not` that is not a boolean',
     ['loop-variable-write'] = "assigning a numeric `for` loop's variable",
-    ['spec-block'] = 'a `--[[@spec` block',
-    ['lemma-block'] = 'a `--[[@lemma` block',
-    ['proof-block'] = 'a `--[[@proof` block',
+    -- ghost code
+    ['ghost-overlap'] = 'ghost code must hold whole statements, apart from the exec code around it',
+    ['ghost-in-ghost'] = 'this is already ghost code, so write it without the tag: `assert(e)` for `---@assert e`',
+    ['proof-in-spec'] = "a spec function's body holds no proof code",
+    ['ghost-outside'] = 'ghost code belongs in marked code: a region or the body of a marked function',
+    ['ghost-after-exit'] = "ghost code can't follow `return` or `break`, which end their block",
+    ['ghost-return'] = "ghost code in exec code can't `return`",
+    ['not-top-level'] = 'a `--[[@spec` or `--[[@lemma` block belongs between top-level statements',
+    ['ghost-line'] = 'a `---@ghost` line holds one `local` or assignment of ghost locals, and an `---@assert` line one expression',
 }
 
 --- What a failing obligation of each kind means. `%s` is the source text of its clause's condition or

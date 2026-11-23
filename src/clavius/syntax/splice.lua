@@ -3,6 +3,7 @@
 -- regions. It reports misplaced directives, and the annotations in marked code that it doesn't place.
 
 local arena = require 'clavius.ir.arena'
+local comments = require 'clavius.syntax.comments'
 local diag = require 'clavius.ir.diag'
 local directive = require 'clavius.syntax.directive'
 
@@ -13,8 +14,8 @@ local directive = require 'clavius.syntax.directive'
 --- @field last integer
 --- @field span Span
 
---- A span where the marking changes: a region, or a function whose body is marked differently from the
---- code around it.
+--- A span where the marking changes: a region, a spec or lemma block, or a function whose body is
+--- marked differently from the code around it.
 --- @class MarkedSpan
 --- @field span Span
 --- @field marked boolean
@@ -27,6 +28,7 @@ local directive = require 'clavius.syntax.directive'
 --- @field next integer the first directive not taken yet
 --- @field code_parser CodeParser
 --- @field diags Diag[]
+--- @field ghosts GhostRange[] the unmasked ghost comments
 
 --- The directive nodes of a function or a loop, and whether a function's body is marked code.
 --- @class Placement
@@ -67,13 +69,11 @@ local MAYBE_FUNCTION_TAGS = { decrease = true, frozen = true, extern = true, clo
 -- tags that annotate the loop below them
 local LOOP_TAGS = { invariant = true, decrease = true }
 
---- Returns whether `offset` lies within `s`.
---- @param s Span
---- @param offset integer
---- @return boolean
-local function contains(s, offset)
-    return s.start <= offset and offset <= s.finish
-end
+-- tags of ghost code, which is unmasked in marked code unless it is ghost code already
+local GHOST_TAGS = { ghost = true, proof = true, assert = true }
+
+-- the tags of the long comments that hold ghost code
+local BLOCK_TAGS = { spec = true, lemma = true, proof = true }
 
 --- Returns whether `d` is `---@clavius begin` or `end`.
 --- @param d Directive
@@ -118,7 +118,7 @@ function M.regions(spans, directives, diags)
             while before < #spans and spans[before + 1].finish < d.span.start do
                 before = before + 1
             end
-            if before < #spans and contains(spans[before + 1], d.span.start) then
+            if before < #spans and arena.contains(spans[before + 1], d.span.start) then
                 diags[#diags + 1] = diag.at_span('E-misplaced-directive', d.span, { 'marker-in-block' })
             elseif d.args == 'begin' and open then
                 diags[#diags + 1] = diag.at_span('E-misplaced-directive', d.span, { 'nested-begin' })
@@ -137,6 +137,21 @@ function M.regions(spans, directives, diags)
         diags[#diags + 1] = diag.at_span('E-misplaced-directive', open.span, { 'unpaired-begin' })
     end
     return regions
+end
+
+--- Returns whether `offset` is in marked code. The innermost span that holds it says so, and code that
+--- none holds is unmarked.
+--- @param marks MarkedSpan[] each after the spans that hold it
+--- @param offset integer
+--- @return boolean
+function M.marked_at(marks, offset)
+    local marked = false
+    for _, m in ipairs(marks) do
+        if arena.contains(m.span, offset) then
+            marked = m.marked
+        end
+    end
+    return marked
 end
 
 --- Returns whether the `i`-th top-level statement is in one of the regions.
@@ -158,9 +173,24 @@ end
 --- @param directives Directive[]
 --- @param code_parser CodeParser
 --- @param diags Diag[] where the cursor reports
+--- @param ghosts GhostRange[]
 --- @return SpliceCursor
-function M.cursor(src, text, directives, code_parser, diags)
-    return { src = src, text = text, directives = directives, next = 1, code_parser = code_parser, diags = diags }
+function M.cursor(src, text, directives, code_parser, diags, ghosts)
+    return { src = src, text = text, directives = directives, next = 1, code_parser = code_parser, diags = diags, ghosts = ghosts }
+end
+
+--- Returns why a ghost line or block at `offset` was left a comment: `proof-in-spec` or `ghost-in-ghost`
+--- when it sits inside another ghost comment, and `ghost-outside` when it sits outside marked code,
+--- such as among the directives above a marked function.
+--- @param ghosts GhostRange[]
+--- @param offset integer
+--- @return string
+local function nested_ghost(ghosts, offset)
+    local gr = comments.ghost_at(ghosts, offset)
+    if gr == nil then
+        return 'ghost-outside'
+    end
+    return gr.kind == 'spec' and 'proof-in-spec' or 'ghost-in-ghost'
 end
 
 --- Returns whether code precedes `d` on its line. LuaLS attaches such a directive to that code.
@@ -192,6 +222,8 @@ local function dangling(cur, list, marked)
         if is_function_mark(d) or (marked and directive.is_tag(d.tag)) then
             if after_code(cur, d) then
                 report(cur, 'E-unsupported-directive', d, { d.tag })
+            elseif GHOST_TAGS[d.tag] then
+                report(cur, 'E-misplaced-directive', d, { nested_ghost(cur.ghosts, d.span.start) })
             else
                 report(cur, 'E-misplaced-directive', d, { 'not-above-statement' })
             end
@@ -321,6 +353,8 @@ function M.place(cur, above, below, marked)
             report(cur, 'E-unsupported-directive', d, { tag })
         elseif is_function_mark(d) and not has_function then
             report(cur, 'E-misplaced-directive', d, { 'no-function-below' })
+        elseif active and GHOST_TAGS[tag] then
+            report(cur, 'E-misplaced-directive', d, { nested_ghost(cur.ghosts, d.span.start) })
         elseif active and fits then
             local nodes, diags = directive.parse(cur.src, d, cur.code_parser)
             for _, id in ipairs(nodes) do
@@ -341,24 +375,9 @@ function M.place(cur, above, below, marked)
     return { directives = ids, marked = marker or (marked and not unsafe) }
 end
 
---- Returns whether `offset` is in marked code. The innermost span that holds it says so, and code that
---- none holds is unmarked.
---- @param marks MarkedSpan[] each after the spans that hold it
---- @param offset integer
---- @return boolean
-local function marked_at(marks, offset)
-    local marked = false
-    for _, m in ipairs(marks) do
-        if contains(m.span, offset) then
-            marked = m.marked
-        end
-    end
-    return marked
-end
-
 --- Builds the root Block over the top-level statements and the ClvRegion node of each region. Returns
---- the root and what it reports about long-comment annotations: `--[[@spec` and `--[[@lemma` blocks
---- anywhere, and in marked code `--[[@proof` blocks and LuaLS directives such as `--[[@as T]]`.
+--- the root and what it reports about the long-comment annotations that are still comments: a ghost
+--- block inside ghost code, and in marked code LuaLS directives such as `--[[@as T]]`.
 --- @param src SrcArena
 --- @param chunk Chunk
 --- @param root_span Span the whole file
@@ -368,9 +387,9 @@ end
 function M.run(src, chunk, root_span)
     local diags = {}
     for _, a in ipairs(chunk.annotations) do
-        if a.tag == 'spec' or a.tag == 'lemma' or (a.tag == 'proof' and marked_at(chunk.marks, a.span.start)) then
-            diags[#diags + 1] = diag.at_span('E-unsupported-feature', a.span, { a.tag .. '-block' })
-        elseif a.tag ~= 'proof' and marked_at(chunk.marks, a.span.start) then
+        if BLOCK_TAGS[a.tag] and comments.ghost_at(chunk.ghosts, a.span.start) then
+            diags[#diags + 1] = diag.at_span('E-misplaced-directive', a.span, { nested_ghost(chunk.ghosts, a.span.start) })
+        elseif not BLOCK_TAGS[a.tag] and M.marked_at(chunk.marks, a.span.start) then
             diags[#diags + 1] = diag.at_span('E-unsupported-directive', a.span, { a.tag })
         end
     end

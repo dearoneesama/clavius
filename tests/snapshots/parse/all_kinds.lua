@@ -41,7 +41,12 @@ for k, v in pairs(tbl) do
     print(k, v)
 end
 print(tbl.add(1, 2, 3), tostring "s", type { 1 })
+--[[@spec local function same(x) return x end ]]
 ---@clavius begin
 local m = 1 - 2
+---@ghost local g = m
+---@assert g == m
+---@proof same(m)
 ---@clavius end
+--[[@lemma local function l() end ]]
 return tbl
