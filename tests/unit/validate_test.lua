@@ -16,7 +16,7 @@ local validate = require 'clavius.validate'
 --- @return DiagSummary[]
 local function run(prog)
     local out = {}
-    for i, d in ipairs(validate.run(prog.core, prog.units, prog.obligations, prog.assumptions)) do
+    for i, d in ipairs(validate.run(prog.core, prog.decls, prog.units, prog.obligations, prog.assumptions)) do
         out[i] = { code = d.code, tag = prog.core.nodes[d.node].tag, args = d.args }
     end
     return out
@@ -122,7 +122,28 @@ describe('validate', function()
         assert.are.same({
             { code = 'E-internal-node', tag = 'Literal', args = { 'Literal', 'term' } },
             { code = 'E-internal-node', tag = 'Assign', args = { 'Assign', 'unit' } },
-        }, run { core = c, units = { unit, statement }, obligations = {}, assumptions = {} })
+        }, run { core = c, decls = {}, units = { unit, statement }, obligations = {}, assumptions = {} })
+    end)
+
+    it('reports terms in quantifiers and applications', function()
+        local text = [=[
+            (SortDecl S)
+            (FunDecl f [(VarDecl x int) (Havoc y)] int)
+            (Axiom (Forall [(VarDecl x int)] [(Trigger [(App f [(Var x)])]) (Var x)] (App f [(Havoc x)])))
+        ]=]
+        assert.are.same({
+            { code = 'E-internal-node', tag = 'Havoc', args = { 'Havoc', 'variable declaration' } },
+            { code = 'E-internal-node', tag = 'Var', args = { 'Var', 'trigger' } },
+            { code = 'E-internal-node', tag = 'Havoc', args = { 'Havoc', 'term' } },
+        }, diags(text))
+    end)
+
+    it('reports a declaration that is not one', function()
+        local c = arena.new_core()
+        local unit = arena.add_core(c, { tag = 'Unit', name = 'u', vars = {}, body = {} }, arena.span(1, 1, 0))
+        assert.are.same({
+            { code = 'E-internal-node', tag = 'Unit', args = { 'Unit', 'declaration' } },
+        }, run { core = c, decls = { unit }, units = {}, obligations = {}, assumptions = {} })
     end)
 
     -- the obligations that elaborate emits, by id
@@ -177,7 +198,7 @@ describe('validate', function()
         end
         local out = {}
         local source = { src = c.src, index = assert(c.index), callees = assert(c.info).callees, cycle = assert(c.termination).cycle }
-        for i, d in ipairs(validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, source)) do
+        for i, d in ipairs(validate.run(prog.core, prog.decls, prog.units, prog.obligations, prog.assumptions, source)) do
             local s = assert(d.span)
             out[i] = { d.code, d.args[1], d.args[2], program:sub(s.start, s.finish):match '^[^\n]*' }
         end

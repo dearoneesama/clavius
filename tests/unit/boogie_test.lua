@@ -22,7 +22,7 @@ describe('boogie.print', function()
     for _, input in ipairs(inputs) do
         it(input, function()
             local prog = read_core(assert(utils.readfile(input, true)))
-            snapshot.check((input:gsub('%.core%.sexp$', '.bpl')), boogie_print.program(prog.core, prog.units, nil))
+            snapshot.check((input:gsub('%.core%.sexp$', '.bpl')), boogie_print.program(prog.core, prog.decls, prog.units, nil))
         end)
     end
 
@@ -40,12 +40,12 @@ describe('boogie.print', function()
                 '}',
                 '',
             }, '\n'),
-            boogie_print.program(prog.core, prog.units, { rlimit = 5, split = { b = true } })
+            boogie_print.program(prog.core, prog.decls, prog.units, { rlimit = 5, split = { b = true } })
         )
     end)
 
     it('prints nothing for no units', function()
-        assert.are.equal('', boogie_print.program(read_core('').core, {}, nil))
+        assert.are.equal('', boogie_print.program(read_core('').core, {}, {}, nil))
     end)
 end)
 

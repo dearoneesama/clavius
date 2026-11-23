@@ -43,14 +43,15 @@ local function run_boogie(bpl)
     return text
 end
 
---- Prints the units, runs Boogie on them and parses its output.
+--- Prints the declarations and units, runs Boogie on them and parses its output.
 --- @param core CoreArena
+--- @param decls NodeId[]
 --- @param units NodeId[]
 --- @param print_opts BoogiePrintOptions
 --- @return BoogieOutput|nil result
 --- @return string|nil err
-local function check_once(core, units, print_opts)
-    local text = run_boogie(boogie_print.program(core, units, print_opts))
+local function check_once(core, decls, units, print_opts)
+    local text = run_boogie(boogie_print.program(core, decls, units, print_opts))
     local result, err = boogie_output.parse(text)
     if not result then
         return nil, ('%s:\n%s'):format(err, text)
@@ -61,17 +62,18 @@ end
 --- Verifies the units of a valid core program. Returns the ids of the failing obligations in
 --- ascending order, or nil and an error with Boogie's output when there is no verdict.
 --- @param core CoreArena
+--- @param decls NodeId[]
 --- @param units NodeId[]
 --- @param opts BoogieRunOptions|nil
 --- @return integer[]|nil failed
 --- @return string|nil err
-function M.check(core, units, opts)
+function M.check(core, decls, units, opts)
     -- nothing to check
     if #units == 0 then
         return {}, nil
     end
     local rlimit = opts and opts.rlimit
-    local first, err = check_once(core, units, { rlimit = rlimit })
+    local first, err = check_once(core, decls, units, { rlimit = rlimit })
     if not first then
         return nil, err
     end
@@ -91,7 +93,7 @@ function M.check(core, units, opts)
                 rerun[#rerun + 1] = id
             end
         end
-        local second, err2 = check_once(core, rerun, { rlimit = rlimit, split = split })
+        local second, err2 = check_once(core, decls, rerun, { rlimit = rlimit, split = split })
         if not second then
             return nil, err2
         end

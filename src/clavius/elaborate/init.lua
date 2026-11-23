@@ -596,7 +596,7 @@ function M.run(src, root, res, info, effects, termination)
             end
         end
     end
-    return { core = b.core, units = units, obligations = b.obligations, assumptions = b.assumptions }
+    return { core = b.core, decls = b.decls, units = units, obligations = b.obligations, assumptions = b.assumptions }
 end
 
 return M

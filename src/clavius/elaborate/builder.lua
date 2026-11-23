@@ -17,6 +17,7 @@ local arena = require 'clavius.ir.arena'
 --- @field effects Effects
 --- @field termination Termination
 --- @field core CoreArena
+--- @field decls NodeId[] the SortDecl, FunDecl and Axiom nodes
 --- @field obligations Obligation[]
 --- @field assumptions Assumption[]
 --- @field vars NodeId[] the VarDecl nodes of the unit being built
@@ -48,6 +49,7 @@ function M.new(src, res, info, effects, termination)
         effects = effects,
         termination = termination,
         core = arena.new_core(),
+        decls = {},
         obligations = {},
         assumptions = {},
         vars = {},

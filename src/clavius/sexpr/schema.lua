@@ -292,6 +292,17 @@ M.source = {
 
 --- @type table<string, SexpFieldSpec[]>
 M.core = {
+    SortDecl = {
+        { name = 'name', shape = 'str' },
+    },
+    FunDecl = {
+        { name = 'name', shape = 'str' },
+        { name = 'params', shape = 'list' },
+        { name = 'sort', shape = 'str' },
+    },
+    Axiom = {
+        { name = 'cond', shape = 'node' },
+    },
     Unit = {
         { name = 'name', shape = 'str' },
         { name = 'vars', shape = 'list' },
@@ -299,7 +310,7 @@ M.core = {
     },
     VarDecl = {
         { name = 'name', shape = 'str' },
-        { name = 'sort', shape = 'enum', values = { 'int', 'bool' } },
+        { name = 'sort', shape = 'str' },
     },
     Assign = {
         { name = 'target', shape = 'str' },
@@ -353,6 +364,18 @@ M.core = {
         { name = 'cond', shape = 'node' },
         { name = 'if_true', shape = 'node' },
         { name = 'if_false', shape = 'node' },
+    },
+    App = {
+        { name = 'fn', shape = 'str' },
+        { name = 'args', shape = 'list' },
+    },
+    Forall = {
+        { name = 'vars', shape = 'list' },
+        { name = 'triggers', shape = 'list' },
+        { name = 'body', shape = 'node' },
+    },
+    Trigger = {
+        { name = 'terms', shape = 'list' },
     },
 }
 

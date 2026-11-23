@@ -19,6 +19,19 @@ local obligation = require 'clavius.ir.obligation'
 local M = {}
 
 --- @param core CoreArena
+--- @param vars NodeId[]
+--- @param diags Diag[]
+--- @mut diags
+local function check_vars(core, vars, diags)
+    for _, var in ipairs(vars) do
+        local v = core.nodes[var]
+        if v.tag ~= 'VarDecl' then
+            diags[#diags + 1] = diag.at_node('E-internal-node', var, { v.tag, 'variable declaration' })
+        end
+    end
+end
+
+--- @param core CoreArena
 --- @param id NodeId
 --- @param diags Diag[]
 --- @mut diags
@@ -36,6 +49,23 @@ local function check_term(core, id, diags)
         check_term(core, n.cond, diags)
         check_term(core, n.if_true, diags)
         check_term(core, n.if_false, diags)
+    elseif n.tag == 'App' then
+        for _, a in ipairs(n.args) do
+            check_term(core, a, diags)
+        end
+    elseif n.tag == 'Forall' then
+        check_vars(core, n.vars, diags)
+        for _, t in ipairs(n.triggers) do
+            local trigger = core.nodes[t]
+            if trigger.tag == 'Trigger' then
+                for _, term in ipairs(trigger.terms) do
+                    check_term(core, term, diags)
+                end
+            else
+                diags[#diags + 1] = diag.at_node('E-internal-node', t, { trigger.tag, 'trigger' })
+            end
+        end
+        check_term(core, n.body, diags)
     else
         diags[#diags + 1] = diag.at_node('E-internal-node', id, { n.tag, 'term' })
     end
@@ -227,16 +257,27 @@ local function check_coverage(source, tables, checked, diags)
 end
 
 --- Returns a diagnostic for every misplaced node, unchecked `Check`, unjustified `Assume`, stray `Exit`
---- and reused `Block` label in the units in program order. With the source program, it then reports
---- the obligations missing from it. The result is empty when the program is valid.
+--- and reused `Block` label in the declarations and units in program order. With the source program, it
+--- then reports the obligations missing from it. The result is empty when the program is valid.
 --- @param core CoreArena
+--- @param decls NodeId[]
 --- @param units NodeId[]
 --- @param obligations Obligation[]
 --- @param assumptions Assumption[]
 --- @param source ValidateSource|nil
 --- @return Diag[] diags
-function M.run(core, units, obligations, assumptions, source)
+function M.run(core, decls, units, obligations, assumptions, source)
     local diags = {}
+    for _, id in ipairs(decls) do
+        local n = core.nodes[id]
+        if n.tag == 'FunDecl' then
+            check_vars(core, n.params, diags)
+        elseif n.tag == 'Axiom' then
+            check_term(core, n.cond, diags)
+        elseif n.tag ~= 'SortDecl' then
+            diags[#diags + 1] = diag.at_node('E-internal-node', id, { n.tag, 'declaration' })
+        end
+    end
     --- @type ValidateTables
     local tables = { obligations = obligations, assumptions = assumptions }
     --- @type table<integer, boolean>
@@ -244,12 +285,7 @@ function M.run(core, units, obligations, assumptions, source)
     for _, unit in ipairs(units) do
         local n = core.nodes[unit]
         if n.tag == 'Unit' then
-            for _, var in ipairs(n.vars) do
-                local v = core.nodes[var]
-                if v.tag ~= 'VarDecl' then
-                    diags[#diags + 1] = diag.at_node('E-internal-node', var, { v.tag, 'variable declaration' })
-                end
-            end
+            check_vars(core, n.vars, diags)
             check_statements(core, n.body, tables, checked, { open = {}, used = {} }, diags)
         else
             diags[#diags + 1] = diag.at_node('E-internal-node', unit, { n.tag, 'unit' })
