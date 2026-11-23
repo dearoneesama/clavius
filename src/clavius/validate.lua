@@ -174,8 +174,10 @@ end
 local function needed(source, id)
     local src = source.src
     local n = src.nodes[id]
+    -- ghost code never runs, so its arithmetic is exact
+    local ghost = source.index.ghost[id] ~= 0
     local keys = {}
-    if n.tag == 'BinOp' and RANGE_CHECKED[n.op] then
+    if n.tag == 'BinOp' and RANGE_CHECKED[n.op] and not ghost then
         keys[1] = { kind = 'range', clause = 0 }
     elseif n.tag == 'Call' and source.callees[id] ~= nil then
         local callee = src.nodes[source.callees[id]] --[[@as SrcFunction]]
@@ -191,6 +193,8 @@ local function needed(source, id)
     elseif n.tag == 'Return' then
         local fn = src.nodes[source.index.unit[id]] --[[@as SrcFunction]]
         add_clauses(keys, 'post', arena.directives(src, fn, 'ClvPost'))
+    elseif n.tag == 'ClvAssert' then
+        keys[1] = { kind = 'assert', clause = 0 }
     elseif n.tag == 'Function' and arena.has_directive(src, n, 'ClvReturn') then
         keys[1] = { kind = 'missing_return', clause = 0 }
     elseif n.tag == 'Function' then
@@ -201,7 +205,9 @@ local function needed(source, id)
                 keys[#keys + 1] = { kind = 'for_step', clause = 0 }
             end
             -- the counter's range is an invariant too, with no clause
-            keys[#keys + 1] = { kind = 'for_bound', clause = 0 }
+            if not ghost then
+                keys[#keys + 1] = { kind = 'for_bound', clause = 0 }
+            end
             keys[#keys + 1] = { kind = 'invariant_entry', clause = 0 }
             keys[#keys + 1] = { kind = 'invariant_preserved', clause = 0 }
         end
@@ -231,7 +237,7 @@ local function check_coverage(source, tables, checked, diags)
             have[o.node][o.kind][o.clause or 0] = true
         end
     end
-    for _, tag in ipairs { 'BinOp', 'Call', 'Return', 'While', 'Repeat', 'Fornum' } do
+    for _, tag in ipairs { 'BinOp', 'Call', 'Return', 'While', 'Repeat', 'Fornum', 'ClvAssert' } do
         for _, id in ipairs(source.index.by_tag[tag] or {}) do
             if source.index.unit[id] ~= 0 then
                 for _, key in ipairs(needed(source, id)) do

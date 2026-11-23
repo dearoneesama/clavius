@@ -4,11 +4,15 @@
 local arena = require 'clavius.ir.arena'
 local source_nodes = require 'clavius.ir.source_nodes'
 
+-- the nodes that hold ghost code
+local GHOST = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost = true, ClvAssert = true }
+
 --- @class NodeIndex
 --- @field by_tag table<string, NodeId[]> the ids of each kind's nodes in ascending order
 --- @field parent NodeId[] each node's parent, or 0 for the root
 --- @field region NodeId[] the ClvRegion node that a node is in, or 0 outside every region
 --- @field unit NodeId[] the root of the unit whose code a node is: its ClvRegion or verified Function. It is 0 for unmarked code, and for contracts and loop annotations, which are spec code.
+--- @field ghost NodeId[] the innermost ClvSpec, ClvLemma, ClvProof, ClvGhost or ClvAssert node around a node, or 0
 
 local M = {}
 
@@ -48,6 +52,7 @@ function M.build(src)
     local parent = {}
     local region = {}
     local unit = {}
+    local ghost = {}
     for id = 1, #src.nodes do
         parent[id] = 0
     end
@@ -66,13 +71,14 @@ function M.build(src)
     for id = #src.nodes, 1, -1 do
         local p = parent[id]
         if p == 0 then
-            region[id], unit[id] = 0, 0
+            region[id], unit[id], ghost[id] = 0, 0, 0
         else
             region[id] = src.nodes[p].tag == 'ClvRegion' and p or region[p]
             unit[id] = child_unit(src, p, unit[p], id)
+            ghost[id] = GHOST[src.nodes[p].tag] and p or ghost[p]
         end
     end
-    return { by_tag = by_tag, parent = parent, region = region, unit = unit }
+    return { by_tag = by_tag, parent = parent, region = region, unit = unit, ghost = ghost }
 end
 
 return M

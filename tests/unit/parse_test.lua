@@ -840,4 +840,68 @@ describe('ir.index', function()
         assert.are.same({ { 'b', r1 }, { 'b', r1 }, { 'b', r1 }, { 'a', r1 }, { 'a', 0 } }, ids)
         -- c, d are not Ids
     end)
+
+    it('gives each node the ghost code it is in at any depth', function()
+        local p = parse.run(
+            [=[
+            ---@clavius begin
+            local x = 1
+            ---@ghost local g = x
+            --[[@proof
+                local q = g
+                if q > 0 then
+                    local r = q
+                end
+            ]]
+            ---@assert g >= 0
+            ---@clavius end
+            --[[@spec
+            ---@param n Nat
+            ---@return Nat
+            local function s(n)
+                return n
+            end
+            ]]
+            ]=],
+            1
+        )
+        local idx = index.build(p.src)
+
+        --- @param id NodeId
+        --- @return string
+        local function ghost_tag(id)
+            local g = idx.ghost[id]
+            return g == 0 and '-' or p.src.nodes[g].tag
+        end
+
+        local found = {}
+        for _, tag in ipairs { 'Binder', 'Id' } do
+            for _, id in ipairs(idx.by_tag[tag]) do
+                found[#found + 1] = {
+                    (p.src.nodes[id] --[[@as SrcBinder|SrcId]]).name,
+                    ghost_tag(id),
+                }
+            end
+        end
+        assert.are.same({
+            -- binders
+            { 'x', '-' },
+            { 'g', 'ClvGhost' },
+            { 'q', 'ClvProof' },
+            { 'r', 'ClvProof' },
+            { 's', 'ClvSpec' },
+            { 'n', 'ClvSpec' },
+            -- names read: `x` in `g = x`, `g` in `q = g`, `q` twice, `g` in the assert, `n` in `return n`
+            { 'x', 'ClvGhost' },
+            { 'g', 'ClvProof' },
+            { 'q', 'ClvProof' },
+            { 'q', 'ClvProof' },
+            { 'g', 'ClvAssert' },
+            { 'n', 'ClvSpec' },
+        }, found)
+        -- ghost code itself is in no ghost code, since it never nests
+        for _, tag in ipairs { 'ClvGhost', 'ClvProof', 'ClvAssert', 'ClvSpec' } do
+            assert.are.same({ tag, '-' }, { tag, ghost_tag(idx.by_tag[tag][1]) })
+        end
+    end)
 end)

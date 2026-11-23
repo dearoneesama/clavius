@@ -301,6 +301,19 @@ describe('validate', function()
         assert.are.same({}, coverage(LOOPS, {}, nil))
     end)
 
+    it('needs no range check in ghost code, and an assert for each `---@assert`', function()
+        local program = [=[
+            ---@clavius begin
+            local x = 1
+            ---@ghost local g = x * 2
+            -- 1 (assert)
+            ---@assert g == 2
+            ---@clavius end
+        ]=]
+        assert.are.same({}, coverage(program, {}, nil))
+        assert.are.same({ { 'E-internal-coverage', 'ClvAssert', 'assert', '---@assert g == 2' } }, coverage(program, { [1] = true }, nil))
+    end)
+
     it('reports a numeric `for` with a variable step whose step has no Check', function()
         local program = [=[
             ---@clavius begin

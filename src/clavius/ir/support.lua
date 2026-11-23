@@ -28,6 +28,9 @@ M.KINDS = {
     BinOp = true,
     UnOp = true,
     Paren = true,
+    ClvProof = true,
+    ClvGhost = true,
+    ClvAssert = true,
 }
 
 --- Source kinds that marked code must never use.

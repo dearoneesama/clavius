@@ -1,12 +1,14 @@
 -- The types pass: the type of every expression and local in marked code and in contracts. A number
 -- literal's type comes from its spelling, a local's from its initializer, and a parameter's and a
--- function's value from its `---@param` and `---@return`.
+-- function's value from its `---@param` and `---@return`. In spec and proof code, which never runs,
+-- arithmetic is exact and gives an `Int`, and so does a ghost local with an integer initializer. Integer
+-- types convert into each other.
 
 local arena = require 'clavius.ir.arena'
 local diag = require 'clavius.ir.diag'
 local support = require 'clavius.ir.support'
 
---- @alias Type 'int53' | 'boolean'
+--- @alias Type 'int53' | 'Int' | 'boolean'
 
 --- @class TypeInfo
 --- @field types table<NodeId, Type> the type of each expression and Binder in marked code and contracts, and of each function's ClvReturn
@@ -19,6 +21,7 @@ local support = require 'clavius.ir.support'
 --- @field diags Diag[]
 --- @field result NodeId|nil the ClvReturn of the function whose body is being typed
 --- @field typed table<NodeId, boolean> the expressions typed so far
+--- @field ghost boolean whether spec or proof code is being typed
 
 local M = {}
 
@@ -28,6 +31,11 @@ local INT53_MAX_HEX = '20000000000000'
 
 local ARITH = { add = true, sub = true, mul = true }
 local ORDER = { lt = true, le = true, gt = true, ge = true }
+
+local INTEGERS = { int53 = true, Int = true }
+
+-- the integer types that only spec and proof code may hold
+local GHOST_TYPES = { Int = true, Nat = true }
 
 --- Returns the type that a number literal's spelling gives it: `int53` for a decimal or hexadecimal
 --- integer within ±2^53 with no suffix, `i64` for `LL`, `u64` for `ULL`, `complex` for `i`, and `f64`
@@ -69,7 +77,7 @@ local function report(st, code, id, args)
     st.diags[#st.diags + 1] = diag.at_node(code, id, args)
 end
 
---- Requires `id`, whose type is `ty`, to be an `int53`.
+--- Requires `id`, whose type is `ty`, to be an integer.
 --- @param st TypesState
 --- @param id NodeId
 --- @param ty Type|nil
@@ -79,7 +87,16 @@ local function want_int(st, id, ty)
     if ty == 'boolean' then
         report(st, 'E-type-mismatch', id, { 'int53', ty })
     end
-    return ty == 'int53'
+    return ty ~= nil and INTEGERS[ty] == true
+end
+
+--- Returns whether a value of type `value` may go where one of type `want` is expected: one of the same
+--- type, or any integer where an integer is expected.
+--- @param want Type
+--- @param value Type
+--- @return boolean
+local function fits(want, value)
+    return want == value or (INTEGERS[want] == true and INTEGERS[value] == true)
 end
 
 --- Requires `id`, whose type is `ty`, to be a `boolean`. Conditions and the operands of `and`, `or` and
@@ -90,7 +107,7 @@ end
 --- @mut st
 --- @return boolean
 local function want_bool(st, id, ty)
-    if ty == 'int53' then
+    if ty ~= nil and INTEGERS[ty] then
         report(st, 'E-unsupported-feature', id, { 'truthiness' })
     end
     return ty == 'boolean'
@@ -134,7 +151,7 @@ local function type_text(st, id)
 end
 
 --- Returns the type that a type expression stands for. One that marked code can't use yet is reported
---- and gives nil.
+--- and gives nil, and so do `Int` and `Nat`, which only spec and proof code may hold.
 --- @param st TypesState
 --- @param id NodeId
 --- @mut st
@@ -146,6 +163,9 @@ local function declared(st, id)
         return 'int53'
     elseif n.tag == 'ClvTypeName' and n.name == 'boolean' then
         return 'boolean'
+    elseif n.tag == 'ClvTypeName' and GHOST_TYPES[n.name] then
+        report(st, 'E-type-mismatch', id, { 'int53', n.name })
+        return nil
     end
     report(st, 'E-unsupported-type', id, { type_text(st, id) })
     return nil
@@ -199,7 +219,7 @@ local function call(st, id)
     for i, a in ipairs(n.args) do
         local ty = expression(st, a)
         local want = st.out.types[fn.params[i]]
-        if ty ~= nil and want ~= nil and ty ~= want then
+        if ty ~= nil and want ~= nil and not fits(want, ty) then
             report(st, 'E-type-mismatch', a, { want, ty })
         end
     end
@@ -233,9 +253,12 @@ function expression(st, id)
     elseif n.tag == 'Id' then
         local decl = st.res.decl[id]
         local constant = st.res.constants[decl]
-        -- a constant's initializer is typed once, so its error is reported once
+        -- a constant's initializer is typed once, so its error is reported once, and as exec code
         if constant ~= nil and not st.typed[constant] then
+            local ghost = st.ghost
+            st.ghost = false
             ty = expression(st, constant)
+            st.ghost = ghost
         else
             ty = st.out.types[constant or decl]
         end
@@ -250,7 +273,7 @@ function expression(st, id)
     elseif n.tag == 'UnOp' then
         local a = expression(st, n.arg)
         if n.op == 'unm' and want_int(st, n.arg, a) then
-            ty = 'int53'
+            ty = st.ghost and 'Int' or 'int53'
         elseif n.op == 'not' and want_bool(st, n.arg, a) then
             ty = 'boolean'
         end
@@ -260,11 +283,13 @@ function expression(st, id)
         if ARITH[n.op] or ORDER[n.op] then
             local ok_l = want_int(st, n.lhs, l)
             local ok_r = want_int(st, n.rhs, r)
-            if ok_l and ok_r then
-                ty = ARITH[n.op] and 'int53' or 'boolean'
+            if ok_l and ok_r and ORDER[n.op] then
+                ty = 'boolean'
+            elseif ok_l and ok_r then
+                ty = st.ghost and 'Int' or 'int53'
             end
         elseif n.op == 'eq' or n.op == 'ne' then
-            if l ~= nil and r ~= nil and l ~= r then
+            if l ~= nil and r ~= nil and not fits(l, r) then
                 report(st, 'E-type-mismatch', n.rhs, { l, r })
             elseif l ~= nil and r ~= nil then
                 ty = 'boolean'
@@ -285,7 +310,20 @@ function expression(st, id)
     return ty
 end
 
---- Types a loop's directives: an invariant is a boolean and each expression of a measure an `int53`.
+--- Types a contract clause, an invariant or a measure. It is spec code, so its arithmetic is exact.
+--- @param st TypesState
+--- @param id NodeId
+--- @mut st
+--- @return Type|nil
+local function clause(st, id)
+    local ghost = st.ghost
+    st.ghost = true
+    local ty = expression(st, id)
+    st.ghost = ghost
+    return ty
+end
+
+--- Types a loop's directives: an invariant is a boolean and each expression of a measure an integer.
 --- @param st TypesState
 --- @param loop SrcWhile|SrcRepeat|SrcFornum
 --- @mut st
@@ -293,20 +331,35 @@ local function loop_directives(st, loop)
     for _, d in ipairs(loop.directives) do
         local dn = st.src.nodes[d]
         if dn.tag == 'ClvInvariant' then
-            want_bool(st, dn.cond, expression(st, dn.cond))
+            want_bool(st, dn.cond, clause(st, dn.cond))
         elseif dn.tag == 'ClvDecrease' then
             for _, m in ipairs(dn.measures) do
-                want_int(st, m, expression(st, m))
+                want_int(st, m, clause(st, m))
             end
         end
     end
+end
+
+--- Forward declaration.
+local statement
+
+--- Types a statement of ghost code.
+--- @param st TypesState
+--- @param id NodeId
+--- @mut st
+--- @decrease id
+local function ghost_statement(st, id)
+    local ghost = st.ghost
+    st.ghost = true
+    statement(st, id)
+    st.ghost = ghost
 end
 
 --- @param st TypesState
 --- @param id NodeId
 --- @mut st
 --- @decrease id
-local function statement(st, id)
+function statement(st, id)
     local n = st.src.nodes[id]
     if st.res.defined[id] ~= nil then -- luacheck: ignore 542
         -- a function definition, typed as a unit of its own
@@ -314,7 +367,8 @@ local function statement(st, id)
         for i, v in ipairs(n.values) do
             local ty = expression(st, v)
             if ty ~= nil then
-                st.out.types[n.names[i]] = ty
+                -- a ghost local never exists at runtime, so a range would buy nothing
+                st.out.types[n.names[i]] = (st.ghost and INTEGERS[ty]) and 'Int' or ty
             end
         end
     elseif n.tag == 'Set' then
@@ -324,7 +378,7 @@ local function statement(st, id)
             if target ~= nil then
                 st.out.types[n.targets[i]] = target
             end
-            if value ~= nil and target ~= nil and value ~= target then
+            if value ~= nil and target ~= nil and not fits(target, value) then
                 report(st, 'E-type-mismatch', v, { target, value })
             end
         end
@@ -355,7 +409,7 @@ local function statement(st, id)
         if n.step ~= nil then
             want_int(st, n.step, expression(st, n.step))
         end
-        st.out.types[n.var] = 'int53'
+        st.out.types[n.var] = st.ghost and 'Int' or 'int53'
         loop_directives(st, n)
         statement(st, n.body)
     elseif n.tag == 'Break' then -- luacheck: ignore 542
@@ -377,36 +431,68 @@ local function statement(st, id)
             local ty = expression(st, value)
             if st.result == nil and ty ~= nil then
                 report(st, 'E-type-mismatch', value, { 'no value', ty })
-            elseif ty ~= nil and want ~= nil and ty ~= want then
+            elseif ty ~= nil and want ~= nil and not fits(want, ty) then
                 report(st, 'E-type-mismatch', value, { want, ty })
             end
         end
+    elseif n.tag == 'ClvProof' then
+        for _, s in ipairs(n.statements) do
+            ghost_statement(st, s)
+        end
+    elseif n.tag == 'ClvGhost' then
+        ghost_statement(st, n.statement)
+    elseif n.tag == 'ClvAssert' then
+        want_bool(st, n.cond, clause(st, n.cond))
     else
         error(('types: unhandled statement %s'):format(n.tag))
     end
 end
 
+--- A function to type, and how.
+--- @class TypesFunction
+--- @field fn SrcFunction
+--- @field verified boolean whether its body is typed: it isn't `---@unsafe`
+
 --- Types a function's contract and measure, and its body unless it is `---@unsafe`. Its signature is
 --- already typed.
 --- @param st TypesState
---- @param fn SrcFunction
---- @param verified boolean
+--- @param f TypesFunction
 --- @mut st
-local function func(st, fn, verified)
-    for _, d in ipairs(fn.directives) do
+local function func(st, f)
+    for _, d in ipairs(f.fn.directives) do
         local dn = st.src.nodes[d]
         if dn.tag == 'ClvPre' or dn.tag == 'ClvPost' then
-            want_bool(st, dn.cond, expression(st, dn.cond))
+            want_bool(st, dn.cond, clause(st, dn.cond))
         elseif dn.tag == 'ClvDecrease' then
             for _, m in ipairs(dn.measures) do
-                want_int(st, m, expression(st, m))
+                want_int(st, m, clause(st, m))
             end
         end
     end
-    if verified then
-        st.result = arena.directives(st.src, fn, 'ClvReturn')[1]
-        statement(st, fn.body)
+    if f.verified then
+        st.result = arena.directives(st.src, f.fn, 'ClvReturn')[1]
+        statement(st, f.fn.body)
         st.result = nil
+    end
+end
+
+--- Adds the functions that the statements of a list define to `out`: in a region, or marked
+--- `---@clavius` or `---@unsafe`.
+--- @param st TypesState
+--- @param statements NodeId[]
+--- @param in_region boolean
+--- @param out TypesFunction[]
+--- @mut out
+local function defined(st, statements, in_region, out)
+    for _, id in ipairs(statements) do
+        local binder = st.res.defined[id]
+        if binder ~= nil then
+            local fn = st.src.nodes[st.res.functions[binder]] --[[@as SrcFunction]]
+            local unsafe = arena.has_directive(st.src, fn, 'ClvUnsafe')
+            if unsafe or in_region or arena.has_directive(st.src, fn, 'ClvMarker') then
+                out[#out + 1] = { fn = fn, verified = not unsafe }
+            end
+        end
     end
 end
 
@@ -419,41 +505,23 @@ end
 --- @return Diag[] diags
 function M.run(src, root, res)
     --- @type TypesState
-    local st = { src = src, res = res, out = { types = {}, callees = {} }, diags = {}, result = nil, typed = {} }
+    local st = { src = src, res = res, out = { types = {}, callees = {} }, diags = {}, result = nil, typed = {}, ghost = false }
     local top = src.nodes[root] --[[@as SrcBlock]]
-    -- the top-level statements, and whether each is in a region
-    local defs, in_region = {}, {}
+    --- @type TypesFunction[]
+    local fns = {}
+    defined(st, top.statements, false, fns)
     for _, id in ipairs(top.statements) do
         local n = src.nodes[id]
         if n.tag == 'ClvRegion' then
-            for _, s in ipairs(n.statements) do
-                defs[#defs + 1] = s
-                in_region[#in_region + 1] = true
-            end
-        else
-            defs[#defs + 1] = id
-            in_region[#in_region + 1] = false
-        end
-    end
-    -- the functions to type, and whether each is verified
-    local fns, verified = {}, {}
-    for i, id in ipairs(defs) do
-        local binder = res.defined[id]
-        if binder ~= nil then
-            local fn = src.nodes[res.functions[binder]] --[[@as SrcFunction]]
-            local unsafe = arena.has_directive(st.src, fn, 'ClvUnsafe')
-            if unsafe or in_region[i] or arena.has_directive(st.src, fn, 'ClvMarker') then
-                fns[#fns + 1] = fn
-                verified[#verified + 1] = not unsafe
-            end
+            defined(st, n.statements, true, fns)
         end
     end
     -- every signature first, since a function may call one defined below it
-    for _, fn in ipairs(fns) do
-        signature(st, fn)
+    for _, f in ipairs(fns) do
+        signature(st, f.fn)
     end
-    for i, fn in ipairs(fns) do
-        func(st, fn, verified[i])
+    for _, f in ipairs(fns) do
+        func(st, f)
     end
     for _, id in ipairs(top.statements) do
         local n = src.nodes[id]

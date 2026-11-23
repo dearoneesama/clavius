@@ -470,4 +470,48 @@ describe('resolve', function()
             ]=]
         )
     end)
+    it('keeps exec code from ghost names, and ghost code from exec locals', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            local x = 1
+            ---@ghost local g = x
+            local y = g --! E-mode
+            ---@ghost x = 2 --! E-mode
+            ---@ghost g = g + x
+            --[[@proof local p = g ]]
+            local z = p --! E-banned-global
+            ---@ghost local assert = 1
+            ---@ghost local math = 1
+            assert(true) --! E-mode
+            local w = math.floor(2) --! E-mode
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('checks what proof code holds, and where its control flow goes', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            local x = 0
+            ---@proof assert(x == 0) --! E-mode
+            ---@ghost assert(x == 0) --! E-mode
+            while x < 3 do
+                --[[@proof break ]] --! E-mode
+                --[[@proof while true do break end ]]
+                x = x + 1
+            end
+            --[[@proof
+                local function h() end --! E-mode
+            ]]
+            local function f()
+                --[[@proof if true then return end ]] --! E-mode
+            end
+            ---@clavius end
+            ]=]
+        )
+    end)
 end)

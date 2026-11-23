@@ -27,6 +27,7 @@ local arena = require 'clavius.ir.arena'
 --- @field breaks string[] the Block labels of the loops around the statement being lowered, innermost last
 --- @field fn BuilderFunction|nil
 --- @field spec boolean whether a contract clause is being lowered: its arithmetic is exact and has no checks
+--- @field ghost boolean whether spec or proof code is being lowered: its arithmetic is exact
 --- @field subst table<NodeId, NodeId> the term that stands for each declaration in the clause being lowered
 
 local M = {}
@@ -59,6 +60,7 @@ function M.new(src, res, info, effects, termination)
         breaks = {},
         fn = nil,
         spec = false,
+        ghost = false,
         subst = {},
     }
 end
@@ -125,7 +127,7 @@ end
 --- Declares a variable of the unit being built.
 --- @param b Builder
 --- @param name string
---- @param sort 'int' | 'bool'
+--- @param sort string
 --- @param origin NodeId
 --- @mut b
 function M.var(b, name, sort, origin)
@@ -135,7 +137,7 @@ end
 
 --- Declares a fresh variable. Its name starts with `$`, so it can't clash with a Lua name.
 --- @param b Builder
---- @param sort 'int' | 'bool'
+--- @param sort string
 --- @param origin NodeId
 --- @mut b
 --- @return string name
@@ -203,12 +205,35 @@ end
 
 --- Returns the core sort of a type.
 --- @param ty Type
---- @return 'int' | 'bool'
+--- @return string
 function M.sort(ty)
-    if ty == 'int53' then
-        return 'int'
+    if ty == 'boolean' then
+        return 'bool'
     end
-    return 'bool'
+    return 'int'
+end
+
+--- Returns whether a value of type `ty` satisfies a fact that not every value of its sort does, which
+--- `type_fact` gives.
+--- @param ty Type|nil
+--- @return boolean
+function M.has_type_fact(ty)
+    return ty == 'int53'
+end
+
+--- Returns the fact that a value of type `ty` satisfies, or nil when every value of its sort does: an
+--- `int53` is within ±2^53.
+--- @param b Builder
+--- @param ty Type|nil
+--- @param t NodeId
+--- @param origin NodeId
+--- @mut b
+--- @return NodeId|nil
+function M.type_fact(b, ty, t, origin)
+    if ty == 'int53' then
+        return M.is_int53(b, t, origin)
+    end
+    return nil
 end
 
 --- Returns the variable that holds a local or a function's value: the unique name of the Binder or

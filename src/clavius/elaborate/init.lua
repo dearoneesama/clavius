@@ -7,6 +7,7 @@ local expr = require 'clavius.elaborate.expr'
 
 local M = {}
 
+--- Forward declaration.
 local statement
 
 --- Checks each `---@post` of the function being built, where it returns at `origin`. A parameter in a
@@ -74,9 +75,10 @@ local function loop_head(b, out, id)
     for _, w in ipairs(b.effects.writes[id] or {}) do
         local name = builder.name_of(b, w.root)
         builder.emit(b, out, { tag = 'Havoc', target = name }, id)
-        if b.info.types[w.root] == 'int53' then
+        local ty = b.info.types[w.root]
+        if builder.has_type_fact(ty) then
             local value = builder.add(b, { tag = 'Var', name = name }, id)
-            builder.assume(b, out, 'type_fact', builder.is_int53(b, value, id), id)
+            builder.assume(b, out, 'type_fact', assert(builder.type_fact(b, ty, value, id)), id)
         end
     end
     for _, inv in ipairs(arena.directives(b.src, loop, 'ClvInvariant')) do
@@ -386,8 +388,10 @@ local function lower_fornum(b, id, n, out)
     end
 
     local runs = {}
-    -- past ±2^53, `i + step` would round back to `i` and the loop would never end
-    builder.check(b, runs, 'for_bound', builder.is_int53(b, last, id), id)
+    -- past ±2^53, `i + step` would round back to `i` and the loop would never end; ghost code has no doubles
+    if not b.ghost then
+        builder.check(b, runs, 'for_bound', builder.is_int53(b, last, id), id)
+    end
     builder.emit(b, runs, { tag = 'Assign', target = i, value = start }, n.var)
     builder.check(b, runs, 'invariant_entry', range, id)
     check_invariants(b, runs, 'invariant_entry', id)
@@ -421,6 +425,19 @@ function statement(b, id, out)
     local n = b.src.nodes[id]
     if b.res.defined[id] ~= nil or (n.tag == 'Local' and #n.values == 0) then -- luacheck: ignore 542
         -- a function definition is a unit of its own, and a forward declaration declares only functions
+    elseif n.tag == 'ClvProof' or n.tag == 'ClvGhost' or n.tag == 'ClvAssert' then
+        local ghost = b.ghost
+        b.ghost = true
+        if n.tag == 'ClvProof' then
+            for _, s in ipairs(n.statements) do
+                statement(b, s, out)
+            end
+        elseif n.tag == 'ClvGhost' then
+            statement(b, n.statement, out)
+        else -- 'ClvAssert'
+            builder.check(b, out, 'assert', expr.lower(b, n.cond, out), id)
+        end
+        b.ghost = ghost
     elseif n.tag == 'Local' then
         local terms = {}
         for i, v in ipairs(n.values) do

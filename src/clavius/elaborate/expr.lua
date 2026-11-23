@@ -1,6 +1,6 @@
 -- Lowers source expressions to pure core terms. The checks and calls an expression needs are hoisted in
--- evaluation order into the statement list before it. A contract clause is spec code: its arithmetic
--- is exact, so it has no checks.
+-- evaluation order into the statement list before it. Arithmetic in contract clauses and ghost code
+-- is exact, since none of it runs, so it gets no range checks.
 
 local arena = require 'clavius.ir.arena'
 local builder = require 'clavius.elaborate.builder'
@@ -182,7 +182,7 @@ function M.lower(b, id, out)
         local l = M.lower(b, n.lhs, out)
         local r = M.lower(b, n.rhs, out)
         local t = builder.add(b, { tag = 'BinOp', op = OPS[n.op], lhs = l, rhs = r }, id)
-        if RANGE_CHECKED[n.op] and not b.spec then
+        if RANGE_CHECKED[n.op] and not b.spec and not b.ghost then
             builder.check(b, out, 'range', builder.is_int53(b, t, id), id)
         end
         return t

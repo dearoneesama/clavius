@@ -15,6 +15,9 @@ local support = require 'clavius.ir.support'
 --- @field constants table<NodeId, NodeId> the initializer of each constant: a top-level local whose initializer is a number or boolean literal, and which is never assigned
 --- @field assigned table<NodeId, boolean> the Binders that an assignment anywhere in the file targets
 
+--- What the code being visited is: exec code or proof code.
+--- @alias ResolveMode 'exec' | 'proof'
+
 --- A read in marked code of a local declared outside its unit, or a call that marked code makes. Both
 --- are checked once the whole file is resolved.
 --- @class PendingUse
@@ -37,6 +40,9 @@ local support = require 'clavius.ir.support'
 --- @field loop_vars table<NodeId, boolean> the Binders of numeric `for` loops, which marked code may not assign
 --- @field fn NodeId|nil the Binder of the function definition whose body is being visited
 --- @field in_clause boolean whether a contract clause is being visited
+--- @field mode ResolveMode
+--- @field ghost table<NodeId, boolean> the declarations in ghost code, which exec code can't see
+--- @field proof_loops integer|nil the loops opened in the proof code being visited in exec code, or nil outside it
 --- @field outer_reads PendingUse[]
 --- @field calls PendingUse[]
 
@@ -73,21 +79,24 @@ local function declare(st, id, name, scope, unit)
     st.binders = st.binders + 1
     st.out.names[id] = ('%s$%d'):format(name, st.binders)
     st.scope_names[scope][name] = id
+    st.ghost[id] = st.mode ~= 'exec'
     if unit ~= 0 then
         st.unit_of[id] = unit
     end
 end
 
---- Returns the declaration that `name` refers to in `scope`, or nil for a global.
+--- Returns the declaration that `name` refers to in `scope`, or nil for a global. Unmarked code doesn't
+--- see ghost declarations, which don't exist at runtime.
 --- @param st ResolveState
 --- @param scope integer
 --- @param name string
+--- @param ghosts boolean whether ghost declarations count
 --- @return NodeId|nil
-local function lookup(st, scope, name)
+local function lookup(st, scope, name, ghosts)
     local s = scope
     while s ~= 0 do
         local b = st.scope_names[s][name]
-        if b ~= nil then
+        if b ~= nil and (ghosts or not st.ghost[b]) then
             return b
         end
         s = st.scope_parent[s]
@@ -96,7 +105,8 @@ local function lookup(st, scope, name)
 end
 
 --- If `id` names a global or a field of one, such as `print` or `math.floor`, returns the global and
---- the name as written.
+--- the name as written. A ghost local hides a global of its name here, as it does for every other use
+--- in marked code, so that exec code naming it is reported as using a ghost name.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param scope integer
@@ -105,13 +115,13 @@ end
 local function global_name(st, id, scope)
     local n = st.src.nodes[id]
     -- print
-    if n.tag == 'Id' and lookup(st, scope, n.name) == nil then
+    if n.tag == 'Id' and lookup(st, scope, n.name, true) == nil then
         return n.name, n.name
     -- math.floor
     elseif n.tag == 'Index' then
         local obj = st.src.nodes[n.obj]
         local key = st.src.nodes[n.key]
-        if obj.tag == 'Id' and key.tag == 'Literal' and key.kind == 'string' and lookup(st, scope, obj.name) == nil then
+        if obj.tag == 'Id' and key.tag == 'Literal' and key.kind == 'string' and lookup(st, scope, obj.name, true) == nil then
             return obj.name, ('%s.%s'):format(obj.name, key.text)
         end
     end
@@ -138,7 +148,8 @@ local function report_global(st, id, base, path)
 end
 
 --- Records the declaration of an Id. In marked code, a local of another unit may be read only if it is
---- a constant, which is known once the whole file is resolved, and a function only by calling it.
+--- a constant, which is known once the whole file is resolved, and a function only by calling it. Exec
+--- code may not name a ghost declaration.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param scope integer
@@ -146,11 +157,13 @@ end
 --- @mut st
 local function use(st, id, scope, unit)
     local n = st.src.nodes[id] --[[@as SrcId]]
-    local b = lookup(st, scope, n.name)
+    local b = lookup(st, scope, n.name, unit ~= 0)
     if b ~= nil then
         st.out.decl[id] = b
         if unit ~= 0 and st.out.functions[b] then
             report(st, 'E-unsupported-feature', id, { 'function-value' })
+        elseif unit ~= 0 and st.mode == 'exec' and not st.in_clause and st.ghost[b] then
+            report(st, 'E-mode', id, { 'ghost-name' })
         elseif unit ~= 0 and st.unit_of[b] ~= unit then
             st.outer_reads[#st.outer_reads + 1] = { id = id, binder = b }
         end
@@ -159,6 +172,7 @@ local function use(st, id, scope, unit)
     end
 end
 
+--- Forward declaration.
 local visit
 
 --- Checks the arguments of a statement call to `assert` or `error`.
@@ -193,7 +207,7 @@ end
 --- @mut st
 local function check_local_call(st, id, n, scope)
     local callee = st.src.nodes[n.func]
-    local b = callee.tag == 'Id' and n.method == nil and lookup(st, scope, callee.name) or nil
+    local b = callee.tag == 'Id' and n.method == nil and lookup(st, scope, callee.name, true) or nil
     local fn_id = b and st.out.functions[b]
     if not fn_id then
         report(st, 'E-unsupported-feature', id, { 'call' })
@@ -208,8 +222,29 @@ local function check_local_call(st, id, n, scope)
     end
 end
 
+--- Returns the Id at the base of a callee, `f` in `f(x)` or `math` in `math.floor(x)`, when it names a
+--- ghost declaration, or nil.
+--- @param st ResolveState
+--- @param id NodeId the callee
+--- @param scope integer
+--- @return NodeId|nil
+local function ghost_base(st, id, scope)
+    local n = st.src.nodes[id]
+    if n.tag == 'Index' then
+        id = n.obj
+        n = st.src.nodes[id]
+    end
+    if n.tag == 'Id' then
+        local b = lookup(st, scope, n.name, true)
+        if b ~= nil and st.ghost[b] then
+            return id
+        end
+    end
+    return nil
+end
+
 --- Visits a call. Marked code may call `assert` and `error` as statements, and verified and `---@unsafe`
---- local functions anywhere but in a contract.
+--- local functions anywhere but in a contract and in proof code.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param scope integer
@@ -223,8 +258,20 @@ local function visit_call(st, id, scope, unit, is_statement)
     if n.method == nil then
         base, path = global_name(st, n.func, scope)
     end
+    local wrong, at = nil, id
     if unit ~= 0 and st.in_clause then
-        report(st, 'E-unsupported-feature', id, { 'call-in-contract' })
+        wrong = 'call-in-contract'
+    elseif unit ~= 0 and path == nil and st.mode == 'proof' then
+        wrong = 'ghost-exec-call'
+    elseif unit ~= 0 and path == nil then
+        -- a ghost local that shadows a global is still a ghost name to exec code
+        local ghost = ghost_base(st, n.func, scope)
+        if ghost ~= nil then
+            wrong, at = 'ghost-name', ghost
+        end
+    end
+    if wrong ~= nil then
+        report(st, wrong == 'call-in-contract' and 'E-unsupported-feature' or 'E-mode', at, { wrong })
         unit = 0
     elseif unit ~= 0 then
         if path == nil then
@@ -246,7 +293,8 @@ local function visit_call(st, id, scope, unit, is_statement)
     end
 end
 
---- Visits an assignment. In marked code, its targets must be distinct locals.
+--- Visits an assignment. In marked code, its targets must be distinct locals, and in ghost code ghost
+--- locals.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param scope integer
@@ -260,7 +308,7 @@ local function visit_set(st, id, scope, unit)
     end
     for i, t in ipairs(n.targets) do
         local target = st.src.nodes[t]
-        if target.tag == 'Id' and lookup(st, scope, target.name) == nil then
+        if target.tag == 'Id' and lookup(st, scope, target.name, unit ~= 0) == nil then
             if unit ~= 0 then
                 report(st, 'E-banned-global', t, { target.name })
             end
@@ -273,6 +321,9 @@ local function visit_set(st, id, scope, unit)
         end
         if unit ~= 0 and decl ~= nil and st.loop_vars[decl] then
             report(st, 'E-unsupported-feature', t, { 'loop-variable-write' })
+        elseif unit ~= 0 and decl ~= nil and st.mode ~= 'exec' and not st.ghost[decl] then
+            -- erased code that changed an exec local would change what the verified code means
+            report(st, 'E-mode', t, { 'exec-write' })
         end
         -- LuaJIT assigns right to left, and Lua leaves the order undefined
         local j = 1
@@ -418,6 +469,9 @@ local function visit_function(st, id, scope, unit, binder)
     local fn = st.src.nodes[id] --[[@as SrcFunction]]
     local unsafe = arena.has_directive(st.src, fn, 'ClvUnsafe')
     local root = (unit ~= 0 or unsafe) and id or 0
+    local outer_fn, outer_mode = st.fn, st.mode
+    local outer_proof_loops = st.proof_loops
+    st.mode = 'exec'
     local s = open(st, scope)
     for _, p in ipairs(fn.params) do
         local name = (st.src.nodes[p] --[[@as SrcBinder]]).name
@@ -428,10 +482,54 @@ local function visit_function(st, id, scope, unit, binder)
     end
     local body_unit = (unit ~= 0 and not unsafe) and id or 0
     st.verified[id] = body_unit ~= 0
-    local outer = st.fn
-    st.fn = binder
+    st.fn, st.proof_loops = binder, nil
     visit(st, fn.body, s, body_unit)
-    st.fn = outer
+    st.fn, st.mode = outer_fn, outer_mode
+    st.proof_loops = outer_proof_loops
+end
+
+--- Counts a loop that the code being visited enters (`step` 1) or leaves (`step` -1) when it is
+--- inside proof code in exec code.
+--- @param st ResolveState
+--- @param step integer
+--- @mut st
+local function count_loop(st, step)
+    if st.proof_loops ~= nil then
+        st.proof_loops = st.proof_loops + step
+    end
+end
+
+--- Visits proof code or a `---@ghost` or `---@assert` line. A `--[[@proof` block is a scope, and a
+--- `---@ghost` line declares into the enclosing one. In exec code, a `return` and a `break` that leaves a
+--- loop around it would change the path that the proof takes but not the one LuaJIT takes.
+--- @param st ResolveState
+--- @param n SrcClvProof|SrcClvGhost|SrcClvAssert
+--- @param scope integer
+--- @param unit NodeId
+--- @mut st
+local function visit_ghost(st, n, scope, unit)
+    local mode, proof_loops = st.mode, st.proof_loops
+    if mode == 'exec' then
+        st.proof_loops = 0
+    end
+    st.mode = 'proof'
+    if n.tag == 'ClvProof' then
+        local s = open(st, scope)
+        -- a `---@proof` line holds only lemma calls
+        for _, statement in ipairs(n.block and {} or n.statements) do
+            report(st, 'E-mode', statement, { 'proof-line' })
+        end
+        visit_statements(st, n.statements, s, unit)
+    elseif n.tag == 'ClvGhost' then
+        local tag = st.src.nodes[n.statement].tag
+        if tag ~= 'Local' and tag ~= 'Set' then
+            report(st, 'E-mode', n.statement, { 'ghost-line' })
+        end
+        visit_statements(st, { n.statement }, scope, unit)
+    else
+        visit(st, n.cond, scope, unit)
+    end
+    st.mode, st.proof_loops = mode, proof_loops
 end
 
 --- Visits a node with `scope` as its scope. `unit` is the root of the unit whose rules apply to the
@@ -479,9 +577,17 @@ function visit(st, id, scope, unit)
             unit = 0
         elseif n.tag == 'Local' and #n.values ~= #n.names and not st.forward[id] then
             report(st, 'E-unsupported-feature', id, { 'local-values' })
+        elseif n.tag == 'Function' and not st.top_functions[id] and st.mode ~= 'exec' then
+            report(st, 'E-mode', id, { 'ghost-function' })
+            unit = 0
         elseif n.tag == 'Function' and not st.top_functions[id] then
             report(st, 'E-unsupported-feature', id, { 'function-value' })
             unit = 0
+        elseif n.tag == 'Return' and st.proof_loops ~= nil then
+            report(st, 'E-mode', id, { 'ghost-return' })
+            unit = 0
+        elseif n.tag == 'Break' and st.proof_loops == 0 then
+            report(st, 'E-mode', id, { 'ghost-break' })
         elseif n.tag == 'Return' and st.fn == nil then
             report(st, 'E-unsupported-feature', id, { 'return-outside-function' })
             unit = 0
@@ -497,6 +603,9 @@ function visit(st, id, scope, unit)
         child_scope = open(st, scope)
     elseif n.tag == 'ClvRegion' then
         child_unit = id
+    elseif n.tag == 'ClvProof' or n.tag == 'ClvGhost' or n.tag == 'ClvAssert' then
+        visit_ghost(st, n, scope, unit)
+        return
     elseif n.tag == 'Binder' then
         declare(st, id, n.name, scope, unit)
     elseif n.tag == 'Id' then
@@ -525,14 +634,18 @@ function visit(st, id, scope, unit)
     elseif n.tag == 'While' then
         visit_loop_directives(st, n, scope, unit)
         visit(st, n.cond, scope, unit)
+        count_loop(st, 1)
         visit(st, n.body, scope, unit)
+        count_loop(st, -1)
         return
     elseif n.tag == 'Repeat' then
         -- the directives see only what is outside the loop, and the condition sees the body's locals
         visit_loop_directives(st, n, scope, unit)
         local body = st.src.nodes[n.body] --[[@as SrcBlock]]
         local s = open(st, scope)
+        count_loop(st, 1)
         visit_statements(st, body.statements, s, unit)
+        count_loop(st, -1)
         visit(st, n.cond, s, unit)
         return
     elseif n.tag == 'Fornum' then
@@ -546,7 +659,9 @@ function visit(st, id, scope, unit)
         visit(st, n.var, s, unit)
         st.loop_vars[n.var] = true
         visit_loop_directives(st, n, s, unit)
+        count_loop(st, 1)
         visit(st, n.body, s, unit)
+        count_loop(st, -1)
         return
     end
 
@@ -592,11 +707,14 @@ local function top_level(src, root)
     return out
 end
 
+-- ghost code, which runs no code at runtime
+local GHOST_CODE = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost = true, ClvAssert = true }
+
 --- Finds the top-level function definitions. Besides `local function f`, mutual recursion needs a
 --- function declared by a top-level `local g` without values and defined by the first top-level
 --- `function g(…)` or `g = function(…)` that assigns that local. Its definition is gapped when code
---- that may run sits between the two: anything but a function definition or a `local` without values.
---- That code could call a function that calls `g` while `g` is still nil.
+--- that may run sits between the two: anything but a function definition, a `local` without values or
+--- ghost code. That code could call a function that calls `g` while `g` is still nil.
 --- @param st ResolveState
 --- @param statements NodeId[] the top-level statements
 --- @mut st
@@ -634,7 +752,8 @@ local function find_definitions(st, statements)
                 -- rejected too. telling those apart would need the callees that `types` finds
                 for k = declared_at[b] + 1, i - 1 do
                     local between = src.nodes[statements[k]]
-                    if st.out.defined[statements[k]] == nil and not (between.tag == 'Local' and #between.values == 0) then
+                    local runs = not (GHOST_CODE[between.tag] or (between.tag == 'Local' and #between.values == 0))
+                    if st.out.defined[statements[k]] == nil and runs then
                         st.gapped[b] = true
                     end
                 end
@@ -676,6 +795,9 @@ function M.run(src, root)
         loop_vars = {},
         fn = nil,
         in_clause = false,
+        mode = 'exec',
+        ghost = {},
+        proof_loops = nil,
         outer_reads = {},
         calls = {},
     }

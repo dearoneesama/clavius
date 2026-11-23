@@ -89,9 +89,6 @@ local PHRASES = {
     -- node kinds
     ClvSpec = 'a `--[[@spec` block',
     ClvLemma = 'a `--[[@lemma` block',
-    ClvProof = 'proof code',
-    ClvGhost = 'a `---@ghost` line',
-    ClvAssert = 'an `---@assert` line',
     Index = 'indexing',
     Table = 'a table constructor',
     Forin = 'a generic `for` loop',
@@ -121,15 +118,20 @@ local PHRASES = {
     ['outer-local'] = 'a local declared outside this region',
     ['truthiness'] = 'a condition or an operand of `and`, `or` or `not` that is not a boolean',
     ['loop-variable-write'] = "assigning a numeric `for` loop's variable",
-    -- ghost code
-    ['ghost-overlap'] = 'ghost code must hold whole statements, apart from the exec code around it',
+    ['ghost-outside'] = 'ghost code belongs in marked code: a region or the body of a marked function',
+    ['not-top-level'] = 'a `--[[@spec` or `--[[@lemma` block belongs between top-level statements',
     ['ghost-in-ghost'] = 'this is already ghost code, so write it without the tag: `assert(e)` for `---@assert e`',
     ['proof-in-spec'] = "a spec function's body holds no proof code",
-    ['ghost-outside'] = 'ghost code belongs in marked code: a region or the body of a marked function',
+    ['ghost-overlap'] = 'ghost code must hold whole statements, apart from the exec code around it',
+    ['ghost-line'] = 'a `---@ghost` line holds one `local` or assignment of ghost locals, and an `---@assert` line one expression',
+    ['proof-line'] = 'a `---@proof` line holds only lemma calls; other proof code goes in a `--[[@proof` block',
+    ['ghost-function'] = 'ghost code defines no functions; a lemma goes in a `--[[@lemma` block and a spec function in a `--[[@spec` one',
     ['ghost-after-exit'] = "ghost code can't follow `return` or `break`, which end their block",
     ['ghost-return'] = "ghost code in exec code can't `return`",
-    ['not-top-level'] = 'a `--[[@spec` or `--[[@lemma` block belongs between top-level statements',
-    ['ghost-line'] = 'a `---@ghost` line holds one `local` or assignment of ghost locals, and an `---@assert` line one expression',
+    ['ghost-break'] = "a `break` in proof code can't leave a loop outside it",
+    ['ghost-name'] = "exec code can't use a ghost name, which doesn't exist at runtime",
+    ['exec-write'] = "ghost code can't assign an exec local",
+    ['ghost-exec-call'] = 'a call from ghost code to an exec function',
 }
 
 --- What a failing obligation of each kind means. `%s` is the source text of its clause's condition or
