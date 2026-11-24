@@ -40,6 +40,14 @@ function M.span(file, start, finish)
     return { file = file, start = start, finish = finish }
 end
 
+--- Returns whether `offset` lies within `s`.
+--- @param s Span
+--- @param offset integer
+--- @return boolean
+function M.contains(s, offset)
+    return s.start <= offset and offset <= s.finish
+end
+
 --- Makes an empty source arena.
 --- @return SrcArena
 function M.new_src()

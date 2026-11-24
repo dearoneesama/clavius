@@ -173,6 +173,82 @@ describe('syntax.comments', function()
         assert.are.same({ 'spec', 'proof_by', 'as' }, { found[1].tag, found[2].tag, found[3].tag })
         assert.are.equal(3, #found)
     end)
+
+    --- Makes a comment that spans `start` to `finish`.
+    --- @param text string what luacheck gives: after `--`, and for a long comment inside its brackets
+    --- @param start integer
+    --- @param finish integer
+    --- @return Comment
+    local function at(text, start, finish)
+        return { text = text, span = arena.span(1, start, finish), line = 1 }
+    end
+
+    it('finds the comments that hold ghost code, and where their code lies', function()
+        local cases = {
+            -- 12345678901234567890123
+            -- --[==[ @proof l(1) ]==]
+            { '--[==[ @proof l(1) ]==]', {}, { at(' @proof l(1) ', 1, 23) }, { { 'proof', 13, 20 } } },
+            -- --[[@spec local s ]]
+            { '--[[@spec local s ]]', {}, { at('@spec local s ', 1, 20) }, { { 'spec', 9, 19 } } },
+            -- --[[@ghost g = 0 ]]
+            { '--[[@ghost g = 0 ]]', {}, { at('@ghost g = 0 ', 1, 19) }, { { 'ghost_block', 10, 18 } } },
+            -- ---@ghost g = 0
+            { '---@ghost g = 0', { at('-@ghost g = 0', 1, 15) }, {}, { { 'ghost', 9, 16 } } },
+            -- ---@proof l(1)
+            { '---@proof l(1)', { at('-@proof l(1)', 1, 14) }, {}, { { 'proof_line', 9, 15 } } },
+            --   --- @assert x
+            { '  --- @assert x', { at('- @assert x', 3, 15) }, {}, { { 'assert', 13, 16 } } },
+            -- ---@assume x
+            { '---@assume x', { at('-@assume x', 1, 12) }, {}, { { 'assume', 10, 13 } } },
+            -- code comes first on the line, so LuaLS gives the comment to `x = 1`
+            { 'x = 1 ---@ghost g = 0', { at('-@ghost g = 0', 7, 21) }, {}, {} },
+            -- tags that aren't ghost code
+            { '---@param n', { at('-@param n', 1, 11) }, {}, {} },
+            { '--[[@as T]]', {}, { at('@as T', 1, 11) }, {} },
+            -- ---@ghost g = 0
+            -- --[[@proof l(g) ]]
+            -- in source order, though long comments are read first
+            {
+                '---@ghost g = 0\n--[[@proof l(g) ]]',
+                { at('-@ghost g = 0', 1, 15) },
+                { at('@proof l(g) ', 17, 34) },
+                { { 'ghost', 9, 16 }, { 'proof', 26, 33 } },
+            },
+        }
+        for _, c in ipairs(cases) do
+            local found = {}
+            for i, gr in ipairs(comments.ghost_ranges(c[2], c[3], c[1])) do
+                found[i] = { gr.kind, gr.head, gr.close }
+            end
+            assert.are.same({ c[1], c[4] }, { c[1], found })
+        end
+    end)
+
+    it('blanks the markers and tags of ghost code and keeps every offset', function()
+        local cases = {
+            -- 12345678901234567890123
+            -- --[==[ @proof l(1) ]==]
+            { '--[==[ @proof l(1) ]==]', { { 'proof', 1, 23, 13, 20 } }, (' '):rep(13) .. ' l(1) ' .. (' '):rep(4) },
+            -- ---@ghost g = 0
+            { '---@ghost g = 0', { { 'ghost', 1, 15, 9, 16 } }, (' '):rep(9) .. ' g = 0' },
+            -- ---@assert x > 0, whose opening and tag make room for the statement `local _ =`
+            { '---@assert x > 0', { { 'assert', 1, 16, 10, 17 } }, ' local _ = x > 0' },
+            -- ---@assume x > 0, the same way
+            { '---@assume x > 0', { { 'assume', 1, 16, 10, 17 } }, ' local _ = x > 0' },
+            -- f()
+            -- ---@ghost g = 1
+            -- g()
+            -- the text around the ranges stays
+            { 'f()\n---@ghost g = 1\ng()', { { 'ghost', 5, 19, 13, 20 } }, 'f()\n' .. (' '):rep(9) .. ' g = 1\ng()' },
+        }
+        for _, c in ipairs(cases) do
+            local ranges = {}
+            for i, r in ipairs(c[2]) do
+                ranges[i] = { kind = r[1], span = arena.span(1, r[2], r[3]), head = r[4], close = r[5] }
+            end
+            assert.are.same({ c[1], c[3] }, { c[1], comments.unmask(c[1], ranges) })
+        end
+    end)
 end)
 
 describe('syntax.splice', function()
@@ -399,8 +475,6 @@ describe('syntax.splice', function()
             local a = 1 ---@type integer
             --! E-unsupported-directive
             local b = 2
-            ---@ghost local s = 0
-            --! E-unsupported-directive
             local c = 3
             ---@param x
             --! E-syntax
@@ -464,25 +538,234 @@ describe('syntax.splice', function()
         )
     end)
 
-    it('reports annotation blocks, and long-comment directives in marked code', function()
+    it('reads ghost blocks, and reports long-comment directives in marked code', function()
         markers.expect_diags(
             'parse',
             [=[
-            --[[@proof x ]]
+            --[[@proof x ]] --! E-misplaced-directive
             local x = 1 --[[@as integer]]
-            --[[@spec local function s() end ]] --! E-unsupported-feature
+            --[[@spec local function s() end ]]
             ---@clavius begin
             local y = 1 --[[@as integer]] --! E-unsupported-directive
             if y > 0 then
-                --[[@proof assert(y > 0) ]] --! E-unsupported-feature
+                --[[@proof assert(y > 0) ]]
+            end
+            ---@unsafe
+            ---@return integer
+            local function u()
+                local a = 1 --[[@as integer]]
+                return a
             end
             ---@clavius end
             ---@clavius
             local function f()
-                --[[@proof assert(true) ]] --! E-unsupported-feature
+                --[[@proof assert(true) ]]
             end
             ---@clavius frob
             --! E-syntax
+            ]=]
+        )
+    end)
+end)
+
+describe('syntax.luacheck ghost code', function()
+    it('rejects ghost code that holds part of a statement or joins exec code', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            ---@clavius begin
+            local x = 1
+            local y = x --[[@proof + 1 ]] --! E-misplaced-directive
+            --[[@proof if x > 0 then ]] --! E-misplaced-directive
+            x = 2
+            --[[@proof end ]]
+            local t = { 1,
+                --[[@proof 2 ]] --! E-misplaced-directive
+            }
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('rejects ghost code inside ghost code, which takes no tags', function()
+        markers.expect_diags(
+            'parse',
+            [===[
+            --[[@lemma
+            ---@param n Nat
+            local function l(n)
+                ---@assert n >= 0
+                --! E-misplaced-directive
+            end
+            ]]
+            --[==[@lemma
+            local function m()
+                --[[@proof l(1) ]] --! E-misplaced-directive
+                --[[@ghost local g = 0 ]] --! E-misplaced-directive
+            end
+            ]==]
+            --[[@spec
+            ---@return Int
+            local function s()
+                ---@proof l(1)
+                --! E-misplaced-directive
+                return 1
+            end
+            ]]
+            ]===]
+        )
+    end)
+
+    it('rejects blocks below the top level and lines that hold more than they may', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            ---@clavius begin
+            local function f()
+                --[[@spec local function s() end ]] --! E-misplaced-directive
+            end
+            local y = 0
+            ---@ghost local a = 1; y = 2 --! E-mode
+            --[[@ghost local b = 1; y = 2 ]]
+            ---@assert y, a --! E-syntax
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('reports syntax errors in ghost code, and reads a block with no code as nothing', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            ---@clavius begin
+            --[[@proof ]]
+            local t = { 1,
+                --[[@proof -- a note ]]
+                2 }
+            ---@ghost local = 1 --! E-syntax
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('reports ghost code after an exec `return` and a `return` that ends ghost code in exec code', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            ---@clavius begin
+            local function after(a)
+                if a then
+                    return
+                end
+                ---@ghost local g = 0
+                return
+                ---@ghost local h = 0
+                --! E-misplaced-directive
+                --[[@proof h = 1 ]] --! E-misplaced-directive
+            end
+            local function returns()
+                --[[@proof return ]] --! E-mode
+                local y = 1
+                ---@proof return
+                --! E-mode
+                ---@ghost return
+                --! E-mode
+            end
+            local function inside()
+                -- parses, since the `return` ends its own block; resolve rejects it
+                --[[@proof
+                    if true then
+                        return
+                    end
+                ]]
+                local z = 1
+            end
+            ---@clavius end
+            local function plain()
+                return
+                ---@ghost local g = 0
+                --! E-misplaced-directive
+            end
+            ]=]
+        )
+    end)
+
+    it('keeps `break` last on each side of the ghost and exec boundary', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            ---@clavius begin
+            while true do
+                break
+                ---@ghost local g = 0
+                --! E-misplaced-directive
+            end
+            --[[@proof
+                while true do
+                    break
+                    local z = 1 --! E-syntax
+                end
+            ]]
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('reports ghost code in unmarked code, even when it would not parse', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            --[[@proof this is not code ]] --! E-misplaced-directive
+            --[[@ghost nor this ]] --! E-misplaced-directive
+            ---@assert )
+            --! E-misplaced-directive
+            ---@clavius begin
+            ---@unsafe
+            local function trusted()
+                --[[@proof neither is this ]] --! E-misplaced-directive
+            end
+            ---@clavius end
+            ---@ghost local g = 0
+            --! E-misplaced-directive
+            ---@clavius
+            local function f() end
+            ]=]
+        )
+    end)
+
+    it('takes the innermost marking of nested marked and unsafe functions', function()
+        markers.expect_diags(
+            'parse',
+            [=[
+            ---@clavius begin
+            ---@unsafe
+            local function trusted()
+                --[[@proof not code ]] --! E-misplaced-directive
+                local a = 1 --[[@as integer]]
+
+                ---@clavius
+                local function checked()
+                    ---@ghost local g = 0
+                    local b = 1 --[[@as integer]] --! E-unsupported-directive
+
+                    ---@unsafe
+                    local function inner()
+                        --[[@proof nor this ]] --! E-misplaced-directive
+                        local c = 1 --[[@as integer]]
+                    end
+                end
+            end
+            ---@clavius end
+            ---@clavius
+            local function outer()
+                ---@unsafe
+                local function trusted_too()
+                    ---@ghost local h = 0
+                    --! E-misplaced-directive
+                    ---@clavius
+                    local function checked_too() end
+                end
+            end
             ]=]
         )
     end)
@@ -567,5 +850,69 @@ describe('ir.index', function()
         -- `b` in `b > 1`, then `b` in target of `b = b + a`, then `b` in `b + a`, then `a` in `b + a`, then `a` in `local c = a`
         assert.are.same({ { 'b', r1 }, { 'b', r1 }, { 'b', r1 }, { 'a', r1 }, { 'a', 0 } }, ids)
         -- c, d are not Ids
+    end)
+
+    it('gives each node the ghost code it is in at any depth', function()
+        local p = parse.run(
+            [=[
+            ---@clavius begin
+            local x = 1
+            ---@ghost local g = x
+            --[[@proof
+                local q = g
+                if q > 0 then
+                    local r = q
+                end
+            ]]
+            ---@assert g >= 0
+            ---@clavius end
+            --[[@spec
+            ---@param n Nat
+            ---@return Nat
+            local function s(n)
+                return n
+            end
+            ]]
+            ]=],
+            1
+        )
+        local idx = index.build(p.src)
+
+        --- @param id NodeId
+        --- @return string
+        local function ghost_tag(id)
+            local g = idx.ghost[id]
+            return g == 0 and '-' or p.src.nodes[g].tag
+        end
+
+        local found = {}
+        for _, tag in ipairs { 'Binder', 'Id' } do
+            for _, id in ipairs(idx.by_tag[tag]) do
+                found[#found + 1] = {
+                    (p.src.nodes[id] --[[@as SrcBinder|SrcId]]).name,
+                    ghost_tag(id),
+                }
+            end
+        end
+        assert.are.same({
+            -- binders
+            { 'x', '-' },
+            { 'g', 'ClvGhost' },
+            { 'q', 'ClvProof' },
+            { 'r', 'ClvProof' },
+            { 's', 'ClvSpec' },
+            { 'n', 'ClvSpec' },
+            -- names read: `x` in `g = x`, `g` in `q = g`, `q` twice, `g` in the assert, `n` in `return n`
+            { 'x', 'ClvGhost' },
+            { 'g', 'ClvProof' },
+            { 'q', 'ClvProof' },
+            { 'q', 'ClvProof' },
+            { 'g', 'ClvAssert' },
+            { 'n', 'ClvSpec' },
+        }, found)
+        -- ghost code itself is in no ghost code, since it never nests
+        for _, tag in ipairs { 'ClvGhost', 'ClvProof', 'ClvAssert', 'ClvSpec' } do
+            assert.are.same({ tag, '-' }, { tag, ghost_tag(idx.by_tag[tag][1]) })
+        end
     end)
 end)

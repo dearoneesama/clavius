@@ -62,7 +62,16 @@ local function evens(n)
     return i
 end
 
--- `break` leaves with the state it has; the invariant isn't checked there
+--[[@lemma
+---@proof_by(nonlinear_arith)
+---@param i integer
+---@pre 0 <= i and i <= 1000
+---@post 0 <= i * i and i * i <= 1000000
+local function lemma_square(i) end
+]]
+
+-- `break` leaves with the state it has; the invariant isn't checked there. The lemma bounds `i * i`,
+-- a product of two variables
 ---@param n integer
 ---@pre n >= 0 and n < 1000
 ---@post result <= n
@@ -72,6 +81,7 @@ local function root(n)
     ---@invariant 0 <= i and i <= n
     ---@decrease n - i
     while i < n do
+        ---@proof lemma_square(i)
         if i * i >= n then
             break
         end

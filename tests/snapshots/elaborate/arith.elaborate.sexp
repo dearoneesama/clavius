@@ -1,4 +1,4 @@
-(Unit main$1
+(Unit main$1 linear
   [(VarDecl x$1 int) (VarDecl y$2 int) (VarDecl z$3 int)]
   [(Assign x$1 (Int 127))
    (Check 1

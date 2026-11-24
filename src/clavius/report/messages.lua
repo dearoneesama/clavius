@@ -1,6 +1,7 @@
 -- Turns diagnostics and failing obligations into messages in source order.
 
 local arena = require 'clavius.ir.arena'
+local hints = require 'clavius.report.hints'
 
 local M = {}
 
@@ -20,6 +21,7 @@ local TEMPLATES = {
     ['E-banned-global'] = "the global `%s` can't be used in verified code",
     ['E-banned-goto'] = "`goto` and labels can't be used in verified code",
     ['E-type-mismatch'] = 'expected %s, found %s',
+    ['E-mode'] = '%s',
     ['E-internal-node'] = '%s where a %s belongs',
     ['E-internal-check'] = 'Check O%s has no obligation of a known kind',
     ['E-internal-assume'] = 'Assume A%s has no allowed justification',
@@ -32,7 +34,7 @@ local TEMPLATES = {
 --- The codes whose arguments are keys of `PHRASES`. The arguments of other codes are names from the
 --- program and must never be read as keys.
 --- @type table<string, boolean>
-local KEYED = { ['E-syntax'] = true, ['E-misplaced-directive'] = true, ['E-unsupported-feature'] = true }
+local KEYED = { ['E-syntax'] = true, ['E-misplaced-directive'] = true, ['E-unsupported-feature'] = true, ['E-mode'] = true }
 
 --- What the keys in diagnostic arguments stand for. An argument that isn't a key, such as one of
 --- luacheck's syntax errors, is used as it is.
@@ -107,7 +109,7 @@ local PHRASES = {
     ['repeated-target'] = 'assigning a local twice in one assignment',
     ['call'] = 'a call of anything but `assert`, `error`, a `local function` by its name, or a function that a `---@meta` file declares',
     ['call-args'] = "a call whose arguments and the callee's parameters differ in number",
-    ['call-in-contract'] = 'a call in a contract or a loop annotation',
+    ['call-in-contract'] = 'a call of anything but a spec function in a contract or a loop annotation',
     ['unmarked-callee'] = 'a call to a function that is neither `---@clavius` nor `---@unsafe`',
     ['reassigned-function'] = 'a call to a function that is assigned somewhere in the file',
     ['reassigned-alias'] = 'a call through a library alias that is assigned somewhere in the file',
@@ -115,16 +117,38 @@ local PHRASES = {
     ['function-value'] = 'a function other than a top-level `local function` or `function f` after `local f`, or one used as a value',
     ['return-outside-function'] = '`return` outside a function',
     ['multiple-returns'] = 'more than one return value',
-    ['call-value'] = '`assert` or `error` used other than as a call statement',
+    ['call-value'] = '`assert`, `assume` or `error` used other than as a call statement',
     ['library-value'] = 'a library or host function used as a value',
     ['assert-args'] = '`assert` with arguments other than a condition and a literal message',
+    ['assume-args'] = '`assume` with arguments other than one condition',
     ['error-args'] = '`error` with arguments that are not literals',
     ['outer-local'] = 'a local declared outside this region',
     ['truthiness'] = 'a condition or an operand of `and`, `or` or `not` that is not a boolean',
     ['loop-variable-write'] = "assigning a numeric `for` loop's variable",
-    ['spec-block'] = 'a `--[[@spec` block',
-    ['lemma-block'] = 'a `--[[@lemma` block',
-    ['proof-block'] = 'a `--[[@proof` block',
+    ['ghost-outside'] = 'ghost code belongs in marked code: a region or the body of a marked function',
+    ['not-top-level'] = 'a `--[[@spec` or `--[[@lemma` block belongs between top-level statements',
+    ['ghost-in-ghost'] = 'this is already ghost code, so write it without the tag: `assert(e)` for `---@assert e` and `assume(e)` for `---@assume e`',
+    ['proof-in-spec'] = "a spec function's body holds no proof code",
+    ['ghost-overlap'] = 'ghost code must hold whole statements, apart from the exec code around it',
+    ['ghost-line'] = 'a `---@ghost` line holds one `local` or assignment of ghost locals, and an `---@assert` or `---@assume` line one expression',
+    ['ghost-statement'] = 'ghost state holds only `local`s and assignments of ghost locals; other ghost code goes in a `--[[@proof` block',
+    ['proof-line'] = 'a `---@proof` line holds only lemma calls; other proof code goes in a `--[[@proof` block',
+    ['block-statement'] = 'a `--[[@spec` or `--[[@lemma` block holds only `local function`s and their forward declarations',
+    ['spec-statement'] = "a spec function's body holds only `if`, `local` and `return`",
+    ['spec-missing-return'] = 'every path through a spec function should end in `return`',
+    ['spec-directive'] = 'a spec function takes only `---@param`, `---@return` and `---@decrease`',
+    ['lemma-directive'] = "a lemma takes a function's contract, `---@proof_by` and `---@reveal_with_fuel`, but no other directive",
+    ['fuel-not-spec'] = '`---@reveal_with_fuel` names a spec function declared above',
+    ['ghost-function'] = 'ghost code defines no functions; a lemma goes in a `--[[@lemma` block and a spec function in a `--[[@spec` one',
+    ['ghost-after-exit'] = "ghost code can't follow `return` or `break`, which end their block",
+    ['ghost-return'] = "ghost code in exec code can't `return`",
+    ['ghost-break'] = "a `break` in proof code can't leave a loop outside it",
+    ['ghost-name'] = "exec code can't use a ghost name, which doesn't exist at runtime",
+    ['exec-write'] = "ghost code can't assign an exec local",
+    ['spec-call'] = "exec code can't call a spec function; contracts, spec functions and ghost code can",
+    ['assume-call'] = 'only proof code can call `assume`; elsewhere an `---@assume` line states it',
+    ['lemma-call'] = 'only proof code can call a lemma in a `---@proof` line or block',
+    ['ghost-exec-call'] = "ghost code can't call an exec function, which runs only at runtime",
 }
 
 --- What a failing obligation of each kind means. `%s` is the source text of its clause's condition or
@@ -144,6 +168,7 @@ local FAILURES = {
     for_step = "this loop's step may be 0",
     div_zero = 'the divisor of `%s` may be 0',
     mod_range = '`%s` may be computed inexactly, since the dividend minus the remainder may leave ±2^53',
+    nat = '%s may be negative where a `Nat` is expected',
 }
 
 --- What a failing obligation that the counter of a numeric `for` needs means. It has no clause.
@@ -158,6 +183,9 @@ local COUNTER_FAILURES = {
 local CALL_FAILURES = {
     decrease = 'this call may not decrease the measure `%s`, or the measure may be negative on entry',
 }
+
+-- what a failure adds when its unit leaves products of two variables opaque
+local OPAQUE_PRODUCT = 'the solver knows nothing about a product of two variables here; try `---@proof_by(nonlinear_arith)` or a lemma'
 
 --- @param text string
 --- @param offset integer
@@ -183,13 +211,15 @@ function M.diag(d, spans, text)
 end
 
 --- Formats the failing obligation `id` as `line:col: kind: message [O17]`. The clause it quotes may sit in
---- another file of the run, such as a library spec's `---@pre`.
+--- another file of the run, such as a library spec's `---@pre`. With `opaque`, the message says that the
+--- solver knows nothing about a product of two variables in its unit.
 --- @param id integer
 --- @param o Obligation
 --- @param src SrcArena
 --- @param files table<FileId, SourceFile>
+--- @param opaque boolean|nil
 --- @return string
-function M.failure(id, o, src, files)
+function M.failure(id, o, src, files, opaque)
     local span = src.spans[o.node]
     local template = FAILURES[o.kind]
     if src.nodes[o.node].tag == 'Call' and CALL_FAILURES[o.kind] then
@@ -210,6 +240,9 @@ function M.failure(id, o, src, files)
     end
     local snippet = files[quoted.file].text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
     local message = assert(template, ('messages: no message for %s'):format(o.kind)):format(snippet)
+    if opaque then
+        message = ('%s; hint: %s'):format(message, OPAQUE_PRODUCT)
+    end
     return ('%s: %s: %s [O%d]'):format(position(files[span.file].text, span.start), o.kind, message, id)
 end
 
@@ -254,17 +287,21 @@ function M.diags(diags, spans, text)
     return in_order(list)
 end
 
---- Formats failing obligations in source order: by span start, then kind.
+--- Formats failing obligations in source order: by span start, then kind. Unless `nonlinear` is set, a
+--- failure in a linear unit that multiplies two variables says that the product is opaque.
 --- @param failed integer[] obligation ids
---- @param obligations Obligation[]
+--- @param prog CoreProgram
 --- @param src SrcArena
 --- @param files table<FileId, SourceFile> every file of the run
+--- @param nonlinear boolean|nil whether every unit used nonlinear arithmetic
 --- @return string[]
-function M.failures(failed, obligations, src, files)
+function M.failures(failed, prog, src, files, nonlinear)
+    local opaque = nonlinear and {} or hints.opaque_products(prog.core, prog.units)
     local list = {}
     for i, id in ipairs(failed) do
-        local o = obligations[id]
-        list[i] = { start = src.spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = M.failure(id, o, src, files) }
+        local o = prog.obligations[id]
+        local message = M.failure(id, o, src, files, opaque[id])
+        list[i] = { start = src.spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = message }
     end
     return in_order(list)
 end

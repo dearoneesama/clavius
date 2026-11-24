@@ -1,4 +1,4 @@
-(Unit f$1
+(Unit f$1 linear
   [(VarDecl n$2 int) (VarDecl on$3 bool) (VarDecl result$4 int) (VarDecl $t1 int)]
   [(Assume 1
      (BinOp and
@@ -34,7 +34,7 @@
       (Check 6 (BinOp >= (Var result$4) (Var $t1)))
       (Exit body)
       (Check 7 (Bool false))])])
-(Unit g$5
+(Unit g$5 linear
   [(VarDecl n$6 int) (VarDecl $t1 int)]
   [(Assume 3
      (BinOp and
@@ -50,7 +50,7 @@
           (BinOp <= (BinOp - (Var n$6) (Int 1)) (Int 9007199254740992))))
       (Assign n$6 (BinOp - (Var n$6) (Int 1)))
       (Check 10 (BinOp > (Var $t1) (Int 0)))])])
-(Unit h$7
+(Unit h$7 linear
   [(VarDecl n$8 int) (VarDecl result$9 int) (VarDecl $t1 int) (VarDecl $t2 int) (VarDecl $t3 int)]
   [(Assume 5
      (BinOp and

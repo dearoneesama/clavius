@@ -28,6 +28,12 @@ M.KINDS = {
     BinOp = true,
     UnOp = true,
     Paren = true,
+    ClvSpec = true,
+    ClvLemma = true,
+    ClvProof = true,
+    ClvGhost = true,
+    ClvAssert = true,
+    ClvAssume = true,
 }
 
 --- Source kinds that marked code must never use.
@@ -59,9 +65,10 @@ M.UNOPS = { unm = true, ['not'] = true }
 --- @type table<string, boolean>
 M.TYPES = { int53 = true, boolean = true }
 
---- Library functions that marked code may call and that Clavius encodes itself rather than by a spec.
+--- Library functions that marked code may call and that Clavius encodes itself rather than by a spec, and
+--- `assume`, which only proof code may call.
 --- @type table<string, boolean>
-M.CALLS = { assert = true, error = true }
+M.CALLS = { assert = true, assume = true, error = true }
 
 --- The library function whose call `math.floor(a / b)` is integer division rather than a call.
 M.FLOORDIV = 'math.floor'
@@ -88,6 +95,24 @@ M.FUNCTION_DIRECTIVES = {
     ClvParam = true,
     ClvReturn = true,
     ClvDecrease = true,
+    ClvRevealWithFuel = true,
+    ClvProofBy = true,
+}
+
+--- Directive kinds that a spec function may have.
+--- @type table<string, boolean>
+M.SPEC_DIRECTIVES = { ClvParam = true, ClvReturn = true, ClvDecrease = true }
+
+--- Directive kinds that a lemma may have.
+--- @type table<string, boolean>
+M.LEMMA_DIRECTIVES = {
+    ClvParam = true,
+    ClvReturn = true,
+    ClvPre = true,
+    ClvPost = true,
+    ClvDecrease = true,
+    ClvRevealWithFuel = true,
+    ClvProofBy = true,
 }
 
 --- Directive kinds that only trusted functions may have: `---@extern` and `---@unsafe` ones.
@@ -209,7 +234,7 @@ M.GLOBALS = {
 }
 
 --- What a global name is to marked code:
---- - `supported`: a library function in `CALLS`;
+--- - `supported`: a function in `CALLS`;
 --- - `banned`: a feature that verified code must never use, such as `pcall` or `debug.traceback`;
 --- - `library`: a part of the library that Clavius has no rule for, such as `print` or `math.floor`;
 --- - `global`: a global outside the library. Verified code must never use one.

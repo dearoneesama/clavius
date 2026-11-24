@@ -513,6 +513,7 @@ local GRAMMARS = {
     ghost = none,
     proof = none,
     assert = none,
+    assume = none,
     mut = mode,
     move = mode,
     frozen = mode,

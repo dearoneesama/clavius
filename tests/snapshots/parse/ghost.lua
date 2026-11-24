@@ -1,0 +1,40 @@
+-- Ghost code in comments becomes nodes: spec and lemma blocks wherever they sit, and in marked code
+-- proof and ghost blocks and `---@proof`, `---@ghost`, `---@assert` and `---@assume` lines.
+
+--[[@spec
+---@param n Nat
+---@return Nat
+local function same(n)
+    return n
+end
+]]
+
+---@clavius begin
+
+local x = 1
+---@ghost local seen = 0
+---@ghost seen = seen + x
+--[[@ghost
+    local twice = seen + seen
+    seen, twice = twice, seen
+]]
+---@assert seen == 2
+---@assume x > 0
+
+--[==[@proof
+    local y = x
+    if y > 0 then
+    end
+]==]
+
+--[[@lemma
+local f, g
+---@param n Nat
+function f(n) end
+---@param n Nat
+function g(n) end
+]]
+
+---@proof f(x)
+
+---@clavius end

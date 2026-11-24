@@ -1,4 +1,4 @@
-(Unit main$1
+(Unit main$1 linear
   [(VarDecl $t1 int) (VarDecl $t2 int) (VarDecl x$1 int)]
   [(Havoc $t1)
    (Assume 1

@@ -98,5 +98,12 @@
         [(Literal number 1) (Literal number 2) (Literal number 3)])
       (Call (Id tostring) nil [(Literal string "s")])
       (Call (Id type) nil [(Table [(TableField nil (Literal number 1))])])])
-   (ClvRegion [(Local [(BinOp sub (Literal number 1) (Literal number 2))] [(Binder m)])])
+   (ClvSpec
+     [(LocalFunction (Binder same) (Function [] [(Binder x)] false (Block [(Return [(Id x)])])))])
+   (ClvRegion
+     [(Local [(BinOp sub (Literal number 1) (Literal number 2))] [(Binder m)])
+      (ClvGhost [(Local [(Id m)] [(Binder g)])])
+      (ClvAssert (BinOp eq (Id g) (Id m)))
+      (ClvProof false [(Call (Id same) nil [(Id m)])])])
+   (ClvLemma [(LocalFunction (Binder l) (Function [] [] false (Block [])))])
    (Return [(Id tbl)])])

@@ -12,6 +12,9 @@
 --     callers outside verification
 --       inc       prog.lua:15
 --
+--     assumptions
+--       n > 0     prog.lua:30
+--
 --     stdlib specs (clavius dev)
 --       math.min  clavius/meta/math.lua:14
 --
@@ -25,6 +28,7 @@
 --   and its flags.
 -- - `inc` is verified, assuming its parameters' types and its `---@pre`s on entry. A verified caller
 --   proves those at each call, but a caller in unmarked code doesn't, so they are trusted to hold there.
+-- - The `---@assume n > 0` on line 30 is a fact that nothing proves.
 -- - `math.min`'s shipped spec is trusted, as written by the Clavius version named.
 -- - Verified code that calls a library function, `math.floor(a / b)` included, relies on nothing outside
 --   verification replacing it, as `math.min = f` would.
@@ -35,7 +39,8 @@ local support = require 'clavius.ir.support'
 
 local M = {}
 
---- A function in the report, with where it is defined and the flags it is trusted for.
+--- A function in the report, with where it is defined and the flags it is trusted for, or an
+--- assumption's condition.
 --- @class TrustEntry
 --- @field name string
 --- @field file string
@@ -85,6 +90,7 @@ end
 --- Returns the trust report of a run as lines, or no lines when it trusted nothing. The trusted
 --- assumptions name their Functions: a trusted one, whose contract its callers rely on, or a verified
 --- one, whose callers outside verification are trusted to meet its boundary assumptions.
+--- assumed ones are `---@assume` lines and `assume` calls, each listed by its condition.
 --- @param prog CoreProgram
 --- @param src SrcArena
 --- @param index NodeIndex
@@ -100,14 +106,17 @@ function M.report(prog, src, index, files, main)
             floor_idiom = true
         end
     end
-    local seen, fns = {}, {}
+    local seen, fns, assumes = {}, {}, {}
     for _, a in ipairs(prog.assumptions) do
         if a.kind == 'trusted' and a.decl ~= nil and not seen[a.decl] then
             seen[a.decl] = true
             fns[#fns + 1] = a.decl
+        elseif a.kind == 'assumed' and not seen[a.node] then
+            seen[a.node] = true
+            assumes[#assumes + 1] = a.node
         end
     end
-    if #fns == 0 and not floor_idiom then
+    if #fns == 0 and #assumes == 0 and not floor_idiom then
         return {}
     end
 
@@ -124,6 +133,7 @@ function M.report(prog, src, index, files, main)
     end
 
     table.sort(fns, before)
+    table.sort(assumes, before)
     local starts = {}
     --- @type TrustEntry[]
     local unsafe = {}
@@ -164,10 +174,25 @@ function M.report(prog, src, index, files, main)
         end
         width = math.max(width, #entry.name)
     end
+    --- @type TrustEntry[]
+    local assumed = {}
+    for _, id in ipairs(assumes) do
+        -- an `---@assume` line, or an `assume` call in proof code
+        local n = src.nodes[id] --[[@as SrcClvAssume|SrcCall]]
+        local span = src.spans[id]
+        local f = files[span.file]
+        starts[span.file] = starts[span.file] or arena.line_starts(f.text)
+        local cond = src.spans[n.tag == 'Call' and n.args[1] or n.cond]
+        local name = (f.text:sub(cond.start, cond.finish):gsub('%s+', ' '))
+        local line = (arena.line_col(f.text, starts[span.file], span.start))
+        assumed[#assumed + 1] = { name = name, file = f.name, line = line, flags = '' }
+        width = math.max(width, #name)
+    end
     local out = { ('Trust report: %s'):format(files[main].name) }
     section(out, '@unsafe functions', unsafe, width)
     section(out, '@extern functions', externs, width)
     section(out, 'callers outside verification', callers, width)
+    section(out, 'assumptions', assumed, width)
     section(out, ('stdlib specs (clavius %s)'):format(clavius.VERSION), stdlib, width)
     if #stdlib > 0 or floor_idiom then
         out[#out + 1] = ''

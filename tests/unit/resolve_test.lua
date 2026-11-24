@@ -481,4 +481,201 @@ describe('resolve', function()
             ]=]
         )
     end)
+    it('keeps exec code from ghost names, and ghost code from exec locals', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            local x = 1
+            ---@ghost local g = x
+            local y = g --! E-mode
+            ---@ghost x = 2 --! E-mode
+            ---@ghost g = g + x
+            --[[@ghost
+                local k = g
+                g = k
+            ]]
+            local v = k --! E-mode
+            --[[@proof local p = g ]]
+            local z = p --! E-banned-global
+            ---@ghost local assert = 1
+            ---@ghost local math = 1
+            assert(true) --! E-mode
+            local w = math.floor(2) --! E-mode
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('lets unmarked code see past ghost declarations', function()
+        local text = [=[
+            --[[@spec
+            ---@return Int
+            local function s() return 1 end
+            ]]
+            local t = s
+        ]=]
+        assert.are.same({ 's global' }, refs(text))
+    end)
+
+    it('lets each kind of code call only some kinds of functions', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param n Nat
+            ---@return Nat
+            local function s(n) return n end
+            ]]
+            --[[@lemma
+            ---@param n Nat
+            local function l(n) end
+            ]]
+            ---@param n integer
+            ---@post result == s(n)
+            ---@return integer
+            local function f(n)
+                local a = s(n) --! E-mode
+                l(n) --! E-mode
+                ---@proof l(s(n))
+                return n
+            end
+            ---@param n integer
+            ---@pre l(n)
+            --! E-mode
+            local function g(n) end
+            --[[@proof f(1) ]] --! E-mode
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('checks what blocks and spec functions hold', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            --[[@spec
+            local k = 1 --! E-mode
+            ---@param n Nat
+            ---@return Nat
+            local function a(n)
+                local m = n
+                return m
+            end
+            ---@param n Nat
+            ---@return Nat
+            local function b(n) --! E-mode
+                if n > 0 then return n end
+            end
+            ---@param n Nat
+            ---@return Nat
+            local function both(n)
+                if n > 0 then
+                    return n
+                else
+                    do
+                        return 0
+                    end
+                end
+            end
+            ---@param n Nat
+            ---@return Nat
+            local function one(n) --! E-mode
+                if n > 0 then
+                    return n
+                elseif n == 0 then
+                    return 0
+                else
+                end
+            end
+            ---@param n Nat
+            ---@pre n > 0
+            --! E-misplaced-directive
+            ---@return Nat
+            local function c(n)
+                assert(n > 0) --! E-mode
+                return n
+            end
+            ]]
+            --[[@lemma
+            ---@unsafe
+            --! E-misplaced-directive
+            local function u() end
+            ]]
+            ]=]
+        )
+    end)
+
+    it('checks what proof code holds, and where its control flow goes', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            --[[@lemma
+            local function l() end
+            ]]
+            local x = 0
+            ---@proof assert(x == 0) --! E-mode
+            ---@ghost l() --! E-mode
+            --[[@ghost
+                local h = x
+                l() --! E-mode
+                h = h + 1
+            ]]
+            while x < 3 do
+                --[[@proof break ]] --! E-mode
+                --[[@proof while true do break end ]]
+                x = x + 1
+            end
+            --[[@proof
+                local function h() end --! E-mode
+            ]]
+            local function f()
+                --[[@proof if true then return end ]] --! E-mode
+            end
+            ---@reveal_with_fuel(l, 2)
+            --! E-misplaced-directive
+            local function g() end
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('lets only proof code call `assume`, with one condition', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            --[[@lemma
+            local function l()
+                assume(false)
+            end
+            ]]
+            local x = 0
+            --[[@proof
+                assume(x > 0)
+                assume(x > 0, 'why') --! E-unsupported-feature
+                local b = assume(x > 0) --! E-unsupported-feature
+            ]]
+            assume(x > 0) --! E-mode
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('proves a function or lemma only in nonlinear arithmetic', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            ---@proof_by(nonlinear_arith)
+            local function f() end
+            ---@proof_by(bit_vector)
+            --! E-unsupported-directive
+            local function g() end
+            ---@clavius end
+            ]=]
+        )
+    end)
 end)

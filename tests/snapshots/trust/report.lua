@@ -1,6 +1,7 @@
 -- An `---@unsafe` function or a host function that verified code calls is trusted to meet its contract,
 -- and so is every caller outside verification of a verified function with parameters or a `---@pre`.
--- A trusted function is listed with its flags, and `%` trusts nothing, since it is an operator.
+-- A trusted function is listed with its flags, and `%` trusts nothing, since it is an operator. Each
+-- `---@assume` and `assume` call is listed by its condition, with its spaces collapsed.
 ---@clavius begin
 
 ---@unsafe
@@ -40,5 +41,9 @@ local function idle() end
 local x = bump(max(1, 2))
 local ok = ready()
 host.log(host.scale(x % 3) + frame())
+---@assume x  >   3
+--[[@proof
+    assume(x > 4)
+]]
 
 ---@clavius end

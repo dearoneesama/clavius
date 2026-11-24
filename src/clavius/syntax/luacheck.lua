@@ -51,7 +51,22 @@ local splice = require 'clavius.syntax.splice'
 --- @field comments Comment[] short comments in source order
 --- @field regions SpliceRegion[]
 --- @field annotations LongAnnotation[] the long comments that start with a tag
---- @field marked Span[] the regions and the functions marked outside them
+--- @field marks MarkedSpan[] where the marking changes, each after the spans that hold it
+--- @field ghosts GhostRange[] the unmasked ghost comments
+--- @field exits integer[] the last offset of each `return` and `break` statement
+
+--- What luacheck reads from a text, and the errors its lexer finds.
+--- @class LcParse
+--- @field ast LcNode[]
+--- @field short Comment[]
+--- @field long Comment[]
+--- @field diags Diag[]
+
+--- A statement of a list, or the statements that one ghost comment holds.
+--- @class LcItem
+--- @field nodes LcNode[]
+--- @field ghost GhostRange|nil
+--- @field split boolean whether the statement starts or ends in a ghost comment that it doesn't lie in
 
 --- @class ConvertState
 --- @field src SrcArena
@@ -62,7 +77,11 @@ local splice = require 'clavius.syntax.splice'
 --- @field loops integer the loops around the code being converted, inside its function
 --- @field cursor SpliceCursor|nil the directives, when converting a whole file
 --- @field marked boolean whether the code being converted is marked
---- @field marked_spans Span[]
+--- @field marks MarkedSpan[]
+--- @field ghosts GhostRange[]
+--- @field consumed table<GhostRange, boolean> the ghost comments whose statements are converted
+--- @field open table<GhostRange, boolean> the ghost comments whose statements are being converted
+--- @field exits integer[]
 
 local M = {}
 
@@ -208,8 +227,8 @@ local function func(st, node, placed)
     if st.cursor then
         -- a directive in the parameter list is above no statement
         splice.dangle(st.cursor, header_end, st.marked)
-        if marked and not st.marked then
-            st.marked_spans[#st.marked_spans + 1] = node_span(st, node)
+        if marked ~= st.marked then
+            st.marks[#st.marks + 1] = { span = node_span(st, node), marked = marked }
         end
     end
     local outer_vararg, outer_loops, outer_marked = st.vararg, st.loops, st.marked
@@ -419,11 +438,13 @@ local function statement(st, node, above)
         st.loops = st.loops - 1
         return add(st, { tag = 'Forin', directives = directives, iters = iters, names = names, body = body }, s)
     elseif tag == 'Return' then
+        st.exits[#st.exits + 1] = s.finish
         return add(st, { tag = 'Return', values = expression_list(st, node) }, s)
     elseif tag == 'Break' then
         if st.loops == 0 then
             reject(st, s, 'break-outside-loop')
         end
+        st.exits[#st.exits + 1] = s.finish
         return add(st, { tag = 'Break' }, s)
     elseif tag == 'Goto' then
         return add(st, { tag = 'Goto', label = node[1] }, s)
@@ -433,6 +454,134 @@ local function statement(st, node, above)
     error(('luacheck adapter: unhandled statement %s'):format(tostring(tag)))
 end
 
+--- Returns the ghost comment that holds the file offset `offset`, if any, other than one whose
+--- statements are being converted.
+--- @param st ConvertState
+--- @param offset integer
+--- @return GhostRange|nil
+local function ghost_at(st, offset)
+    for _, gr in ipairs(st.ghosts) do
+        if arena.contains(gr.span, offset) and not st.open[gr] then
+            return gr
+        end
+    end
+    return nil
+end
+
+--- Groups a statement list into items: each statement on its own, except that those a ghost comment
+--- holds form one item.
+--- @param st ConvertState
+--- @param list LcNode[]
+--- @return LcItem[]
+local function items(st, list)
+    local out = {}
+    for _, node in ipairs(list) do
+        local finish = assert(node.end_offset) + st.shift
+        local gr = ghost_at(st, assert(node.offset) + st.shift)
+        local last = out[#out]
+        if gr and finish <= gr.span.finish and last and last.ghost == gr then
+            -- a later statement of the comment the last item holds joins it
+            last.nodes[#last.nodes + 1] = node
+        elseif gr and finish <= gr.span.finish then
+            -- the first statement of a ghost comment starts its item
+            out[#out + 1] = { nodes = { node }, ghost = gr, split = false }
+        else
+            -- exec code, split when it starts or ends inside a ghost comment and so runs across its edge
+            out[#out + 1] = { nodes = { node }, ghost = nil, split = gr ~= nil or ghost_at(st, finish) ~= nil }
+        end
+    end
+    return out
+end
+
+--- Converts a statement with the directives above it.
+--- @param st ConvertState
+--- @param node LcNode
+--- @param top boolean whether it is a top-level statement
+--- @mut st
+--- @return NodeId
+local function one_statement(st, node, top)
+    local above = {}
+    if st.cursor then
+        above = splice.take(st.cursor, assert(node.offset), top, st.marked)
+    end
+    local id = statement(st, node, above)
+    if st.cursor then
+        -- what the statement holds but its own statements don't take, such as a directive in an expression
+        splice.dangle(st.cursor, assert(node.end_offset), st.marked)
+    end
+    return id
+end
+
+--- Converts an `---@assert E` or `---@assume E` line, which unmasking turned into `local _ = E`.
+--- @param st ConvertState
+--- @param node LcNode
+--- @param gr GhostRange
+--- @param top boolean whether it is a top-level statement
+--- @mut st
+--- @return SrcNode
+local function assert_node(st, node, gr, top)
+    if st.cursor then
+        splice.place(st.cursor, splice.take(st.cursor, assert(node.offset), top, st.marked), 'other', st.marked)
+    end
+    local values = node[2]
+    if #values > 1 then
+        st.diags[#st.diags + 1] = diag.at_span('E-syntax', gr.span, { 'one-expression' })
+    end
+    local cond = expression(st, values[1])
+    if st.cursor then
+        splice.dangle(st.cursor, assert(node.end_offset), st.marked)
+    end
+    return { tag = gr.kind == 'assume' and 'ClvAssume' or 'ClvAssert', cond = cond }
+end
+
+--- Converts the statements of a ghost comment and returns the node for its kind. A `--[[@spec` or
+--- `--[[@lemma` block below the top level is reported and makes no node.
+--- @param st ConvertState
+--- @param item LcItem
+--- @param top boolean whether the list is the file's top level
+--- @mut st
+--- @return NodeId|nil
+local function ghost_statement(st, item, top)
+    local gr = assert(item.ghost)
+    st.consumed[gr] = true
+    local declares = gr.kind == 'spec' or gr.kind == 'lemma'
+    if declares and not top then
+        st.diags[#st.diags + 1] = diag.at_span('E-misplaced-directive', gr.span, { 'not-top-level' })
+        return nil
+    elseif (gr.kind == 'ghost' or gr.kind == 'assert' or gr.kind == 'assume') and #item.nodes > 1 then
+        st.diags[#st.diags + 1] = diag.at_span('E-mode', gr.span, { 'ghost-line' })
+    end
+    local outer = st.marked
+    -- spec functions and lemmas are checked wherever they sit
+    if declares and not outer then
+        st.marked = true
+        st.marks[#st.marks + 1] = { span = gr.span, marked = true }
+    end
+    st.open[gr] = true
+    --- @type SrcNode
+    local node
+    if gr.kind == 'assert' or gr.kind == 'assume' then
+        node = assert_node(st, item.nodes[1], gr, top)
+    else
+        local statements = {}
+        for i, n in ipairs(item.nodes) do
+            statements[i] = one_statement(st, n, top)
+        end
+        if gr.kind == 'spec' then
+            node = { tag = 'ClvSpec', statements = statements }
+        elseif gr.kind == 'lemma' then
+            node = { tag = 'ClvLemma', statements = statements }
+        elseif gr.kind == 'ghost' or gr.kind == 'ghost_block' then
+            node = { tag = 'ClvGhost', statements = statements }
+        else
+            node = { tag = 'ClvProof', block = gr.kind == 'proof', statements = statements }
+        end
+    end
+    st.marked = outer
+    st.open[gr] = nil
+    return add(st, node, gr.span)
+end
+
 --- Converts a statement list. At the top level, `regions` tells which statements are marked.
 --- @param st ConvertState
 --- @param list LcNode[]
@@ -440,23 +589,39 @@ end
 --- @mut st
 --- @return NodeId[]
 function statement_list(st, list, regions)
-    local ids = {}
-    for i, node in ipairs(list) do
-        -- LuaJIT, like Lua 5.1, wants `break` to end its block; luacheck doesn't
-        if i > 1 and list[i - 1].tag == 'Break' then
-            reject(st, node_span(st, node), 'break-not-last')
+    -- LuaJIT, like Lua 5.1, wants `break` to end its block; luacheck doesn't. one of the two may be
+    -- ghost code, which LuaJIT never sees
+    for i = 2, #list do
+        local before = list[i - 1]
+        local after = list[i]
+        if before.tag == 'Break' then
+            local ghost = comments.ghost_at(st.ghosts, assert(before.offset) + st.shift)
+            if ghost == comments.ghost_at(st.ghosts, assert(after.offset) + st.shift) then
+                reject(st, node_span(st, after), 'break-not-last')
+            end
         end
+    end
+
+    local ids = {}
+    for i, item in ipairs(items(st, list)) do
         if regions then
             st.marked = splice.in_region(regions, i)
         end
-        local above = {}
-        if st.cursor then
-            above = splice.take(st.cursor, assert(node.offset), regions ~= nil, st.marked)
-        end
-        ids[i] = statement(st, node, above)
-        if st.cursor then
-            -- what the statement holds but its own statements don't take, such as a directive in an expression
-            splice.dangle(st.cursor, assert(node.end_offset), st.marked)
+        if item.ghost then
+            ids[#ids + 1] = ghost_statement(st, item, regions ~= nil)
+        else
+            if item.split then
+                local node = item.nodes[1]
+                st.diags[#st.diags + 1] = diag.at_span('E-misplaced-directive', node_span(st, node), { 'ghost-overlap' })
+                -- reported here, so not again as ghost code that no statement list takes
+                for _, offset in ipairs { assert(node.offset), assert(node.end_offset) } do
+                    local gr = ghost_at(st, offset + st.shift)
+                    if gr then
+                        st.consumed[gr] = true
+                    end
+                end
+            end
+            ids[#ids + 1] = one_statement(st, item.nodes[1], regions ~= nil)
         end
     end
     return ids
@@ -525,7 +690,21 @@ end
 --- @param shift integer
 --- @return ConvertState
 local function new_state(src, file, shift)
-    return { src = src, file = file, shift = shift, diags = {}, vararg = true, loops = 0, cursor = nil, marked = false, marked_spans = {} }
+    return {
+        src = src,
+        file = file,
+        shift = shift,
+        diags = {},
+        vararg = true,
+        loops = 0,
+        cursor = nil,
+        marked = false,
+        marks = {},
+        ghosts = {},
+        consumed = {},
+        open = {},
+        exits = {},
+    }
 end
 
 --- Runs luacheck's parser. Returns its AST, comments and hanging semicolons, or nil and the one syntax
@@ -547,9 +726,149 @@ local function run_parser(st, source)
     return ast, comments_list, hanging
 end
 
---- Parses `text` and adds its nodes to `src`, with the directives placed. Returns the converted file
---- and the syntax and placement errors. When luacheck can't parse the text, the result is nil and the
---- one error luacheck raised.
+--- Parses and lexes a whole file. Returns what luacheck reads, or nil and the one syntax error its
+--- parser raised.
+--- @param text string
+--- @param file FileId
+--- @return LcParse|nil parsed
+--- @return Diag|nil err
+local function parse_text(text, file)
+    local st = new_state(arena.new_src(), file, 0)
+    local source = byte_source(text)
+    local ast, found, hanging = run_parser(st, source)
+    if not ast then
+        return nil, found --[[@as Diag]]
+    end
+    --- @cast found LcComment[]
+    --- @cast hanging LcNode[]
+    local short = {}
+    for i, c in ipairs(found) do
+        short[i] = { text = c.contents, span = span(st, c.offset, c.end_offset), line = c.line }
+    end
+    local long = scan_tokens(st, source)
+    -- a `;` at the start of a block or after another `;`: Lua 5.1 has no empty statement
+    for _, r in ipairs(hanging) do
+        reject(st, node_span(st, r), 'empty-statement')
+    end
+    return { ast = ast, short = short, long = long, diags = st.diags }, nil
+end
+
+--- Returns whether `code` holds any code, not just spaces and comments.
+--- @param code string
+--- @return boolean
+local function has_code(code)
+    local ls = lexer.new_state(byte_source(code))
+    while true do
+        local token = lexer.next_token(ls)
+        if token == nil or token == 'eof' then
+            return false
+        elseif token ~= 'short_comment' and token ~= 'long_comment' then
+            return true
+        end
+    end
+end
+
+-- tokens that open and close a block
+local OPENS = { ['do'] = true, ['if'] = true, ['function'] = true, ['repeat'] = true }
+local CLOSES = { ['end'] = true, ['until'] = true }
+
+--- Returns whether `code` has a `return` outside every block in it.
+--- @param code string
+--- @return boolean
+local function returns_at_top(code)
+    local ls = lexer.new_state(byte_source(code))
+    local depth = 0
+    while true do
+        local token = lexer.next_token(ls)
+        if token == nil or token == 'eof' then
+            return false
+        elseif token == 'return' and depth == 0 then
+            return true
+        elseif OPENS[token] then
+            depth = depth + 1
+        elseif CLOSES[token] then
+            depth = depth - 1
+        end
+    end
+end
+
+--- Returns the key for a ghost comment in exec code that `return` or `break` would leave out of its
+--- block, or nil: one right after an exec `return` or `break`, which it would never run after (there
+--- is nothing in between), or one with a `return` outside any block of its own, which unmasking would
+--- put before the code after it.
+--- @param text string the file as written
+--- @param exits integer[] the last offset of each exec `return` and `break` statement
+--- @param gr GhostRange
+--- @return string|nil
+local function misplaced_exit(text, exits, gr)
+    for _, finish in ipairs(exits) do
+        if finish < gr.span.start and not has_code(text:sub(finish + 1, gr.span.start - 1)) then
+            return 'ghost-after-exit'
+        end
+    end
+    if gr.kind ~= 'assert' and gr.kind ~= 'assume' and returns_at_top(text:sub(gr.head + 1, gr.close - 1)) then
+        return 'ghost-return'
+    end
+    return nil
+end
+
+--- Converts a parsed file whose ghost comments `ghosts` are unmasked.
+--- @param src SrcArena
+--- @param text string
+--- @param file FileId
+--- @param parsed LcParse
+--- @param ghosts GhostRange[]
+--- @param meta boolean whether the file is a `---@meta` file
+--- @mut src
+--- @return Chunk chunk
+--- @return Diag[] diags
+local function convert_parsed(src, text, file, parsed, ghosts, meta)
+    local st = new_state(src, file, 0)
+    st.ghosts = ghosts
+    local directives = comments.directives(parsed.short)
+    -- the statements of one ghost comment count as one, so a region marker can't split them
+    local top_spans = {}
+    for i, item in ipairs(items(st, parsed.ast)) do
+        top_spans[i] = item.ghost and item.ghost.span or node_span(st, item.nodes[1])
+    end
+    local regions = splice.regions(top_spans, directives, st.diags)
+    for _, r in ipairs(regions) do
+        st.marks[#st.marks + 1] = { span = r.span, marked = true }
+    end
+    --- @type CodeParser
+    local function code(text_of_code, start)
+        return M.expressions(src, file, text_of_code, start)
+    end
+    st.cursor = splice.cursor(src, text, directives, code, st.diags, ghosts, meta)
+    local statements = statement_list(st, parsed.ast, regions)
+    splice.finish(st.cursor)
+    -- ghost code that no statement list took is inside some exec statement
+    for _, gr in ipairs(ghosts) do
+        if not st.consumed[gr] and has_code(text:sub(gr.head + 1, gr.close - 1)) then
+            st.diags[#st.diags + 1] = diag.at_span('E-misplaced-directive', gr.span, { 'ghost-overlap' })
+        end
+    end
+    for _, d in ipairs(parsed.diags) do
+        st.diags[#st.diags + 1] = d
+    end
+    local chunk = {
+        statements = statements,
+        comments = parsed.short,
+        regions = regions,
+        annotations = comments.annotations(parsed.long),
+        marks = st.marks,
+        ghosts = ghosts,
+        exits = st.exits,
+    }
+    return chunk, st.diags
+end
+
+--- Parses `text` and adds its nodes to `src`, with the directives placed and the ghost code unmasked.
+--- Returns the converted file and the syntax and placement errors. When luacheck can't parse the text,
+--- the result is nil and the one error luacheck raised.
+---
+--- Spec and lemma blocks are unmasked wherever they sit. Other ghost code is unmasked only in marked
+--- code, which is found by converting the text as written first, and is reported anywhere else.
 --- @param src SrcArena
 --- @param text string
 --- @param file FileId
@@ -558,43 +877,60 @@ end
 --- @return Chunk|nil chunk
 --- @return Diag[] diags
 function M.convert(src, text, file, meta)
-    local st = new_state(src, file, 0)
-    local source = byte_source(text)
-    local ast, found, hanging = run_parser(st, source)
-    if not ast then
-        return nil, {
-            found --[[@as Diag]],
-        }
+    -- parse once to know which ghosts are kept, then parse again with unmasked ghosts
+    local parsed, err = parse_text(text, file)
+    if not parsed then
+        return nil, { assert(err) }
     end
-    --- @cast found LcComment[]
-    --- @cast hanging LcNode[]
-    local short = {}
-    for i, c in ipairs(found) do
-        short[i] = { text = c.contents, span = span(st, c.offset, c.end_offset), line = c.line }
+    --- @cast parsed LcParse
+    local ghosts = {}
+    local dropped = {}
+    local diags = {}
+    --- @type Chunk|nil
+    local written = nil
+    for _, gr in ipairs(comments.ghost_ranges(parsed.short, parsed.long, text)) do
+        if gr.kind == 'spec' or gr.kind == 'lemma' then
+            -- declarations, which need no marked code
+            ghosts[#ghosts + 1] = gr
+        else
+            written = written or convert_parsed(arena.new_src(), text, file, parsed, {}, meta == true)
+            if splice.marked_at(written.marks, gr.span.start) then
+                local key = misplaced_exit(text, written.exits, gr)
+                if key then
+                    local code = key == 'ghost-return' and 'E-mode' or 'E-misplaced-directive'
+                    diags[#diags + 1] = diag.at_span(code, gr.span, { key })
+                    dropped[#dropped + 1] = gr
+                else
+                    ghosts[#ghosts + 1] = gr
+                end
+            else
+                diags[#diags + 1] = diag.at_span('E-misplaced-directive', gr.span, { 'ghost-outside' })
+                dropped[#dropped + 1] = gr
+            end
+        end
     end
-    local directives = comments.directives(short)
-    local top_spans = {}
-    for i, node in ipairs(ast) do
-        top_spans[i] = node_span(st, node)
+    if #ghosts == 0 and #dropped == 0 then
+        return convert_parsed(src, text, file, parsed, {}, meta == true)
     end
-    local regions = splice.regions(top_spans, directives, st.diags)
-    for _, r in ipairs(regions) do
-        st.marked_spans[#st.marked_spans + 1] = r.span
+
+    local unmasked = comments.unmask(text, ghosts)
+    -- a reported comment is blanked whole, so the rest still parses and splice sees no directive in it
+    for _, gr in ipairs(dropped) do
+        local s = gr.span
+        local blank = (unmasked:sub(s.start, s.finish):gsub('[^\n]', ' '))
+        unmasked = unmasked:sub(1, s.start - 1) .. blank .. unmasked:sub(s.finish + 1)
     end
-    --- @type CodeParser
-    local function code(text_of_code, start)
-        return M.expressions(src, file, text_of_code, start)
+    local reparsed, reparse_err = parse_text(unmasked, file)
+    if not reparsed then
+        diags[#diags + 1] = assert(reparse_err)
+        return nil, diags
     end
-    st.cursor = splice.cursor(src, text, directives, code, st.diags, meta == true)
-    local statements = statement_list(st, ast, regions)
-    splice.finish(st.cursor)
-    -- a `;` at the start of a block or after another `;`: Lua 5.1 has no empty statement
-    for _, r in ipairs(hanging) do
-        reject(st, node_span(st, r), 'empty-statement')
+    --- @cast reparsed LcParse
+    local chunk, more = convert_parsed(src, unmasked, file, reparsed, ghosts, meta == true)
+    for _, d in ipairs(more) do
+        diags[#diags + 1] = d
     end
-    local long = scan_tokens(st, source)
-    local chunk = { statements = statements, comments = short, regions = regions, annotations = comments.annotations(long), marked = st.marked_spans }
-    return chunk, st.diags
+    return chunk, diags
 end
 
 --- Parses Lua code that sits at offset `start` of a file, such as the `n > 0` of `---@pre n > 0`, as the

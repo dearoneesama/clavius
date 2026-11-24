@@ -1,5 +1,7 @@
--- Prints core programs as Boogie. Each unit becomes a procedure with no contract that is checked on
--- its own under a Z3 resource limit. Each `Check` becomes an `assert` labeled with its obligation id:
+-- Prints core programs as Boogie. The declarations come first, as types, functions and axioms. Each
+-- unit becomes a procedure with no contract that is checked on its own under a Z3 resource limit, and a
+-- nonlinear one turns on Z3's nonlinear arithmetic for itself. Each `Check` becomes an `assert` labeled
+-- with its obligation id:
 --
 --   procedure {:rlimit 10000000} main()
 --   {
@@ -35,6 +37,20 @@ local OPS = {
     ['=>'] = '==>',
 }
 
+--- Prints variable declarations as `name: sort` joined by commas.
+--- @param core CoreArena
+--- @param vars NodeId[]
+--- @return string
+local function bindings(core, vars)
+    local out = {}
+    for i, v in ipairs(vars) do
+        local d = core.nodes[v]
+        assert(d.tag == 'VarDecl', 'boogie.print: expected a VarDecl')
+        out[i] = ('%s: %s'):format(d.name, d.sort)
+    end
+    return table.concat(out, ', ')
+end
+
 --- Prints a term. Compound operands are parenthesized, so Boogie's precedence never matters.
 --- @param core CoreArena
 --- @param id NodeId
@@ -63,6 +79,26 @@ local function term(core, id)
         return ('!%s'):format(operand(n.arg))
     elseif n.tag == 'Ite' then
         return ('if %s then %s else %s'):format(operand(n.cond), operand(n.if_true), operand(n.if_false))
+    elseif n.tag == 'Let' then
+        return ('(var %s := %s; %s)'):format(n.name, term(core, n.value), term(core, n.body))
+    elseif n.tag == 'App' then
+        local args = {}
+        for i, a in ipairs(n.args) do
+            args[i] = term(core, a)
+        end
+        return ('%s(%s)'):format(n.fn, table.concat(args, ', '))
+    elseif n.tag == 'Forall' then
+        local triggers = {}
+        for i, t in ipairs(n.triggers) do
+            local terms = {}
+            for j, kid in
+                ipairs((core.nodes[t] --[[@as CoreTrigger]]).terms)
+            do
+                terms[j] = term(core, kid)
+            end
+            triggers[i] = ('{ %s } '):format(table.concat(terms, ', '))
+        end
+        return ('(forall %s :: %s%s)'):format(bindings(core, n.vars), table.concat(triggers), term(core, n.body))
     end
     error(('boogie.print: unhandled term %s'):format(n.tag))
 end
@@ -129,22 +165,38 @@ local function statements(core, ids, depth, out)
     end
 end
 
---- Prints the units of a valid core program as one Boogie file.
+--- Prints the declarations and units of a valid core program as one Boogie file.
 --- @param core CoreArena
+--- @param decls NodeId[]
 --- @param units NodeId[]
 --- @param opts BoogiePrintOptions|nil
 --- @return string
-function M.program(core, units, opts)
+function M.program(core, decls, units, opts)
     local rlimit = (opts and opts.rlimit) or M.DEFAULT_RLIMIT
     local split = (opts and opts.split) or {}
     local out = {}
+    for _, id in ipairs(decls) do
+        local d = core.nodes[id]
+        if d.tag == 'SortDecl' then
+            out[#out + 1] = ('type %s;'):format(d.name)
+        elseif d.tag == 'FunDecl' then
+            out[#out + 1] = ('function %s(%s): %s;'):format(d.name, bindings(core, d.params), d.sort)
+        elseif d.tag == 'Axiom' then
+            out[#out + 1] = ('axiom %s;'):format(term(core, d.cond))
+        else
+            error(('boogie.print: unhandled declaration %s'):format(d.tag))
+        end
+    end
     for i, id in ipairs(units) do
         local u = core.nodes[id]
         assert(u.tag == 'Unit', 'boogie.print: expected a Unit')
-        if i > 1 then
+        if i > 1 or #decls > 0 then
             out[#out + 1] = ''
         end
         local attrs = ('{:rlimit %d}'):format(rlimit)
+        if u.arith == 'nonlinear' then
+            attrs = attrs .. ' {:smt_option "smt.arith.nl", "true"}'
+        end
         if split[u.name] then
             attrs = attrs .. ' {:vcs_split_on_every_assert}'
         end

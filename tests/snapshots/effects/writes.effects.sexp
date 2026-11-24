@@ -79,7 +79,7 @@
      [(Local [(Literal number 0 :type int53)] [(Binder x$10 :type int53)])
       (Repeat
         [(ClvDecrease
-           [(BinOp sub (Literal number 10 :type int53) (Id x$10 :type int53) :type int53)])]
+           [(BinOp sub (Literal number 10 :type int53) (Id x$10 :type int53) :type Int)])]
         (Block
           [(Set
              [(Id x$10 :type int53)]

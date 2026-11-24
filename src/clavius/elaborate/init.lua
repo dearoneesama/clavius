@@ -7,6 +7,10 @@ local expr = require 'clavius.elaborate.expr'
 
 local M = {}
 
+-- the sort of fuel: how often an axiom may unfold a spec function
+local FUEL = '$Fuel'
+
+--- Forward declaration.
 local statement
 
 --- Checks each `---@post` of the function being built, where it returns at `origin`. A parameter in a
@@ -74,9 +78,10 @@ local function loop_head(b, out, id)
     for _, w in ipairs(b.effects.writes[id] or {}) do
         local name = builder.name_of(b, w.root)
         builder.emit(b, out, { tag = 'Havoc', target = name }, id)
-        if b.info.types[w.root] == 'int53' then
+        local ty = b.info.types[w.root]
+        if builder.has_type_fact(ty) then
             local value = builder.add(b, { tag = 'Var', name = name }, id)
-            builder.assume(b, out, 'type_fact', builder.is_int53(b, value, id), id)
+            builder.assume(b, out, 'type_fact', assert(builder.type_fact(b, ty, value, id)), id)
         end
     end
     for _, inv in ipairs(arena.directives(b.src, loop, 'ClvInvariant')) do
@@ -386,8 +391,10 @@ local function lower_fornum(b, id, n, out)
     end
 
     local runs = {}
-    -- past ±2^53, `i + step` would round back to `i` and the loop would never end
-    builder.check(b, runs, 'for_bound', builder.is_int53(b, last, id), id)
+    -- past ±2^53, `i + step` would round back to `i` and the loop would never end; ghost code has no doubles
+    if not b.ghost then
+        builder.check(b, runs, 'for_bound', builder.is_int53(b, last, id), id)
+    end
     builder.emit(b, runs, { tag = 'Assign', target = i, value = start }, n.var)
     builder.check(b, runs, 'invariant_entry', range, id)
     check_invariants(b, runs, 'invariant_entry', id)
@@ -419,8 +426,22 @@ end
 --- @decrease id
 function statement(b, id, out)
     local n = b.src.nodes[id]
-    if b.res.defined[id] ~= nil or (n.tag == 'Local' and #n.values == 0) then -- luacheck: ignore 542
+    local defines = n.tag == 'ClvSpec' or n.tag == 'ClvLemma' or (n.tag == 'Local' and #n.values == 0)
+    if b.res.defined[id] ~= nil or defines then -- luacheck: ignore 542
         -- a function definition is a unit of its own, and a forward declaration declares only functions
+    elseif n.tag == 'ClvProof' or n.tag == 'ClvGhost' or n.tag == 'ClvAssert' or n.tag == 'ClvAssume' then
+        local ghost = b.ghost
+        b.ghost = true
+        if n.tag == 'ClvProof' or n.tag == 'ClvGhost' then
+            for _, s in ipairs(n.statements) do
+                statement(b, s, out)
+            end
+        elseif n.tag == 'ClvAssert' then
+            builder.check(b, out, 'assert', expr.lower(b, n.cond, out), id)
+        else -- 'ClvAssume'
+            builder.assume(b, out, 'assumed', expr.lower(b, n.cond, out), id)
+        end
+        b.ghost = ghost
     elseif n.tag == 'Local' then
         local terms = {}
         for i, v in ipairs(n.values) do
@@ -435,6 +456,9 @@ function statement(b, id, out)
         local terms = {}
         for i, v in ipairs(n.values) do
             terms[i] = expr.lower(b, v, out)
+            if b.ghost then
+                builder.narrow(b, out, b.info.types[b.res.decl[n.targets[i]]], b.info.types[v], terms[i], v)
+            end
         end
         if #n.targets == 1 then
             builder.emit(b, out, { tag = 'Assign', target = builder.name_of(b, n.targets[1]), value = terms[1] }, id)
@@ -470,15 +494,22 @@ function statement(b, id, out)
         local callee = b.src.nodes[n.func] --[[@as SrcId]]
         if callee.name == 'assert' then
             builder.check(b, out, 'assert', expr.lower(b, n.args[1], out), id)
+        elseif callee.name == 'assume' then
+            builder.assume(b, out, 'assumed', expr.lower(b, n.args[1], out), id)
         else
             -- `error` must be unreachable
             builder.check(b, out, 'unreachable', builder.add(b, { tag = 'Bool', value = false }, id), id)
         end
     elseif n.tag == 'Return' then
         local fn = assert(b.fn)
-        if n.values[1] ~= nil then
-            local value = expr.lower(b, n.values[1], out)
-            builder.emit(b, out, { tag = 'Assign', target = builder.name_of(b, assert(fn.result)), value = value }, id)
+        local v = n.values[1]
+        if v ~= nil then
+            local value = expr.lower(b, v, out)
+            builder.narrow(b, out, b.info.types[fn.result], b.info.types[v], value, v)
+            -- a spec function's unit only checks its body, and the axioms say what it returns
+            if fn.kind ~= 'spec' then
+                builder.emit(b, out, { tag = 'Assign', target = builder.name_of(b, assert(fn.result)), value = value }, id)
+            end
         end
         check_posts(b, out, id)
         builder.emit(b, out, { tag = 'Exit', label = 'body' }, id)
@@ -487,9 +518,25 @@ function statement(b, id, out)
     end
 end
 
---- Lowers a verified function to a unit named like its Binder. Its callers are trusted to pass well-typed
---- arguments that meet its `---@pre`s, since some may be outside verification; verified ones check the
---- `---@pre`s. Its body runs in a Block labeled `body`, which `return` exits.
+--- Returns how often the unit of `fn` may unfold each spec function that its `---@reveal_with_fuel`s name.
+--- @param b Builder
+--- @param fn SrcFunction
+--- @return table<NodeId, integer>
+local function unit_fuel(b, fn)
+    local fuel = {}
+    for _, d in ipairs(arena.directives(b.src, fn, 'ClvRevealWithFuel')) do
+        fuel[b.res.fuel[d]] = (b.src.nodes[d] --[[@as SrcClvRevealWithFuel]]).fuel
+    end
+    return fuel
+end
+
+--- Lowers a verified function, lemma or spec function to a unit named like its Binder. Its body runs in a
+--- Block labeled `body`, which `return` exits.
+---
+--- An exec function's callers are trusted to pass well-typed arguments that meet its `---@pre`s, since
+--- some may be outside verification; verified ones check the `---@pre`s. Only proof code calls a lemma,
+--- and it checks both. A spec function's unit checks its body without the definitions of its cycle. A
+--- unit is nonlinear when its function is `---@proof_by(nonlinear_arith)`.
 --- @param b Builder
 --- @param binder NodeId the Binder that the function's definition defines
 --- @mut b
@@ -497,18 +544,30 @@ end
 local function function_unit(b, binder)
     local fn_id = b.res.functions[binder]
     local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
+    local kind = b.res.kinds[fn_id]
     builder.start_unit(b)
+    b.fuel = unit_fuel(b, fn)
     local body = {}
+    builder.definitions(b, body, kind == 'spec' and fn_id or nil, fn_id)
+    --- @type Justification
+    local entry_kind = 'precondition'
+    if kind == 'exec' then
+        entry_kind = 'trusted'
+    elseif kind == 'spec' then
+        -- its axioms cover only arguments of its parameters' types
+        entry_kind = 'type_fact'
+    end
+    local decl = kind == 'exec' and fn_id or nil
     for _, p in ipairs(fn.params) do
         local ty = b.info.types[p]
         builder.var(b, builder.name_of(b, p), builder.sort(ty), p)
-        if ty == 'int53' then
+        if builder.has_type_fact(ty) then
             local value = builder.add(b, { tag = 'Var', name = builder.name_of(b, p) }, p)
-            builder.assume(b, body, 'trusted', builder.is_int53(b, value, p), p, fn_id)
+            builder.assume(b, body, entry_kind, assert(builder.type_fact(b, ty, value, p)), p, decl)
         end
     end
     local result = arena.directives(b.src, fn, 'ClvReturn')[1]
-    if result ~= nil then
+    if result ~= nil and kind ~= 'spec' then
         builder.var(b, builder.name_of(b, result), builder.sort(b.info.types[result]), result)
     end
     --- @type table<NodeId, NodeId>
@@ -523,22 +582,24 @@ local function function_unit(b, binder)
     end
     for _, pre in ipairs(arena.directives(b.src, fn, 'ClvPre')) do
         local cond = (b.src.nodes[pre] --[[@as SrcClvPre]]).cond
-        builder.assume(b, body, 'trusted', expr.clause(b, cond, {}), pre, fn_id)
+        builder.assume(b, body, entry_kind, expr.clause(b, cond, {}), pre, decl)
     end
-    b.fn = { id = fn_id, result = result, posts = arena.directives(b.src, fn, 'ClvPost'), entry = entry }
+    b.fn = { id = fn_id, kind = kind, result = result, posts = arena.directives(b.src, fn, 'ClvPost'), entry = entry }
+    b.ghost = kind ~= 'exec'
     local inner = {}
     statement(b, fn.body, inner)
-    -- checks after control has reached end
-    if result ~= nil then
+    -- checks after control has reached end; every path through a spec function returns, which resolve checks already
+    if result ~= nil and kind ~= 'spec' then
         -- Lua would return nothing here. don't let it happen in verified code
         builder.check(b, inner, 'missing_return', builder.add(b, { tag = 'Bool', value = false }, fn_id), fn_id)
-    else
+    elseif kind ~= 'spec' then
         -- add post conds for the implicit return
         check_posts(b, inner, fn_id)
     end
-    b.fn = nil
+    b.fn, b.ghost, b.fuel = nil, false, {}
     builder.emit(b, body, { tag = 'Block', label = 'body', body = inner }, fn_id)
-    return builder.add(b, { tag = 'Unit', name = builder.name_of(b, binder), vars = b.vars, body = body }, fn_id)
+    local arith = arena.has_directive(b.src, fn, 'ClvProofBy') and 'nonlinear' or 'linear'
+    return builder.add(b, { tag = 'Unit', name = builder.name_of(b, binder), arith = arith, vars = b.vars, body = body }, fn_id)
 end
 
 --- Returns whether a top-level function definition is verified: marked `---@clavius`, or in a region and
@@ -555,8 +616,237 @@ local function is_verified(b, binder, in_region)
     return in_region and not arena.has_directive(b.src, fn, 'ClvUnsafe')
 end
 
---- Lowers the marked code of a typed file in source order. Each verified function's unit is named like
---- its Binder, and the units of the regions' other statements `main$1`, `main$2` and so on.
+--- What is left of a spec function's body to lower: a statement list from `index` on, and then what
+--- follows the block that the list is in.
+--- @class SpecRest
+--- @field statements NodeId[]
+--- @field index integer
+--- @field next SpecRest|nil
+
+--- Lowers what is left of a spec function's body to the term for its value. An `if` is an Ite whose arms
+--- each go on with the statements after it, and a `local` binds its names in a Let around the rest.
+--- @param b Builder
+--- @param rest SpecRest
+--- @mut b
+--- @return NodeId term
+local function spec_term(b, rest)
+    while rest.index > #rest.statements do
+        -- every path returns, which resolve checks
+        rest = assert(rest.next, 'elaborate: a spec function may end without a value')
+    end
+    local id = rest.statements[rest.index]
+    local n = b.src.nodes[id]
+    --- @type SpecRest
+    local after = { statements = rest.statements, index = rest.index + 1, next = rest.next }
+    if n.tag == 'Return' then
+        return expr.clause(b, n.values[1], {})
+    elseif n.tag == 'Local' then
+        -- the names are fresh, so a value can't refer to the names bound before it
+        local values = {}
+        for i, v in ipairs(n.values) do
+            values[i] = expr.clause(b, v, {})
+        end
+        local value = spec_term(b, after)
+        for i = #n.names, 1, -1 do
+            value = builder.add(b, { tag = 'Let', name = builder.name_of(b, n.names[i]), value = values[i], body = value }, id)
+        end
+        return value
+    elseif n.tag == 'Block' then
+        return spec_term(b, { statements = n.statements, index = 1, next = after })
+    elseif n.tag == 'If' then
+        local value
+        if n.else_block ~= nil then
+            local else_block = b.src.nodes[n.else_block] --[[@as SrcBlock]]
+            value = spec_term(b, { statements = else_block.statements, index = 1, next = after })
+        else
+            value = spec_term(b, after)
+        end
+        for i = #n.arms, 1, -1 do
+            local arm = b.src.nodes[n.arms[i]] --[[@as SrcIfArm]]
+            local cond = expr.clause(b, arm.cond, {})
+            local body = b.src.nodes[arm.body] --[[@as SrcBlock]]
+            local if_true = spec_term(b, { statements = body.statements, index = 1, next = after })
+            value = builder.add(b, { tag = 'Ite', cond = cond, if_true = if_true, if_false = value }, n.arms[i])
+        end
+        return value
+    end
+    error(('elaborate: unhandled spec function statement %s'):format(n.tag))
+end
+
+--- Declares the sort of fuel and its two functions: `$zero`, and `$succ`, which adds one unfolding.
+--- @param b Builder
+--- @param origin NodeId
+--- @mut b
+local function declare_fuel(b, origin)
+    local fuel = builder.add(b, { tag = 'VarDecl', name = '$fuel', sort = FUEL }, origin)
+    b.decls[#b.decls + 1] = builder.add(b, { tag = 'SortDecl', name = FUEL }, origin)
+    b.decls[#b.decls + 1] = builder.add(b, { tag = 'FunDecl', name = '$zero', params = {}, sort = FUEL }, origin)
+    b.decls[#b.decls + 1] = builder.add(b, { tag = 'FunDecl', name = '$succ', params = { fuel }, sort = FUEL }, origin)
+end
+
+--- Returns the variables that an axiom about a spec function binds, its fuel and its parameters, and the
+--- term for each parameter.
+--- @param b Builder
+--- @param fn SrcFunction
+--- @param origin NodeId
+--- @mut b
+--- @return NodeId[] vars
+--- @return NodeId[] params
+local function bound(b, fn, origin)
+    local vars = { builder.add(b, { tag = 'VarDecl', name = '$fuel', sort = FUEL }, origin) }
+    local params = {}
+    for _, p in ipairs(fn.params) do
+        local name = builder.name_of(b, p)
+        vars[#vars + 1] = builder.add(b, { tag = 'VarDecl', name = name, sort = builder.sort(b.info.types[p]) }, p)
+        params[#params + 1] = builder.add(b, { tag = 'Var', name = name }, p)
+    end
+    return vars, params
+end
+
+--- Returns a spec function's FunDecl applied to `fuel` and `params`.
+--- @param b Builder
+--- @param spec BuilderSpec
+--- @param fuel NodeId
+--- @param params NodeId[]
+--- @mut b
+--- @return NodeId
+local function apply(b, spec, fuel, params)
+    local args = { fuel }
+    for _, p in ipairs(params) do
+        args[#args + 1] = p
+    end
+    return builder.add(b, { tag = 'App', fn = spec.name, args = args }, spec.id)
+end
+
+--- Adds the axiom `guard => (forall vars :: {trigger} body)` about a spec function.
+--- @param b Builder
+--- @param spec BuilderSpec
+--- @param vars NodeId[]
+--- @param trigger NodeId
+--- @param body NodeId
+--- @mut b
+local function axiom(b, spec, vars, trigger, body)
+    local triggers = { builder.add(b, { tag = 'Trigger', terms = { trigger } }, spec.id) }
+    local forall = builder.add(b, { tag = 'Forall', vars = vars, triggers = triggers, body = body }, spec.id)
+    local guard = builder.add(b, { tag = 'App', fn = spec.guard, args = {} }, spec.id)
+    local cond = builder.add(b, { tag = 'BinOp', op = '=>', lhs = guard, rhs = forall }, spec.id)
+    b.decls[#b.decls + 1] = builder.add(b, { tag = 'Axiom', cond = cond }, spec.id)
+end
+
+--- Declares a spec function: a FunDecl of the fuel and its parameters, and a constant that guards its axioms.
+--- @param b Builder
+--- @param binder NodeId
+--- @mut b
+local function declare_spec(b, binder)
+    local fn_id = b.res.functions[binder]
+    local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
+    local name = b.res.names[binder]
+    local vars = bound(b, fn, fn_id)
+    local result = arena.directives(b.src, fn, 'ClvReturn')[1]
+    local sort = builder.sort(b.info.types[result])
+    -- spec's declaration
+    b.decls[#b.decls + 1] = builder.add(b, { tag = 'FunDecl', name = name, params = vars, sort = sort }, fn_id)
+    -- it's guard constant
+    --- @type BuilderSpec
+    local spec = { id = fn_id, name = name, guard = ('$ok$%s'):format(name) }
+    b.decls[#b.decls + 1] = builder.add(b, { tag = 'FunDecl', name = spec.guard, params = {}, sort = 'bool' }, fn_id)
+    b.specs[#b.specs + 1] = spec
+    b.spec_of[fn_id] = spec
+end
+
+--- Adds the axioms that define a spec function. One more unit of fuel unfolds it once, and its value
+--- is then its body's; calls in its cycle in the body take the smaller fuel, so unfolding stops. A
+--- recursive one has the same value at every fuel.
+--- @param b Builder
+--- @param spec BuilderSpec
+--- @mut b
+local function define_spec(b, spec)
+    local fn = b.src.nodes[spec.id] --[[@as SrcFunction]]
+    -- layer axiom: f(succ(fuel), x) == f(fuel, x)
+    if b.termination.cycle[spec.id] ~= nil then
+        local vars, params = bound(b, fn, spec.id)
+        local fuel = builder.add(b, { tag = 'Var', name = '$fuel' }, spec.id)
+        local more = apply(b, spec, builder.add(b, { tag = 'App', fn = '$succ', args = { fuel } }, spec.id), params)
+        axiom(b, spec, vars, more, builder.add(b, { tag = 'BinOp', op = '==', lhs = more, rhs = apply(b, spec, fuel, params) }, spec.id))
+    end
+
+    -- definition axiom: f(succ(fuel), x) == body, whose calls in the cycle take fuel
+    local vars, params = bound(b, fn, spec.id)
+    local fuel = builder.add(b, { tag = 'Var', name = '$fuel' }, spec.id)
+    local more = apply(b, spec, builder.add(b, { tag = 'App', fn = '$succ', args = { fuel } }, spec.id), params)
+    b.axiom = { fn = spec.id, fuel = '$fuel' }
+    local body = b.src.nodes[fn.body] --[[@as SrcBlock]]
+    local value = spec_term(b, { statements = body.statements, index = 1, next = nil })
+    b.axiom = nil
+    local defined = builder.add(b, { tag = 'BinOp', op = '==', lhs = more, rhs = value }, spec.id)
+    -- only for arguments of the parameters' types
+    for i = #fn.params, 1, -1 do
+        local fact = builder.type_fact(b, b.info.types[fn.params[i]], params[i], fn.params[i])
+        if fact ~= nil then
+            defined = builder.add(b, { tag = 'BinOp', op = '=>', lhs = fact, rhs = defined }, spec.id)
+        end
+    end
+    axiom(b, spec, vars, more, defined)
+
+    -- type-fact axiom: f(fuel, x) has the result's type
+    local result = arena.directives(b.src, fn, 'ClvReturn')[1]
+    local fact_vars, fact_params = bound(b, fn, spec.id)
+    local value_at = apply(b, spec, builder.add(b, { tag = 'Var', name = '$fuel' }, spec.id), fact_params)
+    local fact = builder.type_fact(b, b.info.types[result], value_at, result)
+    if fact ~= nil then
+        axiom(b, spec, fact_vars, value_at, fact)
+    end
+end
+
+--- Returns the ClvSpec and ClvLemma blocks of a file in source order: at the top level and in regions.
+--- @param src SrcArena
+--- @param root NodeId
+--- @return (SrcClvSpec|SrcClvLemma)[]
+local function blocks(src, root)
+    local out = {}
+    local top = src.nodes[root] --[[@as SrcBlock]]
+    for _, id in ipairs(top.statements) do
+        local n = src.nodes[id]
+        local inner = n.tag == 'ClvRegion' and n.statements or { id }
+        for _, s in ipairs(inner) do
+            local sn = src.nodes[s]
+            if sn.tag == 'ClvSpec' or sn.tag == 'ClvLemma' then
+                out[#out + 1] = sn
+            end
+        end
+    end
+    return out
+end
+
+--- Adds to `units` the units of what a top-level statement defines: a verified function, or the functions
+--- of a `--[[@spec` or `--[[@lemma` block. Returns whether it is such a definition.
+--- @param b Builder
+--- @param id NodeId the statement
+--- @param in_region boolean
+--- @param units NodeId[]
+--- @mut b
+--- @mut units
+--- @return boolean
+local function definition_units(b, id, in_region, units)
+    local n = b.src.nodes[id]
+    local binder = b.res.defined[id]
+    if binder ~= nil and is_verified(b, binder, in_region) then
+        units[#units + 1] = function_unit(b, binder)
+        return true
+    elseif n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then
+        for _, s in ipairs(n.statements) do
+            if b.res.defined[s] ~= nil then
+                units[#units + 1] = function_unit(b, b.res.defined[s])
+            end
+        end
+        return true
+    end
+    return false
+end
+
+--- Lowers the marked code of a typed file in source order. Each verified function's, lemma's and spec
+--- function's unit is named like its Binder, and the units of the regions' other statements `main$1`,
+--- `main$2` and so on. The declarations come first: the Funs and axioms of the spec functions.
 --- @param src SrcArena
 --- @param root NodeId
 --- @param res Resolution
@@ -566,37 +856,50 @@ end
 --- @return CoreProgram
 function M.run(src, root, res, info, effects, termination)
     local b = builder.new(src, res, info, effects, termination)
+    for _, block in ipairs(blocks(src, root)) do
+        for _, s in ipairs(block.tag == 'ClvSpec' and block.statements or {}) do
+            if res.defined[s] ~= nil then
+                if #b.specs == 0 then
+                    declare_fuel(b, s)
+                end
+                declare_spec(b, res.defined[s])
+            end
+        end
+    end
+    for _, spec in ipairs(b.specs) do
+        define_spec(b, spec)
+    end
     local units = {}
     local regions = 0
     local top = src.nodes[root] --[[@as SrcBlock]]
     for _, id in ipairs(top.statements) do
         local n = src.nodes[id]
-        local binder = res.defined[id]
-        if binder ~= nil and is_verified(b, binder, false) then
-            units[#units + 1] = function_unit(b, binder)
-        elseif n.tag == 'ClvRegion' then
+        if n.tag == 'ClvRegion' then
             local others = {}
             for _, s in ipairs(n.statements) do
                 local sn = src.nodes[s]
-                local defines = res.defined[s]
-                if defines ~= nil and is_verified(b, defines, true) then
-                    units[#units + 1] = function_unit(b, defines)
-                elseif defines == nil and not (sn.tag == 'Local' and #sn.values == 0) then
+                local defined = definition_units(b, s, true, units)
+                -- an unverified function and a forward declaration lower to nothing
+                if not defined and res.defined[s] == nil and not (sn.tag == 'Local' and #sn.values == 0) then
                     others[#others + 1] = s
                 end
             end
             if #others > 0 then
                 builder.start_unit(b)
                 local body = {}
+                builder.definitions(b, body, nil, id)
                 for _, s in ipairs(others) do
                     statement(b, s, body)
                 end
                 regions = regions + 1
-                units[#units + 1] = builder.add(b, { tag = 'Unit', name = ('main$%d'):format(regions), vars = b.vars, body = body }, id)
+                local unit = { tag = 'Unit', name = ('main$%d'):format(regions), arith = 'linear', vars = b.vars, body = body }
+                units[#units + 1] = builder.add(b, unit, id)
             end
+        else
+            definition_units(b, id, false, units)
         end
     end
-    return { core = b.core, units = units, obligations = b.obligations, assumptions = b.assumptions }
+    return { core = b.core, decls = b.decls, units = units, obligations = b.obligations, assumptions = b.assumptions }
 end
 
 return M

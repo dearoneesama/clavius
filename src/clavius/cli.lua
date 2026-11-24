@@ -16,6 +16,7 @@ local trust = require 'clavius.report.trust'
 --- @field after string|nil
 --- @field trust_report boolean|nil `verify --trust-report`
 --- @field meta string[] the `---@meta` files given with `--meta`
+--- @field nonlinear_arith boolean|nil `verify --nonlinear-arith`
 
 local M = {}
 
@@ -46,6 +47,7 @@ local function build_parser(help)
     verify:argument('file', 'The .lua file or .core.sexp file to verify.')
     verify:flag('--trust-report', 'Also print what the run assumed rather than proved.')
     verify:option('--meta', 'A ---@meta file with ---@extern host functions that the Lua file may call.'):argname('<file>'):count '*'
+    verify:flag('--nonlinear-arith', 'Let the solver use nonlinear arithmetic everywhere.')
 
     local dump = with_help(parser:command('dump', 'Print the program as an s-expression after a stage.'))
     dump:argument('file', 'The .lua file to read.')
@@ -88,7 +90,7 @@ local function run_core(args, text, out, err)
         out:write(driver.lower_core(prog))
         return M.EXIT_OK
     end
-    local failed, run_err = driver.verify_core(prog)
+    local failed, run_err = driver.verify_core(prog, { nonlinear = args.nonlinear_arith })
     if not failed then
         err:write(('clavius: %s\n'):format(run_err))
         return M.EXIT_ERROR
@@ -147,12 +149,12 @@ local function run_lua(args, text, out, err)
         return M.EXIT_OK
     end
     local prog = assert(c.prog)
-    local failed, run_err = driver.verify_core(prog)
+    local failed, run_err = driver.verify_core(prog, { nonlinear = args.nonlinear_arith })
     if not failed then
         err:write(('clavius: %s\n'):format(run_err))
         return M.EXIT_ERROR
     end
-    local failures = messages.failures(failed, prog.obligations, c.src, c.files)
+    local failures = messages.failures(failed, prog, c.src, c.files, args.nonlinear_arith)
     write_lines(out, args.file, failures)
     local report = {}
     if args.trust_report then

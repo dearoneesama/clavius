@@ -6,9 +6,22 @@ local arena = require 'clavius.ir.arena'
 --- The function whose unit is being built.
 --- @class BuilderFunction
 --- @field id NodeId its Function node
+--- @field kind 'exec' | 'spec' | 'lemma'
 --- @field result NodeId|nil its ClvReturn
 --- @field posts NodeId[] its ClvPost nodes
 --- @field entry table<NodeId, NodeId> the snapshot taken on entry of each parameter the body assigns, as a Var term
+
+--- A spec function's declarations: the FunDecl that stands for it, and the constant that guards its axioms.
+--- @class BuilderSpec
+--- @field id NodeId its Function node
+--- @field name string
+--- @field guard string
+
+--- The spec function whose definition is being lowered to an axiom: calls in its cycle take the fuel
+--- that the axiom binds.
+--- @class BuilderAxiom
+--- @field fn NodeId the Function node
+--- @field fuel string the bound fuel variable
 
 --- @class Builder
 --- @field src SrcArena
@@ -17,8 +30,13 @@ local arena = require 'clavius.ir.arena'
 --- @field effects Effects
 --- @field termination Termination
 --- @field core CoreArena
+--- @field decls NodeId[] the SortDecl, FunDecl and Axiom nodes
 --- @field obligations Obligation[]
 --- @field assumptions Assumption[]
+--- @field specs BuilderSpec[] the spec functions in source order
+--- @field spec_of table<NodeId, BuilderSpec> each spec function's by its Function node
+--- @field fuel table<NodeId, integer> how often the unit being built may unfold each spec function, when not once
+--- @field axiom BuilderAxiom|nil
 --- @field vars NodeId[] the VarDecl nodes of the unit being built
 --- @field declared table<string, boolean> the names of those variables
 --- @field temps integer the temporaries of the unit being built
@@ -26,6 +44,7 @@ local arena = require 'clavius.ir.arena'
 --- @field breaks string[] the Block labels of the loops around the statement being lowered, innermost last
 --- @field fn BuilderFunction|nil
 --- @field spec boolean whether a contract clause is being lowered: its arithmetic is exact and has no checks
+--- @field ghost boolean whether spec or proof code is being lowered: its arithmetic is exact
 --- @field subst table<NodeId, NodeId> the term that stands for each declaration in the clause being lowered
 
 local M = {}
@@ -48,8 +67,13 @@ function M.new(src, res, info, effects, termination)
         effects = effects,
         termination = termination,
         core = arena.new_core(),
+        decls = {},
         obligations = {},
         assumptions = {},
+        specs = {},
+        spec_of = {},
+        fuel = {},
+        axiom = nil,
         vars = {},
         declared = {},
         temps = 0,
@@ -57,6 +81,7 @@ function M.new(src, res, info, effects, termination)
         breaks = {},
         fn = nil,
         spec = false,
+        ghost = false,
         subst = {},
     }
 end
@@ -123,7 +148,7 @@ end
 --- Declares a variable of the unit being built.
 --- @param b Builder
 --- @param name string
---- @param sort 'int' | 'bool'
+--- @param sort string
 --- @param origin NodeId
 --- @mut b
 function M.var(b, name, sort, origin)
@@ -133,7 +158,7 @@ end
 
 --- Declares a fresh variable. Its name starts with `$`, so it can't clash with a Lua name.
 --- @param b Builder
---- @param sort 'int' | 'bool'
+--- @param sort string
 --- @param origin NodeId
 --- @mut b
 --- @return string name
@@ -201,12 +226,99 @@ end
 
 --- Returns the core sort of a type.
 --- @param ty Type
---- @return 'int' | 'bool'
+--- @return string
 function M.sort(ty)
-    if ty == 'int53' then
-        return 'int'
+    if ty == 'boolean' then
+        return 'bool'
     end
-    return 'bool'
+    return 'int'
+end
+
+--- Returns whether a value of type `ty` satisfies a fact that not every value of its sort does, which
+--- `type_fact` gives.
+--- @param ty Type|nil
+--- @return boolean
+function M.has_type_fact(ty)
+    return ty == 'int53' or ty == 'Nat'
+end
+
+--- Returns the fact that a value of type `ty` satisfies, or nil when every value of its sort does: an
+--- `int53` is within ±2^53 and a `Nat` is non-negative.
+--- @param b Builder
+--- @param ty Type|nil
+--- @param t NodeId
+--- @param origin NodeId
+--- @mut b
+--- @return NodeId|nil
+function M.type_fact(b, ty, t, origin)
+    if ty == 'int53' then
+        return M.is_int53(b, t, origin)
+    elseif ty == 'Nat' then
+        return M.add(b, { tag = 'BinOp', op = '<=', lhs = M.add(b, { tag = 'Int', text = '0' }, origin), rhs = t }, origin)
+    end
+    return nil
+end
+
+--- Checks, in ghost code, that `t` fits where a value of the narrower type `to` is expected: a `Nat` is
+--- non-negative, and an `int53` is within ±2^53. A value of type `from` already does when it is `to`.
+--- @param b Builder
+--- @param out NodeId[]
+--- @param to Type|nil
+--- @param from Type|nil
+--- @param t NodeId
+--- @param origin NodeId
+--- @mut b
+--- @mut out
+function M.narrow(b, out, to, from, t, origin)
+    if to == from or b.spec then
+        return
+    elseif to == 'Nat' then
+        M.check(b, out, 'nat', assert(M.type_fact(b, to, t, origin)), origin)
+    elseif to == 'int53' then
+        M.check(b, out, 'range', M.is_int53(b, t, origin), origin)
+    end
+end
+
+--- Returns the term for `fuel` unfoldings: `$succ` applied that often to `$zero`.
+--- @param b Builder
+--- @param fuel integer
+--- @param origin NodeId
+--- @mut b
+--- @return NodeId
+function M.fuel(b, fuel, origin)
+    local t = M.add(b, { tag = 'App', fn = '$zero', args = {} }, origin)
+    for _ = 1, fuel do
+        t = M.add(b, { tag = 'App', fn = '$succ', args = { t } }, origin)
+    end
+    return t
+end
+
+--- Returns whether two functions are in one cycle of recursive calls.
+--- @param b Builder
+--- @param f NodeId
+--- @param g NodeId
+--- @return boolean
+function M.same_cycle(b, f, g)
+    local cycle = b.termination.cycle[f]
+    return cycle ~= nil and cycle == b.termination.cycle[g]
+end
+
+--- Assumes the axioms of every spec function but those in the cycle of `except`, if any, which is the
+--- spec function whose unit is being built. That unit checks that the definitions in its cycle are
+--- well founded, so it may not rely on them.
+--- @param b Builder
+--- @param out NodeId[]
+--- @param except NodeId|nil a spec function's Function node
+--- @param origin NodeId
+--- @mut b
+--- @mut out
+function M.definitions(b, out, except, origin)
+    -- this spits out all assumptions although some may not needed.
+    for _, spec in ipairs(b.specs) do
+        if except == nil or not (spec.id == except or M.same_cycle(b, spec.id, except)) then
+            M.assume(b, out, 'definition', M.add(b, { tag = 'App', fn = spec.guard, args = {} }, origin), origin)
+        end
+    end
 end
 
 --- Returns the variable that holds a local or a function's value: the unique name of the Binder or

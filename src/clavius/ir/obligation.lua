@@ -17,18 +17,23 @@
 --- | 'for_step' # a numeric `for`'s step is not 0
 --- | 'div_zero' # the divisor of `%` or of `math.floor(a / b)` isn't 0
 --- | 'mod_range' # `a - a % b` stays within ±2^53, so LuaJIT computes `a % b` exactly
+--- | 'nat' # a value that ghost code passes or returns as a `Nat` is non-negative
 
---- Why an assumption may be made. Nothing proves a `trusted` one, so the trust report lists each. The
---- `false` of a `back_edge` ends an iteration whose checks are done, since the loop's head, with its
---- havoc and invariants, stands for every later iteration. At a recursive call, `callee_post` holds by
---- induction on the measure that the call decreases.
+--- Why an assumption may be made. Nothing proves a `trusted` or `assumed` one, so the trust report lists each.
+---
+--- Why 'precondition' is a justification for lemma not exec functions: unmarked code may call an exec
+--- function, so nothing checks what it assumes on entry and that is `trusted`, but only proof code calls
+--- a lemma, and every call there checks the lemma's `---@pre`s and its parameters' types.
 --- @alias Justification
 --- | 'type_fact' # a value of a declared type satisfies that type's predicate
 --- | 'branch' # the condition of the branch being taken
---- | 'callee_post' # a verified callee's `---@post`, proved where the callee returns
+--- | 'callee_post' # a verified callee's `---@post`, proved where the callee returns or, at a recursive call, by induction on the measure
 --- | 'trusted' # what a trusted callee promises, or what a verified function assumes on entry about outside callers
+--- | 'assumed' # the condition of an `---@assume` line, or of an `assume` call in proof code
 --- | 'invariant' # a loop invariant at the loop's head, checked on entry and after each iteration
 --- | 'back_edge' # `false` at the end of an iteration that iterates again
+--- | 'definition' # the axioms that define a spec function
+--- | 'precondition' # a lemma's `---@pre`s and its parameters' types on entry, which every call proves, since only proof code calls it
 
 --- @class Obligation
 --- @field kind ObligationKind
@@ -58,10 +63,21 @@ M.OBLIGATION_KINDS = {
     for_step = true,
     div_zero = true,
     mod_range = true,
+    nat = true,
 }
 
 --- The justifications an `Assume` may have as a set.
 --- @type table<string, boolean>
-M.JUSTIFICATIONS = { type_fact = true, branch = true, callee_post = true, trusted = true, invariant = true, back_edge = true }
+M.JUSTIFICATIONS = {
+    type_fact = true,
+    branch = true,
+    callee_post = true,
+    trusted = true,
+    assumed = true,
+    invariant = true,
+    back_edge = true,
+    definition = true,
+    precondition = true,
+}
 
 return M

@@ -38,8 +38,10 @@ local function quotient(a, b)
     return math.floor(a / b)
 end
 
--- `%` and integer division are exact in contracts, which are spec code
+-- `%` and integer division are exact in contracts, which are spec code. `result * b` needs nonlinear
+-- arithmetic.
 ---@clavius
+---@proof_by(nonlinear_arith)
 ---@param a integer
 ---@param b integer
 ---@pre b > 0

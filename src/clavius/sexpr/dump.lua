@@ -1,7 +1,7 @@
 -- Converts between programs and printable s-expressions. A node is written as its tag followed by its
 -- fields in schema order:
 --
---   (Unit main
+--   (Unit main linear
 --     [(VarDecl x int)]
 --     [(Assume 1 (BinOp > (Var x) (Int 0)))
 --      (Check 1 (BinOp > (BinOp + (Var x) (Int 1)) (Var x)))])
@@ -20,10 +20,12 @@ local read = require 'clavius.sexpr.read'
 local schema = require 'clavius.sexpr.schema'
 local write = require 'clavius.sexpr.write'
 
---- A core arena with its units and the tables that its `Check` and `Assume` nodes refer to.
+--- A core arena with its declarations, its units and the tables that its `Check` and `Assume` nodes
+--- refer to.
 --- @class CoreProgram
 --- @field core CoreArena
---- @field units NodeId[]
+--- @field decls NodeId[] the SortDecl, FunDecl and Axiom nodes
+--- @field units NodeId[] the Unit nodes
 --- @field obligations Obligation[] indexed by obligation id
 --- @field assumptions Assumption[] indexed by assumption id
 
@@ -42,6 +44,8 @@ local write = require 'clavius.sexpr.write'
 --- @field message string
 
 local M = {}
+
+local DECLARATIONS = { SortDecl = true, FunDecl = true, Axiom = true }
 
 --- @param nodes (SrcNode|CoreNode)[]
 --- @param specs table<string, SexpFieldSpec[]> the fields of each kind
@@ -129,12 +133,15 @@ local function record_sexp(head, id, record)
     return write.list(items)
 end
 
---- Writes a program as s-expressions: its units as trees, then its obligations and assumptions. A
---- node shared by two parents is written in full under each.
+--- Writes a program as s-expressions: its declarations and units as trees, then its obligations and
+--- assumptions. A node shared by two parents is written in full under each.
 --- @param prog CoreProgram
 --- @return Sexp[]
 function M.write_core(prog)
     local out = {}
+    for _, id in ipairs(prog.decls) do
+        out[#out + 1] = node_sexp(prog.core.nodes, schema.core, id, {})
+    end
     for _, id in ipairs(prog.units) do
         out[#out + 1] = node_sexp(prog.core.nodes, schema.core, id, {})
     end
@@ -270,8 +277,8 @@ local function read_record(x, expected_id)
     return record --[[@as Obligation|Assumption]]
 end
 
---- Reads a core program: any number of units, obligations and assumptions in any order. Each
---- node's span covers its form in `text`. Returns the first error instead if `text` is malformed.
+--- Reads a core program: any number of declarations, units, obligations and assumptions in any order.
+--- Each node's span covers its form in `text`. Returns the first error instead if `text` is malformed.
 --- @param text string
 --- @param file FileId
 --- @return CoreProgram|nil prog
@@ -282,7 +289,7 @@ function M.read_core(text, file)
         return nil, err
     end
     --- @type CoreProgram
-    local prog = { core = arena.new_core(), units = {}, obligations = {}, assumptions = {} }
+    local prog = { core = arena.new_core(), decls = {}, units = {}, obligations = {}, assumptions = {} }
     --- @return nil
     local function read_forms()
         for _, x in ipairs(xs) do
@@ -295,8 +302,10 @@ function M.read_core(text, file)
                 prog.assumptions[#prog.assumptions + 1] = read_record(x, #prog.assumptions + 1) --[[@as Assumption]]
             elseif head and head.tag == 'Sym' and head.text == 'Unit' then
                 prog.units[#prog.units + 1] = read_node(prog.core, file, x)
+            elseif head and head.tag == 'Sym' and DECLARATIONS[head.text] then
+                prog.decls[#prog.decls + 1] = read_node(prog.core, file, x)
             else
-                fail(x, 'expected a Unit, obligation or assumption')
+                fail(x, 'expected a declaration, Unit, obligation or assumption')
             end
         end
     end

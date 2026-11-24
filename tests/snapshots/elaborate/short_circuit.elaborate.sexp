@@ -1,4 +1,4 @@
-(Unit main$1
+(Unit main$1 linear
   [(VarDecl x$1 int)
    (VarDecl p$2 bool)
    (VarDecl $t1 bool)

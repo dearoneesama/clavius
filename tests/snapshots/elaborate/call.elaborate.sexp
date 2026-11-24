@@ -1,4 +1,4 @@
-(Unit inc$1
+(Unit inc$1 linear
   [(VarDecl n$2 int) (VarDecl result$3 int)]
   [(Assume 1
      (BinOp and
@@ -14,7 +14,7 @@
       (Check 2 (BinOp > (Var result$3) (Var n$2)))
       (Exit body)
       (Check 3 (Bool false))])])
-(Unit main$1
+(Unit main$1 linear
   [(VarDecl $t1 int)
    (VarDecl $t2 int)
    (VarDecl x$11 int)

@@ -4,20 +4,33 @@
 local OPS = "'+' | '-' | '*' | 'div' | 'mod' | '<' | '<=' | '>' | '>=' | '==' | '!=' | 'and' | 'or' | '=>'"
 
 local DOC = [[
+A declaration is a SortDecl, FunDecl or Axiom node.
 A statement node is an Assign, Havoc, Assume, Check, Branch, Choice, Block or Exit node.
-A term node is a Var, Int, Bool, BinOp, Not or Ite node.]]
+A term node is a Var, Int, Bool, BinOp, Not, Ite, Let, App or Forall node.]]
 
 --- @type NodeType[]
 local NODES = {
+    { tag = 'SortDecl', doc = 'A sort with no values of its own but those of its functions.', fields = { { 'name', 'string' } } },
+    {
+        tag = 'FunDecl',
+        doc = 'A function of its parameters. One with no parameters is a constant.',
+        fields = { { 'name', 'string' }, { 'params', 'node[]', 'VarDecl nodes' }, { 'sort', 'string', '`int`, `bool` or the name of a SortDecl' } },
+    },
+    { tag = 'Axiom', doc = 'A fact that every unit may assume.', fields = { { 'cond', 'node', 'a term node' } } },
     {
         tag = 'Unit',
-        doc = 'One independent proof: its variables and its statements.',
-        fields = { { 'name', 'string' }, { 'vars', 'node[]', 'VarDecl nodes' }, { 'body', 'node[]', 'statement nodes' } },
+        doc = 'One independent proof: its variables and its statements. A linear one leaves Z3 no nonlinear arithmetic.',
+        fields = {
+            { 'name', 'string' },
+            { 'arith', "'linear' | 'nonlinear'" },
+            { 'vars', 'node[]', 'VarDecl nodes' },
+            { 'body', 'node[]', 'statement nodes' },
+        },
     },
     {
         tag = 'VarDecl',
         doc = "A unit's variable. It starts with an arbitrary value of its sort.",
-        fields = { { 'name', 'string' }, { 'sort', "'int' | 'bool'" } },
+        fields = { { 'name', 'string' }, { 'sort', 'string', '`int`, `bool` or the name of a SortDecl' } },
     },
     { tag = 'Assign', doc = '`target := value`.', fields = { { 'target', 'string' }, { 'value', 'node', 'a term node' } } },
     { tag = 'Havoc', doc = 'Gives `target` an arbitrary value of its sort.', fields = { { 'target', 'string' } } },
@@ -62,6 +75,18 @@ local NODES = {
         doc = '`if cond then if_true else if_false`, as a term.',
         fields = { { 'cond', 'node', 'a term node' }, { 'if_true', 'node', 'a term node' }, { 'if_false', 'node', 'a term node' } },
     },
+    {
+        tag = 'Let',
+        doc = '`body` with the variable `name` bound to `value`.',
+        fields = { { 'name', 'string' }, { 'value', 'node', 'a term node' }, { 'body', 'node', 'a term node' } },
+    },
+    { tag = 'App', doc = 'The function of a FunDecl applied to terms.', fields = { { 'fn', 'string' }, { 'args', 'node[]', 'term nodes' } } },
+    {
+        tag = 'Forall',
+        doc = 'A term that holds for every value of its variables. It is used where a Trigger matches.',
+        fields = { { 'vars', 'node[]', 'VarDecl nodes' }, { 'triggers', 'node[]', 'Trigger nodes' }, { 'body', 'node', 'a term node' } },
+    },
+    { tag = 'Trigger', doc = 'Terms that together instantiate a Forall.', fields = { { 'terms', 'node[]', 'term nodes' } } },
 }
 
 --- @type NodeSchema

@@ -19,6 +19,19 @@ local obligation = require 'clavius.ir.obligation'
 local M = {}
 
 --- @param core CoreArena
+--- @param vars NodeId[]
+--- @param diags Diag[]
+--- @mut diags
+local function check_vars(core, vars, diags)
+    for _, var in ipairs(vars) do
+        local v = core.nodes[var]
+        if v.tag ~= 'VarDecl' then
+            diags[#diags + 1] = diag.at_node('E-internal-node', var, { v.tag, 'variable declaration' })
+        end
+    end
+end
+
+--- @param core CoreArena
 --- @param id NodeId
 --- @param diags Diag[]
 --- @mut diags
@@ -36,6 +49,26 @@ local function check_term(core, id, diags)
         check_term(core, n.cond, diags)
         check_term(core, n.if_true, diags)
         check_term(core, n.if_false, diags)
+    elseif n.tag == 'Let' then
+        check_term(core, n.value, diags)
+        check_term(core, n.body, diags)
+    elseif n.tag == 'App' then
+        for _, a in ipairs(n.args) do
+            check_term(core, a, diags)
+        end
+    elseif n.tag == 'Forall' then
+        check_vars(core, n.vars, diags)
+        for _, t in ipairs(n.triggers) do
+            local trigger = core.nodes[t]
+            if trigger.tag == 'Trigger' then
+                for _, term in ipairs(trigger.terms) do
+                    check_term(core, term, diags)
+                end
+            else
+                diags[#diags + 1] = diag.at_node('E-internal-node', t, { trigger.tag, 'trigger' })
+            end
+        end
+        check_term(core, n.body, diags)
     else
         diags[#diags + 1] = diag.at_node('E-internal-node', id, { n.tag, 'term' })
     end
@@ -137,23 +170,27 @@ end
 
 --- Returns the obligations that the source node `id` in marked code needs. This follows from what
 --- `clavius.ir.support` lets marked code use: every `+`, `-`, `*` and `%` is on `int53`, every call is
---- to `assert`, `error`, a local function or a function a `---@meta` file declares, or is
---- `math.floor(a / b)`, and every `return` is in a verified function.
+--- to `assert`, `error`, a local function, a function a `---@meta` file declares or, in proof code,
+--- `assume`, or is `math.floor(a / b)`, and every `return` is in a verified function.
 --- @param source ValidateSource
 --- @param id NodeId
 --- @return NeededKey[]
 local function needed(source, id)
     local src = source.src
     local n = src.nodes[id]
+    -- ghost code never runs, so its arithmetic is exact and never fails
+    local ghost = source.index.ghost[id] ~= 0
     local keys = {}
     local op = source.ops[id]
-    if n.tag == 'BinOp' and RANGE_CHECKED[n.op] then
+    if n.tag == 'BinOp' and RANGE_CHECKED[n.op] and not ghost then
         keys[1] = { kind = 'range', clause = 0 }
-    elseif n.tag == 'BinOp' and op ~= nil and op.op == 'int.mod' then
+    elseif n.tag == 'BinOp' and op ~= nil and op.op == 'int.mod' and not ghost then
         keys[1] = { kind = 'div_zero', clause = 0 }
         keys[2] = { kind = 'mod_range', clause = 0 }
     elseif n.tag == 'Call' and op ~= nil and op.op == 'int.floordiv' then
-        keys[1] = { kind = 'div_zero', clause = 0 }
+        if not ghost then
+            keys[1] = { kind = 'div_zero', clause = 0 }
+        end
     elseif n.tag == 'Call' and op ~= nil then
         local callee = src.nodes[assert(op.callee)] --[[@as SrcFunction]]
         add_clauses(keys, 'pre', arena.directives(src, callee, 'ClvPre'))
@@ -164,10 +201,18 @@ local function needed(source, id)
         end
     elseif n.tag == 'Call' then
         local callee = src.nodes[n.func]
-        keys[1] = { kind = (callee.tag == 'Id' and callee.name == 'assert') and 'assert' or 'unreachable', clause = 0 }
+        local name = callee.tag == 'Id' and callee.name
+        -- an `assume` proves nothing
+        if name ~= 'assume' then
+            keys[1] = { kind = name == 'assert' and 'assert' or 'unreachable', clause = 0 }
+        end
     elseif n.tag == 'Return' then
         local fn = src.nodes[source.index.unit[id]] --[[@as SrcFunction]]
         add_clauses(keys, 'post', arena.directives(src, fn, 'ClvPost'))
+    elseif n.tag == 'ClvAssert' then
+        keys[1] = { kind = 'assert', clause = 0 }
+    elseif n.tag == 'Function' and ghost and src.nodes[source.index.ghost[id]].tag == 'ClvSpec' then -- luacheck: ignore 542
+        -- every path through a spec function returns
     elseif n.tag == 'Function' and arena.has_directive(src, n, 'ClvReturn') then
         keys[1] = { kind = 'missing_return', clause = 0 }
     elseif n.tag == 'Function' then
@@ -178,7 +223,9 @@ local function needed(source, id)
                 keys[#keys + 1] = { kind = 'for_step', clause = 0 }
             end
             -- the counter's range is an invariant too, with no clause
-            keys[#keys + 1] = { kind = 'for_bound', clause = 0 }
+            if not ghost then
+                keys[#keys + 1] = { kind = 'for_bound', clause = 0 }
+            end
             keys[#keys + 1] = { kind = 'invariant_entry', clause = 0 }
             keys[#keys + 1] = { kind = 'invariant_preserved', clause = 0 }
         end
@@ -208,7 +255,7 @@ local function check_coverage(source, tables, checked, diags)
             have[o.node][o.kind][o.clause or 0] = true
         end
     end
-    for _, tag in ipairs { 'BinOp', 'Call', 'Return', 'While', 'Repeat', 'Fornum' } do
+    for _, tag in ipairs { 'BinOp', 'Call', 'Return', 'While', 'Repeat', 'Fornum', 'ClvAssert' } do
         for _, id in ipairs(source.index.by_tag[tag] or {}) do
             if source.index.unit[id] ~= 0 then
                 for _, key in ipairs(needed(source, id)) do
@@ -234,16 +281,27 @@ local function check_coverage(source, tables, checked, diags)
 end
 
 --- Returns a diagnostic for every misplaced node, unchecked `Check`, unjustified `Assume`, stray `Exit`
---- and reused `Block` label in the units in program order. With the source program, it then reports
---- the obligations missing from it. The result is empty when the program is valid.
+--- and reused `Block` label in the declarations and units in program order. With the source program, it
+--- then reports the obligations missing from it. The result is empty when the program is valid.
 --- @param core CoreArena
+--- @param decls NodeId[]
 --- @param units NodeId[]
 --- @param obligations Obligation[]
 --- @param assumptions Assumption[]
 --- @param source ValidateSource|nil
 --- @return Diag[] diags
-function M.run(core, units, obligations, assumptions, source)
+function M.run(core, decls, units, obligations, assumptions, source)
     local diags = {}
+    for _, id in ipairs(decls) do
+        local n = core.nodes[id]
+        if n.tag == 'FunDecl' then
+            check_vars(core, n.params, diags)
+        elseif n.tag == 'Axiom' then
+            check_term(core, n.cond, diags)
+        elseif n.tag ~= 'SortDecl' then
+            diags[#diags + 1] = diag.at_node('E-internal-node', id, { n.tag, 'declaration' })
+        end
+    end
     --- @type ValidateTables
     local tables = { obligations = obligations, assumptions = assumptions }
     --- @type table<integer, boolean>
@@ -251,12 +309,7 @@ function M.run(core, units, obligations, assumptions, source)
     for _, unit in ipairs(units) do
         local n = core.nodes[unit]
         if n.tag == 'Unit' then
-            for _, var in ipairs(n.vars) do
-                local v = core.nodes[var]
-                if v.tag ~= 'VarDecl' then
-                    diags[#diags + 1] = diag.at_node('E-internal-node', var, { v.tag, 'variable declaration' })
-                end
-            end
+            check_vars(core, n.vars, diags)
             check_statements(core, n.body, tables, checked, { open = {}, used = {} }, diags)
         else
             diags[#diags + 1] = diag.at_node('E-internal-node', unit, { n.tag, 'unit' })

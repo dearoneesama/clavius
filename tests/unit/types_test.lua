@@ -52,6 +52,85 @@ describe('types', function()
         assert.are.same({ 'x$1 int53', 'p$2 boolean', 'y$3 int53' }, found)
     end)
 
+    it('types ghost locals and the arithmetic of ghost code and clauses as Int', function()
+        local c = driver.run_until(
+            'types',
+            [=[
+            ---@clavius begin
+            ---@param n integer
+            ---@pre n + 1 > 0
+            ---@return integer
+            local function f(n)
+                return n + 1
+            end
+            local x = 1
+            local y = x + 1
+            ---@ghost local g = x
+            ---@ghost local h = x + 1
+            ---@ghost local q = x > 0
+            --[[@proof
+                local s = g + h
+                for i = 1, 3 do
+                end
+            ]]
+            ---@assert x + 1 > 0
+            ---@clavius end
+            ]=],
+            1
+        )
+        assert.are.same({}, c.diags)
+        local info = assert(c.info)
+        local binders = {}
+        local sums = {}
+        for id, n in ipairs(c.src.nodes) do
+            local mine = c.src.spans[id].file == c.file
+            if mine and n.tag == 'Binder' then
+                binders[#binders + 1] = ('%s %s'):format(n.name, info.types[id])
+            elseif mine and n.tag == 'BinOp' and n.op == 'add' then
+                sums[#sums + 1] = info.types[id]
+            end
+        end
+        assert.are.same({
+            'f nil',
+            'n int53',
+            'x int53',
+            'y int53',
+            'g Int',
+            'h Int',
+            'q boolean',
+            's Int',
+            'i Int',
+        }, binders)
+        -- `n + 1` in the pre, then in the body, `x + 1` for `y`, for `h`, `g + h`, `x + 1` in the assert
+        assert.are.same({ 'Int', 'int53', 'int53', 'Int', 'Int', 'Int' }, sums)
+    end)
+
+    it('checks ghost code as exec code is checked, and keeps Int and Nat out of exec signatures', function()
+        markers.expect_diags(
+            'types',
+            [=[
+            ---@clavius begin
+            local x = 1
+            ---@ghost local g = x
+            ---@ghost g = true --! E-type-mismatch
+            ---@assert g --! E-unsupported-feature
+            --[[@proof
+                if g then --! E-unsupported-feature
+                end
+            ]]
+            ---@clavius end
+            ---@clavius
+            ---@param n Nat
+            --! E-type-mismatch
+            ---@return Int
+            --! E-type-mismatch
+            local function f(n)
+                return n
+            end
+            ]=]
+        )
+    end)
+
     it('rejects unsupported types', function()
         markers.expect_diags(
             'types',
@@ -266,5 +345,56 @@ describe('types', function()
             end
         end
         assert.are.same({ 'i$4 int53', 'i$5 int53', 'k$6 int53' }, found)
+    end)
+    it('gives ghost locals and spec arithmetic the exact type Int', function()
+        local c = driver.run_until(
+            'types',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param n Nat
+            ---@return Nat
+            local function same(n) return n end
+            ]]
+            local x = 1
+            ---@ghost local g = x + 1
+            ---@ghost local h = same(x)
+            ---@ghost local p = g > 0
+            ---@clavius end
+            ]=],
+            1
+        )
+        assert.are.same({}, c.diags)
+        local info = assert(c.info)
+        local res = assert(c.res)
+        local found = {}
+        for id, n in ipairs(c.src.nodes) do
+            if (n.tag == 'Binder' or (n.tag == 'BinOp' and n.op == 'add')) and c.src.spans[id].file == c.file then
+                found[#found + 1] = ('%s %s'):format(res.names[id] or n.tag, info.types[id])
+            end
+        end
+        assert.are.same({ 'same$1 nil', 'n$2 Nat', 'x$4 int53', 'BinOp Int', 'g$5 Int', 'h$6 Int', 'p$7 boolean' }, found)
+    end)
+
+    it('keeps Int and Nat out of exec signatures, and converts between integer types', function()
+        markers.expect_diags(
+            'types',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param n Nat
+            ---@param b boolean
+            ---@return Int
+            local function s(n, b) return n end
+            ]]
+            ---@param n Int --! E-type-mismatch
+            local function f(n) end
+            ---@param m integer
+            ---@post s(m, true) >= 0
+            ---@post s(true, true) >= 0 --! E-type-mismatch
+            local function g(m) end
+            ---@clavius end
+            ]=]
+        )
     end)
 end)

@@ -1,4 +1,4 @@
-(Unit f$1
+(Unit f$1 linear
   [(VarDecl a$2 int) (VarDecl b$3 int) (VarDecl result$4 int)]
   [(Assume 1
      (BinOp and

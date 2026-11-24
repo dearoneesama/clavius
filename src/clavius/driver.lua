@@ -159,7 +159,7 @@ end
 local function run_validate(c)
     local prog = assert(c.prog)
     local source = { src = c.src, index = assert(c.index), ops = assert(c.info).ops, cycle = assert(c.termination).cycle }
-    return validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, source)
+    return validate.run(prog.core, prog.decls, prog.units, prog.obligations, prog.assumptions, source)
 end
 
 --- Each stage needs the results of every stage before it.
@@ -223,8 +223,8 @@ function M.run_until(stage, text, file, metas, name)
     return c
 end
 
---- Prints the core program that `elaborate` produced: its units, its obligations and its assumptions, with
---- a blank line between the groups.
+--- Prints the core program that `elaborate` produced: its declarations, its units, its obligations and its
+--- assumptions, with a blank line between the groups.
 --- Not a coredump.
 --- @param c CompilerContext
 --- @return string
@@ -233,7 +233,7 @@ function M.dump_core(c)
     local xs = dump.write_core(prog)
     local groups = {}
     local first = 1
-    for _, size in ipairs { #prog.units, #prog.obligations, #prog.assumptions } do
+    for _, size in ipairs { #prog.decls, #prog.units, #prog.obligations, #prog.assumptions } do
         if size > 0 then
             groups[#groups + 1] = write.write_all { unpack(xs, first, first + size - 1) }
         end
@@ -289,23 +289,24 @@ function M.load_core(text, file)
     if not prog then
         return nil, err, {}
     end
-    return prog, nil, validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, nil)
+    return prog, nil, validate.run(prog.core, prog.decls, prog.units, prog.obligations, prog.assumptions, nil)
 end
 
 --- Prints a valid core program as a Boogie file.
 --- @param prog CoreProgram
 --- @return string
 function M.lower_core(prog)
-    return boogie_print.program(prog.core, prog.units, nil)
+    return boogie_print.program(prog.core, prog.decls, prog.units, nil)
 end
 
 --- Verifies a valid core program with Boogie. Returns the ids of the failing obligations in ascending order,
 --- or nil and an error when Boogie gives no verdict.
 --- @param prog CoreProgram
+--- @param opts BoogieRunOptions|nil
 --- @return integer[]|nil failed
 --- @return string|nil err
-function M.verify_core(prog)
-    return boogie_run.check(prog.core, prog.units, nil)
+function M.verify_core(prog, opts)
+    return boogie_run.check(prog.core, prog.decls, prog.units, opts)
 end
 
 return M

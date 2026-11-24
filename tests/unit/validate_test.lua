@@ -16,7 +16,7 @@ local validate = require 'clavius.validate'
 --- @return DiagSummary[]
 local function run(prog)
     local out = {}
-    for i, d in ipairs(validate.run(prog.core, prog.units, prog.obligations, prog.assumptions)) do
+    for i, d in ipairs(validate.run(prog.core, prog.decls, prog.units, prog.obligations, prog.assumptions)) do
         out[i] = { code = d.code, tag = prog.core.nodes[d.node].tag, args = d.args }
     end
     return out
@@ -42,7 +42,7 @@ describe('validate', function()
 
     it('reports a Check with no obligation of a known kind', function()
         local text = [=[
-            (Unit u [] [(Branch (Bool true) [(Check 2 (Bool true))] [(Check 1 (Bool true))])])
+            (Unit u linear [] [(Branch (Bool true) [(Check 2 (Bool true))] [(Check 1 (Bool true))])])
             (obligation 1 :kind frob :node 0)
         ]=]
         assert.are.same({
@@ -53,7 +53,7 @@ describe('validate', function()
 
     it('reports an Assume with no allowed justification', function()
         local text = [=[
-            (Unit u [] [(Choice [(Assume 2 (Bool true))] [(Block b [(Assume 1 (Bool true))])])])
+            (Unit u linear [] [(Choice [(Assume 2 (Bool true))] [(Block b [(Assume 1 (Bool true))])])])
             (assumption 1 :kind makeup :node 0)
         ]=]
         assert.are.same({
@@ -64,7 +64,7 @@ describe('validate', function()
 
     it('reports a back_edge Assume that does not end its statement list', function()
         local text = [=[
-            (Unit u [] [(Branch (Bool true) [(Assume 1 (Bool false)) (Check 1 (Bool true))] [(Assume 2 (Bool false))])])
+            (Unit u linear [] [(Branch (Bool true) [(Assume 1 (Bool false)) (Check 1 (Bool true))] [(Assume 2 (Bool false))])])
             (obligation 1 :kind assert :node 0)
             (assumption 1 :kind back_edge :node 0)
             (assumption 2 :kind back_edge :node 0)
@@ -74,7 +74,7 @@ describe('validate', function()
 
     it('reports an Exit that no Block with its label encloses', function()
         local text = [=[
-            (Unit u []
+            (Unit u linear []
               [(Block a [(Exit a) (Block b [(Exit a) (Exit b)])])
                (Exit b)
                (Block c [])
@@ -88,8 +88,8 @@ describe('validate', function()
 
     it('reports a Block label used twice in a unit', function()
         local text = [=[
-            (Unit u [] [(Block a []) (Block b [(Block a [(Exit a)])])])
-            (Unit v [] [(Block a [])])
+            (Unit u linear [] [(Block a []) (Block b [(Block a [(Exit a)])])])
+            (Unit v linear [] [(Block a [])])
         ]=]
         assert.are.same({
             { code = 'E-internal-label', tag = 'Block', args = { 'a' } },
@@ -98,11 +98,11 @@ describe('validate', function()
 
     it('reports nodes out of place', function()
         local text = [=[
-            (Unit u
+            (Unit u linear
               [(Havoc x)]
               [(Var x)
                (Assign x (BinOp + (Exit l) (Not (VarDecl y int))))
-               (Unit v [] [])])
+               (Unit v linear [] [])])
         ]=]
         assert.are.same({
             { code = 'E-internal-node', tag = 'Havoc', args = { 'Havoc', 'variable declaration' } },
@@ -118,11 +118,32 @@ describe('validate', function()
         local sp = arena.span(1, 1, 0)
         local src = arena.add_core(c, { tag = 'Literal', kind = 'nil', text = 'nil' } --[[@as CoreNode]], sp)
         local statement = arena.add_core(c, { tag = 'Assign', target = 'x', value = src }, sp)
-        local unit = arena.add_core(c, { tag = 'Unit', name = 'u', vars = {}, body = { statement } }, sp)
+        local unit = arena.add_core(c, { tag = 'Unit', name = 'u', arith = 'linear', vars = {}, body = { statement } }, sp)
         assert.are.same({
             { code = 'E-internal-node', tag = 'Literal', args = { 'Literal', 'term' } },
             { code = 'E-internal-node', tag = 'Assign', args = { 'Assign', 'unit' } },
-        }, run { core = c, units = { unit, statement }, obligations = {}, assumptions = {} })
+        }, run { core = c, decls = {}, units = { unit, statement }, obligations = {}, assumptions = {} })
+    end)
+
+    it('reports terms in quantifiers and applications', function()
+        local text = [=[
+            (SortDecl S)
+            (FunDecl f [(VarDecl x int) (Havoc y)] int)
+            (Axiom (Forall [(VarDecl x int)] [(Trigger [(App f [(Var x)])]) (Var x)] (App f [(Havoc x)])))
+        ]=]
+        assert.are.same({
+            { code = 'E-internal-node', tag = 'Havoc', args = { 'Havoc', 'variable declaration' } },
+            { code = 'E-internal-node', tag = 'Var', args = { 'Var', 'trigger' } },
+            { code = 'E-internal-node', tag = 'Havoc', args = { 'Havoc', 'term' } },
+        }, diags(text))
+    end)
+
+    it('reports a declaration that is not one', function()
+        local c = arena.new_core()
+        local unit = arena.add_core(c, { tag = 'Unit', name = 'u', arith = 'linear', vars = {}, body = {} }, arena.span(1, 1, 0))
+        assert.are.same({
+            { code = 'E-internal-node', tag = 'Unit', args = { 'Unit', 'declaration' } },
+        }, run { core = c, decls = { unit }, units = {}, obligations = {}, assumptions = {} })
     end)
 
     -- the obligations that elaborate emits, by id
@@ -177,7 +198,7 @@ describe('validate', function()
         end
         local out = {}
         local source = { src = c.src, index = assert(c.index), ops = assert(c.info).ops, cycle = assert(c.termination).cycle }
-        for i, d in ipairs(validate.run(prog.core, prog.units, prog.obligations, prog.assumptions, source)) do
+        for i, d in ipairs(validate.run(prog.core, prog.decls, prog.units, prog.obligations, prog.assumptions, source)) do
             local s = assert(d.span)
             out[i] = { d.code, d.args[1], d.args[2], program:sub(s.start, s.finish):match '^[^\n]*' }
         end
@@ -300,6 +321,19 @@ describe('validate', function()
 
     it('accepts the loop obligations that elaborate emits', function()
         assert.are.same({}, coverage(LOOPS, {}, nil))
+    end)
+
+    it('needs no range check in ghost code, and an assert for each `---@assert`', function()
+        local program = [=[
+            ---@clavius begin
+            local x = 1
+            ---@ghost local g = x * 2
+            -- 1 (assert)
+            ---@assert g == 2
+            ---@clavius end
+        ]=]
+        assert.are.same({}, coverage(program, {}, nil))
+        assert.are.same({ { 'E-internal-coverage', 'ClvAssert', 'assert', '---@assert g == 2' } }, coverage(program, { [1] = true }, nil))
     end)
 
     it('reports a numeric `for` with a variable step whose step has no Check', function()

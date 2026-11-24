@@ -67,7 +67,7 @@ describe('cli', function()
 
     it('reports a malformed core file at its position', function()
         for _, command in ipairs { 'lower', 'verify' } do
-            local r = run_on(command, '(Unit u\n  [] [(Havoc)])')
+            local r = run_on(command, '(Unit u linear\n  [] [(Havoc)])')
             assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
             assert.are.equal('f.core.sexp:2:7: Havoc takes 1 fields, found 0\n', r.err)
         end
@@ -75,7 +75,7 @@ describe('cli', function()
 
     it('reports every validation error at its node', function()
         for _, command in ipairs { 'lower', 'verify' } do
-            local r = run_on(command, '(Unit u []\n  [(Check 1 (Bool true))\n   (Var x)\n   (Block l [])\n   (Block l [(Exit m)])])')
+            local r = run_on(command, '(Unit u linear []\n  [(Check 1 (Bool true))\n   (Var x)\n   (Block l [])\n   (Block l [(Exit m)])])')
             assert.are.same({ cli.EXIT_ERROR, '' }, { r.status, r.out })
             assert.are.equal(
                 table.concat({
@@ -95,7 +95,7 @@ describe('cli', function()
         local cases = {
             { 'parse', '(Block [(ClvRegion [(Local [(Literal number 1)] [(Binder x)])])])\n' },
             { 'types', '(Block [(ClvRegion [(Local [(Literal number 1 :type int53)] [(Binder x$1 :type int53)])])])\n' },
-            { 'validate', '(Unit main$1 [(VarDecl x$1 int)] [(Assign x$1 (Int 1))])\n' },
+            { 'validate', '(Unit main$1 linear [(VarDecl x$1 int)] [(Assign x$1 (Int 1))])\n' },
         }
         for _, c in ipairs(cases) do
             local r = run_with_file({ 'dump', '--after', c[1] }, '.lua', text)

@@ -46,6 +46,13 @@ describe('lua programs', function()
         assert.are.equal(cli.EXIT_OK, cli.main({ 'verify', 'tests/e2e/verify/assign.lua' }, out, err))
     end)
 
+    it('lets every unit use nonlinear arithmetic from the command line', function()
+        local out, err = assert(io.tmpfile()), assert(io.tmpfile())
+        local status = cli.main({ 'verify', '--nonlinear-arith', 'tests/e2e/verify/nonlinear.lua' }, out, err)
+        out:seek 'set'
+        assert.are.same({ cli.EXIT_OK, '' }, { status, out:read '*a' })
+    end)
+
     it('prints the trust report from the command line', function()
         local out = assert(io.tmpfile())
         local err = assert(io.tmpfile())

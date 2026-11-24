@@ -119,6 +119,25 @@ M.source = {
     Paren = {
         { name = 'expr', shape = 'node' },
     },
+    ClvSpec = {
+        { name = 'statements', shape = 'list' },
+    },
+    ClvLemma = {
+        { name = 'statements', shape = 'list' },
+    },
+    ClvProof = {
+        { name = 'block', shape = 'bool' },
+        { name = 'statements', shape = 'list' },
+    },
+    ClvGhost = {
+        { name = 'statements', shape = 'list' },
+    },
+    ClvAssert = {
+        { name = 'cond', shape = 'node' },
+    },
+    ClvAssume = {
+        { name = 'cond', shape = 'node' },
+    },
     ClvTypeName = {
         { name = 'name', shape = 'str' },
     },
@@ -292,14 +311,26 @@ M.source = {
 
 --- @type table<string, SexpFieldSpec[]>
 M.core = {
+    SortDecl = {
+        { name = 'name', shape = 'str' },
+    },
+    FunDecl = {
+        { name = 'name', shape = 'str' },
+        { name = 'params', shape = 'list' },
+        { name = 'sort', shape = 'str' },
+    },
+    Axiom = {
+        { name = 'cond', shape = 'node' },
+    },
     Unit = {
         { name = 'name', shape = 'str' },
+        { name = 'arith', shape = 'enum', values = { 'linear', 'nonlinear' } },
         { name = 'vars', shape = 'list' },
         { name = 'body', shape = 'list' },
     },
     VarDecl = {
         { name = 'name', shape = 'str' },
-        { name = 'sort', shape = 'enum', values = { 'int', 'bool' } },
+        { name = 'sort', shape = 'str' },
     },
     Assign = {
         { name = 'target', shape = 'str' },
@@ -353,6 +384,23 @@ M.core = {
         { name = 'cond', shape = 'node' },
         { name = 'if_true', shape = 'node' },
         { name = 'if_false', shape = 'node' },
+    },
+    Let = {
+        { name = 'name', shape = 'str' },
+        { name = 'value', shape = 'node' },
+        { name = 'body', shape = 'node' },
+    },
+    App = {
+        { name = 'fn', shape = 'str' },
+        { name = 'args', shape = 'list' },
+    },
+    Forall = {
+        { name = 'vars', shape = 'list' },
+        { name = 'triggers', shape = 'list' },
+        { name = 'body', shape = 'node' },
+    },
+    Trigger = {
+        { name = 'terms', shape = 'list' },
     },
 }
 
