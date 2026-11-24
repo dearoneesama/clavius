@@ -15,18 +15,22 @@
 --- | 'decrease' # a `---@decrease` measure decreases, on a loop's back edge or at a recursive call
 --- | 'for_bound' # a numeric `for`'s limit plus its step stays within ±2^53, so the counter can pass it
 --- | 'for_step' # a numeric `for`'s step is not 0
+--- | 'nat' # a value that ghost code passes or returns as a `Nat` is non-negative
 
---- Why an assumption may be made. Nothing proves a `trusted` one, so the trust report lists each. The
---- `false` of a `back_edge` ends an iteration whose checks are done, since the loop's head, with its
---- havoc and invariants, stands for every later iteration. At a recursive call, `callee_post` holds by
---- induction on the measure that the call decreases.
+--- Why an assumption may be made. Nothing proves a `trusted` one, so the trust report lists each.
+---
+--- Why 'precondition' is a justification for lemma not exec functions: unmarked code may call an exec
+--- function, so nothing checks what it assumes on entry and that is `trusted`, but only proof code calls
+--- a lemma, and every call there checks the lemma's `---@pre`s and its parameters' types.
 --- @alias Justification
 --- | 'type_fact' # a value of a declared type satisfies that type's predicate
 --- | 'branch' # the condition of the branch being taken
---- | 'callee_post' # a verified callee's `---@post`, proved where the callee returns
+--- | 'callee_post' # a verified callee's `---@post`, proved where the callee returns or, at a recursive call, by induction on the measure
 --- | 'trusted' # what an `---@unsafe` callee promises, or what a verified function assumes on entry about outside callers
 --- | 'invariant' # a loop invariant at the loop's head, checked on entry and after each iteration
 --- | 'back_edge' # `false` at the end of an iteration that iterates again
+--- | 'definition' # the axioms that define a spec function
+--- | 'precondition' # a lemma's `---@pre`s and its parameters' types on entry, which every call proves, since only proof code calls it
 
 --- @class Obligation
 --- @field kind ObligationKind
@@ -54,10 +58,20 @@ M.OBLIGATION_KINDS = {
     decrease = true,
     for_bound = true,
     for_step = true,
+    nat = true,
 }
 
 --- The justifications an `Assume` may have as a set.
 --- @type table<string, boolean>
-M.JUSTIFICATIONS = { type_fact = true, branch = true, callee_post = true, trusted = true, invariant = true, back_edge = true }
+M.JUSTIFICATIONS = {
+    type_fact = true,
+    branch = true,
+    callee_post = true,
+    trusted = true,
+    invariant = true,
+    back_edge = true,
+    definition = true,
+    precondition = true,
+}
 
 return M

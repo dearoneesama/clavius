@@ -344,4 +344,55 @@ describe('types', function()
         end
         assert.are.same({ 'i$4 int53', 'i$5 int53', 'k$6 int53' }, found)
     end)
+    it('gives ghost locals and spec arithmetic the exact type Int', function()
+        local c = driver.run_until(
+            'types',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param n Nat
+            ---@return Nat
+            local function same(n) return n end
+            ]]
+            local x = 1
+            ---@ghost local g = x + 1
+            ---@ghost local h = same(x)
+            ---@ghost local p = g > 0
+            ---@clavius end
+            ]=],
+            1
+        )
+        assert.are.same({}, c.diags)
+        local info = assert(c.info)
+        local res = assert(c.res)
+        local found = {}
+        for id, n in ipairs(c.src.nodes) do
+            if n.tag == 'Binder' or (n.tag == 'BinOp' and n.op == 'add') then
+                found[#found + 1] = ('%s %s'):format(res.names[id] or n.tag, info.types[id])
+            end
+        end
+        assert.are.same({ 'same$1 nil', 'n$2 Nat', 'x$4 int53', 'BinOp Int', 'g$5 Int', 'h$6 Int', 'p$7 boolean' }, found)
+    end)
+
+    it('keeps Int and Nat out of exec signatures, and converts between integer types', function()
+        markers.expect_diags(
+            'types',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param n Nat
+            ---@param b boolean
+            ---@return Int
+            local function s(n, b) return n end
+            ]]
+            ---@param n Int --! E-type-mismatch
+            local function f(n) end
+            ---@param m integer
+            ---@post s(m, true) >= 0
+            ---@post s(true, true) >= 0 --! E-type-mismatch
+            local function g(m) end
+            ---@clavius end
+            ]=]
+        )
+    end)
 end)

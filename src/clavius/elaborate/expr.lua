@@ -1,6 +1,8 @@
--- Lowers source expressions to pure core terms. The checks and calls an expression needs are hoisted in
--- evaluation order into the statement list before it. Arithmetic in contract clauses and ghost code
--- is exact, since none of it runs, so it gets no range checks.
+-- Lowers source expressions to pure core terms. The checks and calls an expression needs are hoisted,
+-- in evaluation order, into the statement list before it. Contract clauses and ghost code never run,
+-- so their arithmetic is exact and gets no range checks. A ghost value passed to a parameter is still
+-- checked against the parameter's type. A call of a spec function lowers to its FunDecl applied to the
+-- fuel and the arguments.
 
 local arena = require 'clavius.ir.arena'
 local builder = require 'clavius.elaborate.builder'
@@ -73,11 +75,65 @@ function M.clause(b, cond, subst)
     return t
 end
 
+--- Lowers the arguments of a call to `fn`, and in ghost code checks that each fits its parameter's type.
+--- Returns the term for each parameter.
+--- @param b Builder
+--- @param n SrcCall
+--- @param fn SrcFunction
+--- @param out NodeId[]
+--- @mut b
+--- @mut out
+--- @return table<NodeId, NodeId> subst
+local function arguments(b, n, fn, out)
+    --- @type table<NodeId, NodeId>
+    local subst = {}
+    for i, a in ipairs(n.args) do
+        local t = M.lower(b, a, out)
+        if b.ghost then
+            builder.narrow(b, out, b.info.types[fn.params[i]], b.info.types[a], t, a)
+        end
+        subst[fn.params[i]] = t
+    end
+    return subst
+end
+
+--- Checks, at a call `id` of `fn_id` that stays in its caller's cycle of recursive calls, that the
+--- callee's measure at the arguments is below the caller's on entry. This makes it sound to assume what
+--- the callee promises, by induction on the measure.
+--- @param b Builder
+--- @param id NodeId
+--- @param fn_id NodeId
+--- @param subst table<NodeId, NodeId>
+--- @param out NodeId[]
+--- @mut b
+--- @mut out
+--- @return boolean recursive whether the call stays in the cycle
+local function check_decrease(b, id, fn_id, subst, out)
+    local caller = b.fn and b.fn.id
+    if caller == nil or not builder.same_cycle(b, caller, fn_id) then
+        return false
+    end
+    local mine = arena.directives(b.src, b.src.nodes[caller] --[[@as SrcFunction]], 'ClvDecrease')[1]
+    local theirs = arena.directives(b.src, b.src.nodes[fn_id] --[[@as SrcFunction]], 'ClvDecrease')[1]
+    local entry_measure = b.src.nodes[mine] --[[@as SrcClvDecrease]]
+    local call_measure = b.src.nodes[theirs] --[[@as SrcClvDecrease]]
+    -- the caller's measure on entry, and the callee's at the arguments
+    local before, after = {}, {}
+    for i, m in ipairs(entry_measure.measures) do
+        before[i] = M.clause(b, m, assert(b.fn).entry)
+    end
+    for i, m in ipairs(call_measure.measures) do
+        after[i] = M.clause(b, m, subst)
+    end
+    builder.check(b, out, 'decrease', builder.decreases(b, before, after, id), id, theirs)
+    return true
+end
+
 --- Lowers a call of a local function. The arguments are evaluated and each `---@pre` checked on them.
 --- A call that stays in its caller's cycle of recursive calls also checks that the callee's measure at
 --- the arguments is below the caller's on entry. The value, if any, is then arbitrary but for its type
---- and the callee's `---@post`s, which are assumed: proved in a verified callee, and trusted in an
---- `---@unsafe` one. Returns the value's term, or nil when the callee has no `---@return`.
+--- and the callee's `---@post`s, which are assumed: proved in a verified callee or lemma, and trusted in
+--- an `---@unsafe` one. Returns the value's term, or nil when the callee has no `---@return`.
 --- @param b Builder
 --- @param id NodeId
 --- @param out NodeId[]
@@ -89,33 +145,12 @@ function M.call(b, id, out)
     local n = b.src.nodes[id] --[[@as SrcCall]]
     local fn_id = b.info.callees[id]
     local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
-    --- @type table<NodeId, NodeId>
-    local subst = {}
-    for i, a in ipairs(n.args) do
-        subst[fn.params[i]] = M.lower(b, a, out)
-    end
+    local subst = arguments(b, n, fn, out)
     for _, pre in ipairs(arena.directives(b.src, fn, 'ClvPre')) do
         local cond = (b.src.nodes[pre] --[[@as SrcClvPre]]).cond
         builder.check(b, out, 'pre', M.clause(b, cond, subst), id, pre)
     end
-    local caller = b.fn and b.fn.id
-    local cycle = caller and b.termination.cycle[caller]
-    if cycle ~= nil and cycle == b.termination.cycle[fn_id] then
-        local mine = arena.directives(b.src, b.src.nodes[caller] --[[@as SrcFunction]], 'ClvDecrease')[1]
-        local theirs = arena.directives(b.src, fn, 'ClvDecrease')[1]
-        local entry_measure = b.src.nodes[mine] --[[@as SrcClvDecrease]]
-        local call_measure = b.src.nodes[theirs] --[[@as SrcClvDecrease]]
-        -- the caller's measure on entry, and the callee's at the arguments
-        local before, after = {}, {}
-        for i, m in ipairs(entry_measure.measures) do
-            before[i] = M.clause(b, m, assert(b.fn).entry)
-        end
-        for i, m in ipairs(call_measure.measures) do
-            after[i] = M.clause(b, m, subst)
-        end
-        -- this check makes it sound to assume the callee's `---@post`s below, by induction on the measure
-        builder.check(b, out, 'decrease', builder.decreases(b, before, after, id), id, theirs)
-    end
+    check_decrease(b, id, fn_id, subst, out)
     local trusted = arena.has_directive(b.src, fn, 'ClvUnsafe')
     local decl = trusted and fn_id or nil
     local value = nil
@@ -125,8 +160,9 @@ function M.call(b, id, out)
         local t = builder.temp(b, builder.sort(ty), id)
         builder.emit(b, out, { tag = 'Havoc', target = t }, id)
         value = builder.add(b, { tag = 'Var', name = t }, id)
-        if ty == 'int53' then
-            builder.assume(b, out, trusted and 'trusted' or 'type_fact', builder.is_int53(b, value, id), id, decl)
+        local fact = builder.type_fact(b, ty, value, id)
+        if fact ~= nil then
+            builder.assume(b, out, trusted and 'trusted' or 'type_fact', fact, id, decl)
         end
         subst[r] = value
     end
@@ -135,6 +171,42 @@ function M.call(b, id, out)
         builder.assume(b, out, trusted and 'trusted' or 'callee_post', M.clause(b, cond, subst), id, decl)
     end
     return value
+end
+
+--- Lowers a call of a spec function to the term that applies its FunDecl to the fuel and the
+--- arguments. In the axiom that defines a function of the callee's cycle, the fuel is one less than the
+--- axiom's. A call that stays in the cycle of the spec function whose unit is being built checks the
+--- measure, and then assumes the value's type, which that unit proves.
+--- @param b Builder
+--- @param id NodeId
+--- @param out NodeId[]
+--- @mut b
+--- @mut out
+--- @decrease id
+--- @return NodeId term
+function M.spec_call(b, id, out)
+    local n = b.src.nodes[id] --[[@as SrcCall]]
+    local fn_id = b.info.callees[id]
+    local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
+    local subst = arguments(b, n, fn, out)
+    local recursive = not b.spec and check_decrease(b, id, fn_id, subst, out)
+    local fuel
+    if b.axiom ~= nil and (b.axiom.fn == fn_id or builder.same_cycle(b, b.axiom.fn, fn_id)) then
+        fuel = builder.add(b, { tag = 'Var', name = b.axiom.fuel }, id)
+    else
+        fuel = builder.fuel(b, b.fuel[fn_id] or 1, id)
+    end
+    local args = { fuel }
+    for _, p in ipairs(fn.params) do
+        args[#args + 1] = subst[p]
+    end
+    local app = builder.add(b, { tag = 'App', fn = b.spec_of[fn_id].name, args = args }, id)
+    local r = arena.directives(b.src, fn, 'ClvReturn')[1]
+    local fact = recursive and builder.type_fact(b, b.info.types[r], app, id)
+    if fact then
+        builder.assume(b, out, 'callee_post', fact, id)
+    end
+    return app
 end
 
 --- Lowers an expression to a term and adds the statements it needs to `out`.
@@ -160,6 +232,8 @@ function M.lower(b, id, out)
             return M.lower(b, b.res.constants[decl], out)
         end
         return builder.add(b, { tag = 'Var', name = builder.name_of(b, id) }, id)
+    elseif n.tag == 'Call' and b.spec_of[b.info.callees[id]] ~= nil then
+        return M.spec_call(b, id, out)
     elseif n.tag == 'Call' then
         -- `types` has made sure the callee has a value
         return assert(M.call(b, id, out))

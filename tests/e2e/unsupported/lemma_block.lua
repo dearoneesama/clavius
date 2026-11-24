@@ -1,1 +1,0 @@
---[[@lemma local function l() end ]] --! E-unsupported-feature

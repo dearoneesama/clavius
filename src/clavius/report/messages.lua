@@ -87,8 +87,6 @@ local PHRASES = {
     ['decrease-length'] = 'the measures in a recursion cycle need the same number of expressions; pad the shorter ones with constants',
     ['unsafe-decrease'] = "an `---@unsafe` function's body is never checked, so it takes no `---@decrease`",
     -- node kinds
-    ClvSpec = 'a `--[[@spec` block',
-    ClvLemma = 'a `--[[@lemma` block',
     Index = 'indexing',
     Table = 'a table constructor',
     Forin = 'a generic `for` loop',
@@ -105,7 +103,7 @@ local PHRASES = {
     ['repeated-target'] = 'assigning a local twice in one assignment',
     ['call'] = 'a call of anything but `assert`, `error` or a `local function` by its name',
     ['call-args'] = "a call whose arguments and the callee's parameters differ in number",
-    ['call-in-contract'] = 'a call in a contract or a loop annotation',
+    ['call-in-contract'] = 'a call of anything but a spec function in a contract or a loop annotation',
     ['unmarked-callee'] = 'a call to a function that is neither `---@clavius` nor `---@unsafe`',
     ['reassigned-function'] = 'a call to a function that is assigned somewhere in the file',
     ['forward-gap'] = 'a call to a function whose `local` declaration and definition have other code between them',
@@ -118,6 +116,7 @@ local PHRASES = {
     ['outer-local'] = 'a local declared outside this region',
     ['truthiness'] = 'a condition or an operand of `and`, `or` or `not` that is not a boolean',
     ['loop-variable-write'] = "assigning a numeric `for` loop's variable",
+    ['spec-local'] = "a `local` in a spec function's body",
     ['ghost-outside'] = 'ghost code belongs in marked code: a region or the body of a marked function',
     ['not-top-level'] = 'a `--[[@spec` or `--[[@lemma` block belongs between top-level statements',
     ['ghost-in-ghost'] = 'this is already ghost code, so write it without the tag: `assert(e)` for `---@assert e`',
@@ -125,13 +124,21 @@ local PHRASES = {
     ['ghost-overlap'] = 'ghost code must hold whole statements, apart from the exec code around it',
     ['ghost-line'] = 'a `---@ghost` line holds one `local` or assignment of ghost locals, and an `---@assert` line one expression',
     ['proof-line'] = 'a `---@proof` line holds only lemma calls; other proof code goes in a `--[[@proof` block',
+    ['block-statement'] = 'a `--[[@spec` or `--[[@lemma` block holds only `local function`s and their forward declarations',
+    ['spec-statement'] = "a spec function's body holds only `if` and `return`",
+    ['spec-missing-return'] = 'every path through a spec function should end in `return`',
+    ['spec-directive'] = 'a spec function takes only `---@param`, `---@return` and `---@decrease`',
+    ['lemma-directive'] = 'a lemma takes only `---@param`, `---@return`, `---@pre`, `---@post`, `---@decrease` and `---@reveal_with_fuel`',
+    ['fuel-not-spec'] = '`---@reveal_with_fuel` names a spec function declared above',
     ['ghost-function'] = 'ghost code defines no functions; a lemma goes in a `--[[@lemma` block and a spec function in a `--[[@spec` one',
     ['ghost-after-exit'] = "ghost code can't follow `return` or `break`, which end their block",
     ['ghost-return'] = "ghost code in exec code can't `return`",
     ['ghost-break'] = "a `break` in proof code can't leave a loop outside it",
     ['ghost-name'] = "exec code can't use a ghost name, which doesn't exist at runtime",
     ['exec-write'] = "ghost code can't assign an exec local",
-    ['ghost-exec-call'] = 'a call from ghost code to an exec function',
+    ['spec-call'] = "exec code can't call a spec function; contracts, spec functions and ghost code can",
+    ['lemma-call'] = 'only proof code can call a lemma in a `---@proof` line or block',
+    ['ghost-exec-call'] = "ghost code can't call an exec function, which runs only at runtime",
 }
 
 --- What a failing obligation of each kind means. `%s` is the source text of its clause's condition or
@@ -149,6 +156,7 @@ local FAILURES = {
     decrease = 'an iteration may start with the measure `%s` negative, or may not decrease it',
     for_bound = "this loop's limit plus its step may leave ±2^53",
     for_step = "this loop's step may be 0",
+    nat = '%s may be negative where a `Nat` is expected',
 }
 
 --- What a failing obligation that the counter of a numeric `for` needs means. It has no clause.

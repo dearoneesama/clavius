@@ -1,1 +1,0 @@
---[[@spec local function s() end ]] --! E-unsupported-feature

@@ -24,7 +24,8 @@ local M = {}
 --- @return NodeId
 local function child_unit(src, p, unit_of_p, child)
     local n = src.nodes[p]
-    if n.tag == 'ClvRegion' then
+    -- spec functions and lemmas are checked wherever they sit
+    if n.tag == 'ClvRegion' or n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then
         return p
     elseif n.tag == 'While' or n.tag == 'Repeat' or n.tag == 'Fornum' or n.tag == 'Forin' or n.tag == 'Function' then
         -- keeps a function's contract and a loop's annotations out of the unit

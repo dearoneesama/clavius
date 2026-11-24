@@ -2,13 +2,13 @@
 -- literal's type comes from its spelling, a local's from its initializer, and a parameter's and a
 -- function's value from its `---@param` and `---@return`. In spec and proof code, which never runs,
 -- arithmetic is exact and gives an `Int`, and so does a ghost local with an integer initializer. Integer
--- types convert into each other.
+-- types convert into each other, and `elaborate` checks where a value narrows.
 
 local arena = require 'clavius.ir.arena'
 local diag = require 'clavius.ir.diag'
 local support = require 'clavius.ir.support'
 
---- @alias Type 'int53' | 'Int' | 'boolean'
+--- @alias Type 'int53' | 'Int' | 'Nat' | 'boolean'
 
 --- @class TypeInfo
 --- @field types table<NodeId, Type> the type of each expression and Binder in marked code and contracts, and of each function's ClvReturn
@@ -32,7 +32,7 @@ local INT53_MAX_HEX = '20000000000000'
 local ARITH = { add = true, sub = true, mul = true }
 local ORDER = { lt = true, le = true, gt = true, ge = true }
 
-local INTEGERS = { int53 = true, Int = true }
+local INTEGERS = { int53 = true, Int = true, Nat = true }
 
 -- the integer types that only spec and proof code may hold
 local GHOST_TYPES = { Int = true, Nat = true }
@@ -151,18 +151,21 @@ local function type_text(st, id)
 end
 
 --- Returns the type that a type expression stands for. One that marked code can't use yet is reported
---- and gives nil, and so do `Int` and `Nat`, which only spec and proof code may hold.
+--- and gives nil, and so do `Int` and `Nat` in an exec function's signature.
 --- @param st TypesState
 --- @param id NodeId
+--- @param kind FunctionKind the kind of the function whose signature it is in
 --- @mut st
 --- @return Type|nil
-local function declared(st, id)
+local function declared(st, id, kind)
     local n = st.src.nodes[id]
     -- `integer` is LuaLS's spelling of `int53`
     if n.tag == 'ClvTypeName' and (n.name == 'int53' or n.name == 'integer') then
         return 'int53'
     elseif n.tag == 'ClvTypeName' and n.name == 'boolean' then
         return 'boolean'
+    elseif n.tag == 'ClvTypeName' and GHOST_TYPES[n.name] and kind ~= 'exec' then
+        return n.name --[[@as Type]]
     elseif n.tag == 'ClvTypeName' and GHOST_TYPES[n.name] then
         report(st, 'E-type-mismatch', id, { 'int53', n.name })
         return nil
@@ -175,8 +178,9 @@ end
 --- LuaLS's type `any`, which isn't supported.
 --- @param st TypesState
 --- @param fn SrcFunction
+--- @param kind FunctionKind
 --- @mut st
-local function signature(st, fn)
+local function signature(st, fn, kind)
     --- @type table<string, NodeId>
     local params = {}
     for _, d in ipairs(fn.directives) do
@@ -192,12 +196,12 @@ local function signature(st, fn)
         if ty_node == nil then
             report(st, 'E-unsupported-type', p, { 'any' })
         else
-            st.out.types[p] = declared(st, ty_node)
+            st.out.types[p] = declared(st, ty_node, kind)
         end
     end
     local r = arena.directives(st.src, fn, 'ClvReturn')[1]
     if r ~= nil then
-        st.out.types[r] = declared(st, (st.src.nodes[r] --[[@as SrcClvReturn]]).type)
+        st.out.types[r] = declared(st, (st.src.nodes[r] --[[@as SrcClvReturn]]).type, kind)
     end
 end
 
@@ -361,7 +365,7 @@ end
 --- @decrease id
 function statement(st, id)
     local n = st.src.nodes[id]
-    if st.res.defined[id] ~= nil then -- luacheck: ignore 542
+    if st.res.defined[id] ~= nil or n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then -- luacheck: ignore 542
         -- a function definition, typed as a unit of its own
     elseif n.tag == 'Local' then
         for i, v in ipairs(n.values) do
@@ -452,6 +456,7 @@ end
 --- @class TypesFunction
 --- @field fn SrcFunction
 --- @field verified boolean whether its body is typed: it isn't `---@unsafe`
+--- @field kind FunctionKind
 
 --- Types a function's contract and measure, and its body unless it is `---@unsafe`. Its signature is
 --- already typed.
@@ -471,13 +476,14 @@ local function func(st, f)
     end
     if f.verified then
         st.result = arena.directives(st.src, f.fn, 'ClvReturn')[1]
+        st.ghost = f.kind ~= 'exec'
         statement(st, f.fn.body)
-        st.result = nil
+        st.result, st.ghost = nil, false
     end
 end
 
---- Adds the functions that the statements of a list define to `out`: in a region, or marked
---- `---@clavius` or `---@unsafe`.
+--- Adds the functions that the statements of a list define to `out`: in a region, marked `---@clavius`
+--- or `---@unsafe`, or in a spec or lemma block.
 --- @param st TypesState
 --- @param statements NodeId[]
 --- @param in_region boolean
@@ -486,18 +492,23 @@ end
 local function defined(st, statements, in_region, out)
     for _, id in ipairs(statements) do
         local binder = st.res.defined[id]
+        local n = st.src.nodes[id]
         if binder ~= nil then
-            local fn = st.src.nodes[st.res.functions[binder]] --[[@as SrcFunction]]
+            local fn_id = st.res.functions[binder]
+            local fn = st.src.nodes[fn_id] --[[@as SrcFunction]]
+            local kind = st.res.kinds[fn_id]
             local unsafe = arena.has_directive(st.src, fn, 'ClvUnsafe')
-            if unsafe or in_region or arena.has_directive(st.src, fn, 'ClvMarker') then
-                out[#out + 1] = { fn = fn, verified = not unsafe }
+            if kind ~= 'exec' or unsafe or in_region or arena.has_directive(st.src, fn, 'ClvMarker') then
+                out[#out + 1] = { fn = fn, verified = not unsafe, kind = kind }
             end
+        elseif n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then
+            defined(st, n.statements, in_region, out)
         end
     end
 end
 
 --- Types the marked code of a resolved file: its regions, the functions in them and those marked
---- `---@clavius`, and the contracts of `---@unsafe` functions.
+--- `---@clavius`, spec functions and lemmas, and the contracts of `---@unsafe` functions.
 --- @param src SrcArena
 --- @param root NodeId
 --- @param res Resolution
@@ -518,7 +529,7 @@ function M.run(src, root, res)
     end
     -- every signature first, since a function may call one defined below it
     for _, f in ipairs(fns) do
-        signature(st, f.fn)
+        signature(st, f.fn, f.kind)
     end
     for _, f in ipairs(fns) do
         func(st, f)

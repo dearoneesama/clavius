@@ -14,9 +14,14 @@ local support = require 'clavius.ir.support'
 --- @field defined table<NodeId, NodeId> the Binder that each top-level function definition defines
 --- @field constants table<NodeId, NodeId> the initializer of each constant: a top-level local whose initializer is a number or boolean literal, and which is never assigned
 --- @field assigned table<NodeId, boolean> the Binders that an assignment anywhere in the file targets
+--- @field kinds table<NodeId, FunctionKind> the kind of each Function node
+--- @field fuel table<NodeId, NodeId> the spec function's Function that each `---@reveal_with_fuel` names
 
---- What the code being visited is: exec code or proof code.
---- @alias ResolveMode 'exec' | 'proof'
+--- What a function is: a spec function, a lemma, or an exec function.
+--- @alias FunctionKind 'spec' | 'lemma' | 'exec'
+
+--- What the code being visited is: exec code, a spec function's body, or proof code.
+--- @alias ResolveMode 'exec' | 'spec' | 'proof'
 
 --- A read in marked code of a local declared outside its unit, or a call that marked code makes. Both
 --- are checked once the whole file is resolved.
@@ -243,8 +248,43 @@ local function ghost_base(st, id, scope)
     return nil
 end
 
+--- Returns what a call of a local calls: a spec function, a lemma or an exec function, or nil when the
+--- callee is no function definition.
+--- @param st ResolveState
+--- @param n SrcCall
+--- @param scope integer
+--- @return FunctionKind|nil
+local function callee_kind(st, n, scope)
+    local callee = st.src.nodes[n.func]
+    local b = callee.tag == 'Id' and n.method == nil and lookup(st, scope, callee.name, true) or nil
+    local fn_id = b and st.out.functions[b]
+    if not fn_id then
+        return nil
+    end
+    return st.out.kinds[fn_id]
+end
+
+--- Returns the key of the error for a call of a local function of kind `kind` where it isn't allowed, or
+--- nil where it is. Exec code calls exec functions; contracts, invariants and measures call spec
+--- functions; spec functions call spec functions; and proof code calls lemmas and spec functions.
+--- @param st ResolveState
+--- @param kind FunctionKind|nil
+--- @return string|nil
+local function misplaced_call(st, kind)
+    if kind == 'spec' then
+        return (st.mode == 'exec' and not st.in_clause) and 'spec-call' or nil
+    elseif kind == 'lemma' then
+        return (st.mode ~= 'proof' or st.in_clause) and 'lemma-call' or nil
+    elseif st.in_clause then
+        return 'call-in-contract'
+    elseif kind == 'exec' and st.mode ~= 'exec' then
+        return 'ghost-exec-call'
+    end
+    return nil
+end
+
 --- Visits a call. Marked code may call `assert` and `error` as statements, and verified and `---@unsafe`
---- local functions anywhere but in a contract and in proof code.
+--- local functions anywhere but in a contract. Ghost code and contracts call spec functions and lemmas.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param scope integer
@@ -258,17 +298,18 @@ local function visit_call(st, id, scope, unit, is_statement)
     if n.method == nil then
         base, path = global_name(st, n.func, scope)
     end
+    local marked = unit ~= 0
     local wrong, at = nil, id
-    if unit ~= 0 and st.in_clause then
-        wrong = 'call-in-contract'
-    elseif unit ~= 0 and path == nil and st.mode == 'proof' then
-        wrong = 'ghost-exec-call'
-    elseif unit ~= 0 and path == nil then
+    if unit ~= 0 and path == nil then
+        local kind = callee_kind(st, n, scope)
+        wrong = misplaced_call(st, kind)
         -- a ghost local that shadows a global is still a ghost name to exec code
-        local ghost = ghost_base(st, n.func, scope)
-        if ghost ~= nil then
+        local ghost = wrong == nil and kind == nil and st.mode == 'exec' and ghost_base(st, n.func, scope)
+        if ghost then
             wrong, at = 'ghost-name', ghost
         end
+    elseif unit ~= 0 and st.in_clause then
+        wrong = 'call-in-contract'
     end
     if wrong ~= nil then
         report(st, wrong == 'call-in-contract' and 'E-unsupported-feature' or 'E-mode', at, { wrong })
@@ -284,8 +325,12 @@ local function visit_call(st, id, scope, unit, is_statement)
             report_global(st, n.func, assert(base), path)
         end
     end
-    -- a global callee has nothing to resolve, and a local one is read only by calling it
-    if path == nil then
+    -- a global callee has nothing to resolve, and a local one is read only by calling it. a plain name
+    -- resolves as marked code sees it, so that a call of a lemma or spec function finds its declaration
+    local callee = st.src.nodes[n.func]
+    if path == nil and callee.tag == 'Id' then
+        st.out.decl[n.func] = lookup(st, scope, callee.name, marked)
+    elseif path == nil then
         visit(st, n.func, scope, 0)
     end
     for _, a in ipairs(n.args) do
@@ -340,7 +385,11 @@ local function visit_set(st, id, scope, unit)
     end
 end
 
---- Visits the statements of a list. A call among them is a statement call.
+-- the statements that a spec function's body may hold: its body is one term
+local SPEC_STATEMENTS = { If = true, Return = true, Block = true }
+
+--- Visits the statements of a list. A call among them is a statement call. In a spec function's body,
+--- a statement other than `if` and `return` is reported and not visited.
 --- @param st ResolveState
 --- @param statements NodeId[]
 --- @param scope integer
@@ -348,12 +397,41 @@ end
 --- @mut st
 local function visit_statements(st, statements, scope, unit)
     for _, statement in ipairs(statements) do
-        if st.src.nodes[statement].tag == 'Call' then
+        local tag = st.src.nodes[statement].tag
+        if unit ~= 0 and st.mode == 'spec' and tag == 'Local' then
+            report(st, 'E-unsupported-feature', statement, { 'spec-local' })
+        elseif unit ~= 0 and st.mode == 'spec' and not SPEC_STATEMENTS[tag] then
+            report(st, 'E-mode', statement, { 'spec-statement' })
+        elseif tag == 'Call' then
             visit_call(st, statement, scope, unit, true)
         else
             visit(st, statement, scope, unit)
         end
     end
+end
+
+--- Returns whether every path through a block ends in `return`.
+--- @param src SrcArena
+--- @param id NodeId a Block
+--- @decrease id
+--- @return boolean
+local function always_returns(src, id)
+    local block = src.nodes[id] --[[@as SrcBlock]]
+    for _, s in ipairs(block.statements) do
+        local n = src.nodes[s]
+        if n.tag == 'Return' or (n.tag == 'Block' and always_returns(src, s)) then
+            return true
+        elseif n.tag == 'If' and n.else_block ~= nil then
+            local all = always_returns(src, n.else_block)
+            for _, arm in ipairs(n.arms) do
+                all = all and always_returns(src, (src.nodes[arm] --[[@as SrcIfArm]]).body)
+            end
+            if all then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 --- Visits a contract clause in spec code, where calls aren't allowed.
@@ -368,15 +446,39 @@ local function visit_clause(st, cond, scope, unit)
     st.in_clause = false
 end
 
+--- Records the spec function that a `---@reveal_with_fuel` names, as seen from `scope`.
+--- @param st ResolveState
+--- @param d NodeId the ClvRevealWithFuel
+--- @param scope integer
+--- @mut st
+local function visit_fuel(st, d, scope)
+    local dn = st.src.nodes[d] --[[@as SrcClvRevealWithFuel]]
+    local b = lookup(st, scope, dn.name, true)
+    local fn_id = b and st.out.functions[b]
+    if fn_id and st.out.kinds[fn_id] == 'spec' then
+        st.out.fuel[d] = fn_id
+    else
+        report(st, 'E-misplaced-directive', d, { 'fuel-not-spec' })
+    end
+end
+
 --- Checks a function's directives and resolves its contract. A `---@param` must name a parameter once, a
 --- `---@return` declares the name that `---@post` calls the value by, and a clause sees the parameters,
---- plus the value in a `---@post`. A measure sees what a `---@pre` sees.
+--- plus the value in a `---@post`. A measure sees what a `---@pre` sees. A spec function and a lemma
+--- take fewer directives than an exec function.
 --- @param st ResolveState
 --- @param id NodeId the Function
 --- @param scope integer the scope of the parameters
 --- @mut st
 local function visit_directives(st, id, scope)
     local fn = st.src.nodes[id] --[[@as SrcFunction]]
+    local kind = st.out.kinds[id]
+    local allowed = support.FUNCTION_DIRECTIVES
+    if kind == 'spec' then
+        allowed = support.SPEC_DIRECTIVES
+    elseif kind == 'lemma' then
+        allowed = support.LEMMA_DIRECTIVES
+    end
     local params = {}
     for _, p in ipairs(fn.params) do
         params[
@@ -387,8 +489,12 @@ local function visit_directives(st, id, scope)
     local measures = {}
     for _, d in ipairs(fn.directives) do
         local dn = st.src.nodes[d]
-        if not support.FUNCTION_DIRECTIVES[dn.tag] then
+        if kind ~= 'exec' and not allowed[dn.tag] then
+            report(st, 'E-misplaced-directive', d, { kind .. '-directive' })
+        elseif not allowed[dn.tag] then
             report(st, 'E-unsupported-directive', d, { support.DIRECTIVE_TAGS[dn.tag] })
+        elseif dn.tag == 'ClvRevealWithFuel' then
+            visit_fuel(st, d, scope)
         elseif dn.tag == 'ClvParam' and not params[dn.name] then
             report(st, 'E-misplaced-directive', d, { 'no-such-param' })
         elseif dn.tag == 'ClvParam' and typed[dn.name] then
@@ -457,7 +563,8 @@ local function visit_loop_directives(st, loop, scope, unit)
 end
 
 --- Visits a function. In marked code, or when it is `---@unsafe`, the function is a unit root for its
---- contract. Its body is marked code unless it is `---@unsafe`.
+--- contract. Its body is marked code unless it is `---@unsafe`: exec code, or for a spec function spec
+--- code and for a lemma proof code.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param scope integer
@@ -467,11 +574,17 @@ end
 --- @decrease id
 local function visit_function(st, id, scope, unit, binder)
     local fn = st.src.nodes[id] --[[@as SrcFunction]]
+    if st.out.kinds[id] == nil then
+        -- only a top-level definition has a kind yet. any other function is exec code, and marked
+        -- code rejects it anyway
+        st.out.kinds[id] = 'exec'
+    end
+    local kind = st.out.kinds[id]
     local unsafe = arena.has_directive(st.src, fn, 'ClvUnsafe')
     local root = (unit ~= 0 or unsafe) and id or 0
     local outer_fn, outer_mode = st.fn, st.mode
     local outer_proof_loops = st.proof_loops
-    st.mode = 'exec'
+    st.mode = kind == 'spec' and 'spec' or (kind == 'lemma' and 'proof' or 'exec')
     local s = open(st, scope)
     for _, p in ipairs(fn.params) do
         local name = (st.src.nodes[p] --[[@as SrcBinder]]).name
@@ -482,6 +595,9 @@ local function visit_function(st, id, scope, unit, binder)
     end
     local body_unit = (unit ~= 0 and not unsafe) and id or 0
     st.verified[id] = body_unit ~= 0
+    if kind == 'spec' and body_unit ~= 0 and not always_returns(st.src, fn.body) then
+        report(st, 'E-mode', id, { 'spec-missing-return' })
+    end
     st.fn, st.proof_loops = binder, nil
     visit(st, fn.body, s, body_unit)
     st.fn, st.mode = outer_fn, outer_mode
@@ -497,6 +613,29 @@ local function count_loop(st, step)
     if st.proof_loops ~= nil then
         st.proof_loops = st.proof_loops + step
     end
+end
+
+--- Visits the top-level statements of a `--[[@spec` or `--[[@lemma` block, which declare into the
+--- enclosing scope. Each must define a function or forward-declare one that the block defines.
+--- @param st ResolveState
+--- @param id NodeId
+--- @param n SrcClvSpec|SrcClvLemma
+--- @param scope integer
+--- @mut st
+--- @decrease id
+local function visit_block(st, id, n, scope)
+    local mode = st.mode
+    st.mode = n.tag == 'ClvSpec' and 'spec' or 'proof'
+    for _, s in ipairs(n.statements) do
+        local sn = st.src.nodes[s]
+        local declares = (sn.tag == 'Local' and #sn.values == 0 and st.forward[s]) or st.out.defined[s] ~= nil
+        if not declares then
+            report(st, 'E-mode', s, { 'block-statement' })
+        else
+            visit(st, s, scope, id)
+        end
+    end
+    st.mode = mode
 end
 
 --- Visits proof code or a `---@ghost` or `---@assert` line. A `--[[@proof` block is a scope, and a
@@ -516,8 +655,11 @@ local function visit_ghost(st, n, scope, unit)
     if n.tag == 'ClvProof' then
         local s = open(st, scope)
         -- a `---@proof` line holds only lemma calls
-        for _, statement in ipairs(n.block and {} or n.statements) do
-            report(st, 'E-mode', statement, { 'proof-line' })
+        for _, statement in ipairs(n.statements) do
+            local sn = st.src.nodes[statement] --[[@as SrcCall]]
+            if not n.block and not (sn.tag == 'Call' and callee_kind(st, sn, s) == 'lemma') then
+                report(st, 'E-mode', statement, { 'proof-line' })
+            end
         end
         visit_statements(st, n.statements, s, unit)
     elseif n.tag == 'ClvGhost' then
@@ -549,9 +691,6 @@ function visit(st, id, scope, unit)
         and n.tag == 'Function'
         and arena.has_directive(st.src, n --[[@as SrcFunction]], 'ClvMarker')
     then
-        unit = id
-    elseif unit == 0 and (tag == 'ClvSpec' or tag == 'ClvLemma') then
-        -- spec and lemma blocks are checked wherever they sit
         unit = id
     end
     -- what marked code may use
@@ -603,6 +742,9 @@ function visit(st, id, scope, unit)
         child_scope = open(st, scope)
     elseif n.tag == 'ClvRegion' then
         child_unit = id
+    elseif n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then
+        visit_block(st, id, n, scope)
+        return
     elseif n.tag == 'ClvProof' or n.tag == 'ClvGhost' or n.tag == 'ClvAssert' then
         visit_ghost(st, n, scope, unit)
         return
@@ -716,9 +858,10 @@ local GHOST_CODE = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost 
 --- that may run sits between the two: anything but a function definition, a `local` without values or
 --- ghost code. That code could call a function that calls `g` while `g` is still nil.
 --- @param st ResolveState
---- @param statements NodeId[] the top-level statements
+--- @param statements NodeId[] the top-level statements, or those of a spec or lemma block
+--- @param kind FunctionKind the kind of the functions they define
 --- @mut st
-local function find_definitions(st, statements)
+local function find_definitions(st, statements, kind)
     local src = st.src
     --- @type table<string, NodeId>
     local latest = {} -- name -> the Binder of its latest top-level declaration
@@ -731,6 +874,7 @@ local function find_definitions(st, statements)
             latest[name] = n.binder
             st.out.defined[id] = n.binder
             st.top_functions[n.func] = true
+            st.out.kinds[n.func] = kind
         elseif n.tag == 'Local' then
             for _, b in ipairs(n.names) do
                 local name = (src.nodes[b] --[[@as SrcBinder]]).name
@@ -747,6 +891,7 @@ local function find_definitions(st, statements)
                 st.out.defined[id] = b
                 st.binder_of[n.values[1]] = b
                 st.top_functions[n.values[1]] = true
+                st.out.kinds[n.values[1]] = kind
                 -- the window may hold only what runs no code: function definitions and `local`s without
                 -- values. it's a syntactic rule, so a constant or a call that can't reach `g` is
                 -- rejected too. telling those apart would need the callees that `types` finds
@@ -758,6 +903,9 @@ local function find_definitions(st, statements)
                     end
                 end
             end
+        elseif n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then
+            -- a block's forward declarations pair up only within it
+            find_definitions(st, n.statements, n.tag == 'ClvSpec' and 'spec' or 'lemma')
         end
     end
     for _, id in ipairs(statements) do
@@ -781,7 +929,7 @@ function M.run(src, root)
     --- @type ResolveState
     local st = {
         src = src,
-        out = { decl = {}, names = {}, functions = {}, defined = {}, constants = {}, assigned = {} },
+        out = { decl = {}, names = {}, functions = {}, defined = {}, constants = {}, assigned = {}, kinds = {}, fuel = {} },
         diags = {},
         scope_parent = {},
         scope_names = {},
@@ -802,7 +950,7 @@ function M.run(src, root)
         calls = {},
     }
     local statements = top_level(src, root)
-    find_definitions(st, statements)
+    find_definitions(st, statements, 'exec')
     -- the Binders of top-level locals with a literal initializer, and the initializers
     local candidates, values = {}, {}
     for _, id in ipairs(statements) do

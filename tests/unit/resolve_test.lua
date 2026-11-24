@@ -491,14 +491,117 @@ describe('resolve', function()
         )
     end)
 
+    it('lets unmarked code see past ghost declarations', function()
+        local text = [=[
+            --[[@spec
+            ---@return Int
+            local function s() return 1 end
+            ]]
+            local t = s
+        ]=]
+        assert.are.same({ 's global' }, refs(text))
+    end)
+
+    it('lets each kind of code call only some kinds of functions', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param n Nat
+            ---@return Nat
+            local function s(n) return n end
+            ]]
+            --[[@lemma
+            ---@param n Nat
+            local function l(n) end
+            ]]
+            ---@param n integer
+            ---@post result == s(n)
+            ---@return integer
+            local function f(n)
+                local a = s(n) --! E-mode
+                l(n) --! E-mode
+                ---@proof l(s(n))
+                return n
+            end
+            ---@param n integer
+            ---@pre l(n)
+            --! E-mode
+            local function g(n) end
+            --[[@proof f(1) ]] --! E-mode
+            ---@clavius end
+            ]=]
+        )
+    end)
+
+    it('checks what blocks and spec functions hold', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            --[[@spec
+            local k = 1 --! E-mode
+            ---@param n Nat
+            ---@return Nat
+            local function a(n)
+                local m = n --! E-unsupported-feature
+                return n
+            end
+            ---@param n Nat
+            ---@return Nat
+            local function b(n) --! E-mode
+                if n > 0 then return n end
+            end
+            ---@param n Nat
+            ---@return Nat
+            local function both(n)
+                if n > 0 then
+                    return n
+                else
+                    do
+                        return 0
+                    end
+                end
+            end
+            ---@param n Nat
+            ---@return Nat
+            local function one(n) --! E-mode
+                if n > 0 then
+                    return n
+                elseif n == 0 then
+                    return 0
+                else
+                end
+            end
+            ---@param n Nat
+            ---@pre n > 0
+            --! E-misplaced-directive
+            ---@return Nat
+            local function c(n)
+                assert(n > 0) --! E-mode
+                return n
+            end
+            ]]
+            --[[@lemma
+            ---@unsafe
+            --! E-misplaced-directive
+            local function u() end
+            ]]
+            ]=]
+        )
+    end)
+
     it('checks what proof code holds, and where its control flow goes', function()
         markers.expect_diags(
             'resolve',
             [=[
             ---@clavius begin
+            --[[@lemma
+            local function l() end
+            ]]
             local x = 0
             ---@proof assert(x == 0) --! E-mode
-            ---@ghost assert(x == 0) --! E-mode
+            ---@ghost l() --! E-mode
             while x < 3 do
                 --[[@proof break ]] --! E-mode
                 --[[@proof while true do break end ]]
@@ -510,6 +613,9 @@ describe('resolve', function()
             local function f()
                 --[[@proof if true then return end ]] --! E-mode
             end
+            ---@reveal_with_fuel(l, 2)
+            --! E-misplaced-directive
+            local function g() end
             ---@clavius end
             ]=]
         )

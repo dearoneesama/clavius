@@ -195,6 +195,8 @@ local function needed(source, id)
         add_clauses(keys, 'post', arena.directives(src, fn, 'ClvPost'))
     elseif n.tag == 'ClvAssert' then
         keys[1] = { kind = 'assert', clause = 0 }
+    elseif n.tag == 'Function' and ghost and src.nodes[source.index.ghost[id]].tag == 'ClvSpec' then -- luacheck: ignore 542
+        -- every path through a spec function returns
     elseif n.tag == 'Function' and arena.has_directive(src, n, 'ClvReturn') then
         keys[1] = { kind = 'missing_return', clause = 0 }
     elseif n.tag == 'Function' then
