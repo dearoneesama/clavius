@@ -432,12 +432,10 @@ function statement(b, id, out)
     elseif n.tag == 'ClvProof' or n.tag == 'ClvGhost' or n.tag == 'ClvAssert' then
         local ghost = b.ghost
         b.ghost = true
-        if n.tag == 'ClvProof' then
+        if n.tag == 'ClvProof' or n.tag == 'ClvGhost' then
             for _, s in ipairs(n.statements) do
                 statement(b, s, out)
             end
-        elseif n.tag == 'ClvGhost' then
-            statement(b, n.statement, out)
         else -- 'ClvAssert'
             builder.check(b, out, 'assert', expr.lower(b, n.cond, out), id)
         end

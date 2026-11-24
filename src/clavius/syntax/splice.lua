@@ -73,7 +73,7 @@ local LOOP_TAGS = { invariant = true, decrease = true }
 local GHOST_TAGS = { ghost = true, proof = true, assert = true }
 
 -- the tags of the long comments that hold ghost code
-local BLOCK_TAGS = { spec = true, lemma = true, proof = true }
+local BLOCK_TAGS = { spec = true, lemma = true, proof = true, ghost = true }
 
 --- Returns whether `d` is `---@clavius begin` or `end`.
 --- @param d Directive

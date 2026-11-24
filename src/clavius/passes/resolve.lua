@@ -638,8 +638,8 @@ local function visit_block(st, id, n, scope)
     st.mode = mode
 end
 
---- Visits proof code or a `---@ghost` or `---@assert` line. A `--[[@proof` block is a scope, and a
---- `---@ghost` line declares into the enclosing one. In exec code, a `return` and a `break` that leaves a
+--- Visits proof code, ghost state or an `---@assert` line. A `--[[@proof` block is a scope, and ghost
+--- state declares into the enclosing one. In exec code, a `return` and a `break` that leaves a
 --- loop around it would change the path that the proof takes but not the one LuaJIT takes.
 --- @param st ResolveState
 --- @param n SrcClvProof|SrcClvGhost|SrcClvAssert
@@ -663,11 +663,13 @@ local function visit_ghost(st, n, scope, unit)
         end
         visit_statements(st, n.statements, s, unit)
     elseif n.tag == 'ClvGhost' then
-        local tag = st.src.nodes[n.statement].tag
-        if tag ~= 'Local' and tag ~= 'Set' then
-            report(st, 'E-mode', n.statement, { 'ghost-line' })
+        for _, statement in ipairs(n.statements) do
+            local tag = st.src.nodes[statement].tag
+            if tag ~= 'Local' and tag ~= 'Set' then
+                report(st, 'E-mode', statement, { 'ghost-statement' })
+            end
         end
-        visit_statements(st, { n.statement }, scope, unit)
+        visit_statements(st, n.statements, scope, unit)
     else
         visit(st, n.cond, scope, unit)
     end

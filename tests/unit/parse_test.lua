@@ -190,6 +190,8 @@ describe('syntax.comments', function()
             { '--[==[ @proof l(1) ]==]', {}, { at(' @proof l(1) ', 1, 23) }, { { 'proof', 13, 20 } } },
             -- --[[@spec local s ]]
             { '--[[@spec local s ]]', {}, { at('@spec local s ', 1, 20) }, { { 'spec', 9, 19 } } },
+            -- --[[@ghost g = 0 ]]
+            { '--[[@ghost g = 0 ]]', {}, { at('@ghost g = 0 ', 1, 19) }, { { 'ghost_block', 10, 18 } } },
             -- ---@ghost g = 0
             { '---@ghost g = 0', { at('-@ghost g = 0', 1, 15) }, {}, { { 'ghost', 9, 16 } } },
             -- ---@proof l(1)
@@ -595,6 +597,7 @@ describe('syntax.luacheck ghost code', function()
             --[==[@lemma
             local function m()
                 --[[@proof l(1) ]] --! E-misplaced-directive
+                --[[@ghost local g = 0 ]] --! E-misplaced-directive
             end
             ]==]
             --[[@spec
@@ -619,6 +622,7 @@ describe('syntax.luacheck ghost code', function()
             end
             local y = 0
             ---@ghost local a = 1; y = 2 --! E-mode
+            --[[@ghost local b = 1; y = 2 ]]
             ---@assert y, a --! E-syntax
             ---@clavius end
             ]=]
@@ -708,6 +712,7 @@ describe('syntax.luacheck ghost code', function()
             'parse',
             [=[
             --[[@proof this is not code ]] --! E-misplaced-directive
+            --[[@ghost nor this ]] --! E-misplaced-directive
             ---@assert )
             --! E-misplaced-directive
             ---@clavius begin

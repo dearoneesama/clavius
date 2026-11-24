@@ -480,6 +480,11 @@ describe('resolve', function()
             local y = g --! E-mode
             ---@ghost x = 2 --! E-mode
             ---@ghost g = g + x
+            --[[@ghost
+                local k = g
+                g = k
+            ]]
+            local v = k --! E-mode
             --[[@proof local p = g ]]
             local z = p --! E-banned-global
             ---@ghost local assert = 1
@@ -602,6 +607,11 @@ describe('resolve', function()
             local x = 0
             ---@proof assert(x == 0) --! E-mode
             ---@ghost l() --! E-mode
+            --[[@ghost
+                local h = x
+                l() --! E-mode
+                h = h + 1
+            ]]
             while x < 3 do
                 --[[@proof break ]] --! E-mode
                 --[[@proof while true do break end ]]

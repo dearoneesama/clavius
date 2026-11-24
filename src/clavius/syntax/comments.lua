@@ -20,9 +20,9 @@
 --- @field tag string
 --- @field span Span the whole comment
 
---- What a ghost comment holds: a `--[[@spec`, `--[[@lemma` or `--[[@proof` block, or a `---@proof`,
---- `---@ghost` or `---@assert` line.
---- @alias GhostKind 'spec' | 'lemma' | 'proof' | 'proof_line' | 'ghost' | 'assert'
+--- What a ghost comment holds: a `--[[@spec`, `--[[@lemma`, `--[[@proof` or `--[[@ghost` block, or a
+--- `---@proof`, `---@ghost` or `---@assert` line.
+--- @alias GhostKind 'spec' | 'lemma' | 'proof' | 'ghost_block' | 'proof_line' | 'ghost' | 'assert'
 
 --- A comment that holds ghost code. Its code lies between `head` and `close`.
 --- @class GhostRange
@@ -38,7 +38,8 @@ local M = {}
 -- the text follows the comment's `--`, so `---@tag` arrives as `-@tag`; LuaLS allows any spaces before `@`
 local HEAD = '^%-%s*@'
 
-local BLOCK_KINDS = { spec = 'spec', lemma = 'lemma', proof = 'proof' }
+--- @type table<string, GhostKind>
+local BLOCK_KINDS = { spec = 'spec', lemma = 'lemma', proof = 'proof', ghost = 'ghost_block' }
 
 --- @type table<string, GhostKind>
 local LINE_KINDS = { ghost = 'ghost', proof = 'proof_line', assert = 'assert' }

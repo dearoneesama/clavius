@@ -9,9 +9,12 @@
           (Block [(Return [(Id n)])])))])
    (ClvRegion
      [(Local [(Literal number 1)] [(Binder x)])
-      (ClvGhost (Local [(Literal number 0)] [(Binder seen)]))
-      (ClvGhost (Set [(Id seen)] [(BinOp add (Id seen) (Id x))]))
-      (ClvAssert (BinOp eq (Id seen) (Literal number 1)))
+      (ClvGhost [(Local [(Literal number 0)] [(Binder seen)])])
+      (ClvGhost [(Set [(Id seen)] [(BinOp add (Id seen) (Id x))])])
+      (ClvGhost
+        [(Local [(BinOp add (Id seen) (Id seen))] [(Binder twice)])
+         (Set [(Id seen) (Id twice)] [(Id twice) (Id seen)])])
+      (ClvAssert (BinOp eq (Id seen) (Literal number 2)))
       (ClvProof true
         [(Local [(Id x)] [(Binder y)])
          (If [(IfArm (BinOp gt (Id y) (Literal number 0)) (Block []))] nil)])

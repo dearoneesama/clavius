@@ -1,5 +1,5 @@
 -- Ghost code in comments becomes nodes: spec and lemma blocks wherever they sit, and in marked code
--- proof blocks and `---@proof`, `---@ghost` and `---@assert` lines.
+-- proof and ghost blocks and `---@proof`, `---@ghost` and `---@assert` lines.
 
 --[[@spec
 ---@param n Nat
@@ -14,7 +14,11 @@ end
 local x = 1
 ---@ghost local seen = 0
 ---@ghost seen = seen + x
----@assert seen == 1
+--[[@ghost
+    local twice = seen + seen
+    seen, twice = twice, seen
+]]
+---@assert seen == 2
 
 --[==[@proof
     local y = x

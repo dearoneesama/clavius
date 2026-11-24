@@ -123,6 +123,7 @@ local PHRASES = {
     ['proof-in-spec'] = "a spec function's body holds no proof code",
     ['ghost-overlap'] = 'ghost code must hold whole statements, apart from the exec code around it',
     ['ghost-line'] = 'a `---@ghost` line holds one `local` or assignment of ghost locals, and an `---@assert` line one expression',
+    ['ghost-statement'] = 'ghost state holds only `local`s and assignments of ghost locals; other ghost code goes in a `--[[@proof` block',
     ['proof-line'] = 'a `---@proof` line holds only lemma calls; other proof code goes in a `--[[@proof` block',
     ['block-statement'] = 'a `--[[@spec` or `--[[@lemma` block holds only `local function`s and their forward declarations',
     ['spec-statement'] = "a spec function's body holds only `if` and `return`",

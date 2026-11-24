@@ -149,8 +149,8 @@ local NODES = {
     },
     {
         tag = 'ClvGhost',
-        doc = 'A `---@ghost` line: one `local` or assignment of ghost state.',
-        fields = { { 'statement', 'node', 'a statement node' } },
+        doc = 'Ghost state: a `--[[@ghost … ]]` block of `local`s and assignments, or a `---@ghost` line of one. It is not a scope.',
+        fields = { { 'statements', 'node[]', 'statement nodes' } },
     },
     { tag = 'ClvAssert', doc = '`---@assert cond`.', fields = { { 'cond', 'node', 'an expression node' } } },
     { tag = 'ClvTypeName', doc = 'A named type in an annotation, such as `int53`, `Seq` or `a.b`.', fields = { { 'name', 'string' } } },

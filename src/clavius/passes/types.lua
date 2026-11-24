@@ -439,12 +439,10 @@ function statement(st, id)
                 report(st, 'E-type-mismatch', value, { want, ty })
             end
         end
-    elseif n.tag == 'ClvProof' then
+    elseif n.tag == 'ClvProof' or n.tag == 'ClvGhost' then
         for _, s in ipairs(n.statements) do
             ghost_statement(st, s)
         end
-    elseif n.tag == 'ClvGhost' then
-        ghost_statement(st, n.statement)
     elseif n.tag == 'ClvAssert' then
         want_bool(st, n.cond, clause(st, n.cond))
     else

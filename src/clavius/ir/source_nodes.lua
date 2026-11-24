@@ -177,10 +177,10 @@
 --- @field block boolean
 --- @field statements NodeId[] statement nodes
 
---- A `---@ghost` line: one `local` or assignment of ghost state.
+--- Ghost state: a `--[[@ghost … ]]` block of `local`s and assignments, or a `---@ghost` line of one. It is not a scope.
 --- @class SrcClvGhost
 --- @field tag 'ClvGhost'
---- @field statement NodeId a statement node
+--- @field statements NodeId[] statement nodes
 
 --- `---@assert cond`.
 --- @class SrcClvAssert
@@ -751,7 +751,9 @@ function M.children(n)
             kids[#kids + 1] = kid
         end
     elseif n.tag == 'ClvGhost' then
-        kids[#kids + 1] = n.statement
+        for _, kid in ipairs(n.statements) do
+            kids[#kids + 1] = kid
+        end
     elseif n.tag == 'ClvAssert' then
         kids[#kids + 1] = n.cond
     elseif n.tag == 'ClvTypeApply' then

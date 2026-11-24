@@ -571,8 +571,8 @@ local function ghost_statement(st, item, top)
             node = { tag = 'ClvSpec', statements = statements }
         elseif gr.kind == 'lemma' then
             node = { tag = 'ClvLemma', statements = statements }
-        elseif gr.kind == 'ghost' then
-            node = { tag = 'ClvGhost', statement = statements[1] }
+        elseif gr.kind == 'ghost' or gr.kind == 'ghost_block' then
+            node = { tag = 'ClvGhost', statements = statements }
         else
             node = { tag = 'ClvProof', block = gr.kind == 'proof', statements = statements }
         end

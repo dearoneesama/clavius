@@ -130,7 +130,7 @@ M.source = {
         { name = 'statements', shape = 'list' },
     },
     ClvGhost = {
-        { name = 'statement', shape = 'node' },
+        { name = 'statements', shape = 'list' },
     },
     ClvAssert = {
         { name = 'cond', shape = 'node' },
