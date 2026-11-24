@@ -512,7 +512,7 @@ local function one_statement(st, node, top)
     return id
 end
 
---- Converts an `---@assert E` line, which unmasking turned into `local _ = E`.
+--- Converts an `---@assert E` or `---@assume E` line, which unmasking turned into `local _ = E`.
 --- @param st ConvertState
 --- @param node LcNode
 --- @param gr GhostRange
@@ -531,7 +531,7 @@ local function assert_node(st, node, gr, top)
     if st.cursor then
         splice.dangle(st.cursor, assert(node.end_offset), st.marked)
     end
-    return { tag = 'ClvAssert', cond = cond }
+    return { tag = gr.kind == 'assume' and 'ClvAssume' or 'ClvAssert', cond = cond }
 end
 
 --- Converts the statements of a ghost comment and returns the node for its kind. A `--[[@spec` or
@@ -548,7 +548,7 @@ local function ghost_statement(st, item, top)
     if declares and not top then
         st.diags[#st.diags + 1] = diag.at_span('E-misplaced-directive', gr.span, { 'not-top-level' })
         return nil
-    elseif (gr.kind == 'ghost' or gr.kind == 'assert') and #item.nodes > 1 then
+    elseif (gr.kind == 'ghost' or gr.kind == 'assert' or gr.kind == 'assume') and #item.nodes > 1 then
         st.diags[#st.diags + 1] = diag.at_span('E-mode', gr.span, { 'ghost-line' })
     end
     local outer = st.marked
@@ -560,7 +560,7 @@ local function ghost_statement(st, item, top)
     st.open[gr] = true
     --- @type SrcNode
     local node
-    if gr.kind == 'assert' then
+    if gr.kind == 'assert' or gr.kind == 'assume' then
         node = assert_node(st, item.nodes[1], gr, top)
     else
         local statements = {}
@@ -806,7 +806,7 @@ local function misplaced_exit(text, exits, gr)
             return 'ghost-after-exit'
         end
     end
-    if gr.kind ~= 'assert' and returns_at_top(text:sub(gr.head + 1, gr.close - 1)) then
+    if gr.kind ~= 'assert' and gr.kind ~= 'assume' and returns_at_top(text:sub(gr.head + 1, gr.close - 1)) then
         return 'ghost-return'
     end
     return nil

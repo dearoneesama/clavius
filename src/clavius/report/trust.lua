@@ -9,6 +9,9 @@
 --     callers outside verification
 --       inc   prog.lua:15
 --       max   prog.lua:22
+--
+--     ---@assume lines
+--       n > 0  prog.lua:30
 -- means:
 --
 -- - `bump`, defined on line 8, is `---@unsafe`. Its body isn't verified, yet verified code that calls it
@@ -16,12 +19,13 @@
 -- - `inc` and `max` are verified, assuming their parameters' types and their `---@pre`s on entry. A
 --   verified caller proves those at each call, but a caller in unmarked code doesn't, so they are trusted
 --   to hold there.
+-- - the `---@assume n > 0` on line 30 is a fact that nothing proves.
 
 local arena = require 'clavius.ir.arena'
 
 local M = {}
 
---- A function in the report, with the line of its `local function`.
+--- A function in the report, with the line of its `local function`, or an `---@assume` line's condition.
 --- @class TrustEntry
 --- @field name string
 --- @field line integer
@@ -47,7 +51,8 @@ end
 
 --- Returns the trust report of a run as lines, or no lines when it trusted nothing. The trusted
 --- assumptions name their Functions: an `---@unsafe` one, whose contract its callers rely on, or a
---- verified one, whose callers outside verification are trusted to meet its boundary assumptions.
+--- verified one, whose callers outside verification are trusted to meet its boundary assumptions. The
+--- assumed ones are `---@assume` lines, each listed by its condition.
 --- @param prog CoreProgram
 --- @param src SrcArena
 --- @param index NodeIndex
@@ -55,14 +60,17 @@ end
 --- @param file string the file's name as the report shows it
 --- @return string[]
 function M.report(prog, src, index, text, file)
-    local seen, fns = {}, {}
+    local seen, fns, assumes = {}, {}, {}
     for _, a in ipairs(prog.assumptions) do
         if a.kind == 'trusted' and a.decl ~= nil and not seen[a.decl] then
             seen[a.decl] = true
             fns[#fns + 1] = a.decl
+        elseif a.kind == 'assumed' and not seen[a.node] then
+            seen[a.node] = true
+            assumes[#assumes + 1] = a.node
         end
     end
-    if #fns == 0 then
+    if #fns == 0 and #assumes == 0 then
         return {}
     end
 
@@ -74,6 +82,7 @@ function M.report(prog, src, index, text, file)
     end
 
     table.sort(fns, before)
+    table.sort(assumes, before)
     local starts = arena.line_starts(text)
     --- @type TrustEntry[]
     local unsafe = {}
@@ -96,9 +105,19 @@ function M.report(prog, src, index, text, file)
         end
         width = math.max(width, #name)
     end
+    --- @type TrustEntry[]
+    local assumed = {}
+    for _, id in ipairs(assumes) do
+        local n = src.nodes[id] --[[@as SrcClvAssume]]
+        local cond = src.spans[n.cond]
+        local name = (text:sub(cond.start, cond.finish):gsub('%s+', ' '))
+        assumed[#assumed + 1] = { name = name, line = arena.line_col(text, starts, src.spans[id].start) }
+        width = math.max(width, #name)
+    end
     local out = { ('Trust report: %s'):format(file) }
     section(out, '@unsafe functions', unsafe, width, file)
     section(out, 'callers outside verification', callers, width, file)
+    section(out, '---@assume lines', assumed, width, file)
     return out
 end
 

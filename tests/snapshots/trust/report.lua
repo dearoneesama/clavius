@@ -1,5 +1,6 @@
 -- An `---@unsafe` function that verified code calls is trusted to meet its contract, and so is every
--- caller outside verification of a verified function with parameters or a `---@pre`.
+-- caller outside verification of a verified function with parameters or a `---@pre`. Each `---@assume`
+-- is listed by its condition, with its spaces collapsed.
 ---@clavius begin
 
 ---@unsafe
@@ -28,5 +29,6 @@ end
 local function idle() end
 
 local x = bump(max(1, 2))
+---@assume x  >   3
 
 ---@clavius end

@@ -9,7 +9,7 @@ local BINOPS = "'add' | 'sub' | 'mul' | 'div' | 'mod' | 'pow' | 'concat' | 'eq' 
 
 local DOC = [[
 A statement node is a Local, LocalFunction, Set, Call, Block, If, While, Repeat, Fornum, Forin,
-  Return, Break, Goto, Label, ClvSpec, ClvLemma, ClvProof, ClvGhost or ClvAssert node.
+  Return, Break, Goto, Label, ClvSpec, ClvLemma, ClvProof, ClvGhost, ClvAssert or ClvAssume node.
 An expression node is an Id, Literal, Dots, Function, Table, Index, Call, BinOp, UnOp or Paren node.
 A type node is a `ClvType*` node that stands for a whole type, such as ClvTypeName or ClvTypeUnion.
 A directive is a node made from a ---@ annotation, such as ClvPre.]]
@@ -153,6 +153,7 @@ local NODES = {
         fields = { { 'statements', 'node[]', 'statement nodes' } },
     },
     { tag = 'ClvAssert', doc = '`---@assert cond`.', fields = { { 'cond', 'node', 'an expression node' } } },
+    { tag = 'ClvAssume', doc = '`---@assume cond`: a fact that nothing proves.', fields = { { 'cond', 'node', 'an expression node' } } },
     { tag = 'ClvTypeName', doc = 'A named type in an annotation, such as `int53`, `Seq` or `a.b`.', fields = { { 'name', 'string' } } },
     {
         tag = 'ClvTypeLiteral',

@@ -429,15 +429,17 @@ function statement(b, id, out)
     local defines = n.tag == 'ClvSpec' or n.tag == 'ClvLemma' or (n.tag == 'Local' and #n.values == 0)
     if b.res.defined[id] ~= nil or defines then -- luacheck: ignore 542
         -- a function definition is a unit of its own, and a forward declaration declares only functions
-    elseif n.tag == 'ClvProof' or n.tag == 'ClvGhost' or n.tag == 'ClvAssert' then
+    elseif n.tag == 'ClvProof' or n.tag == 'ClvGhost' or n.tag == 'ClvAssert' or n.tag == 'ClvAssume' then
         local ghost = b.ghost
         b.ghost = true
         if n.tag == 'ClvProof' or n.tag == 'ClvGhost' then
             for _, s in ipairs(n.statements) do
                 statement(b, s, out)
             end
-        else -- 'ClvAssert'
+        elseif n.tag == 'ClvAssert' then
             builder.check(b, out, 'assert', expr.lower(b, n.cond, out), id)
+        else -- 'ClvAssume'
+            builder.assume(b, out, 'assumed', expr.lower(b, n.cond, out), id)
         end
         b.ghost = ghost
     elseif n.tag == 'Local' then

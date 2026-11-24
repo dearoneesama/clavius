@@ -443,7 +443,7 @@ function statement(st, id)
         for _, s in ipairs(n.statements) do
             ghost_statement(st, s)
         end
-    elseif n.tag == 'ClvAssert' then
+    elseif n.tag == 'ClvAssert' or n.tag == 'ClvAssume' then
         want_bool(st, n.cond, clause(st, n.cond))
     else
         error(('types: unhandled statement %s'):format(n.tag))

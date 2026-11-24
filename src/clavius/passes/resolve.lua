@@ -636,11 +636,11 @@ local function visit_block(st, id, n, scope)
     st.mode = mode
 end
 
---- Visits proof code, ghost state or an `---@assert` line. A `--[[@proof` block is a scope, and ghost
---- state declares into the enclosing one. In exec code, a `return` and a `break` that leaves a
+--- Visits proof code, ghost state or an `---@assert` or `---@assume` line. A `--[[@proof` block is a
+--- scope, and ghost state declares into the enclosing one. In exec code, a `return` and a `break` that leaves a
 --- loop around it would change the path that the proof takes but not the one LuaJIT takes.
 --- @param st ResolveState
---- @param n SrcClvProof|SrcClvGhost|SrcClvAssert
+--- @param n SrcClvProof|SrcClvGhost|SrcClvAssert|SrcClvAssume
 --- @param scope integer
 --- @param unit NodeId
 --- @mut st
@@ -745,7 +745,7 @@ function visit(st, id, scope, unit)
     elseif n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then
         visit_block(st, id, n, scope)
         return
-    elseif n.tag == 'ClvProof' or n.tag == 'ClvGhost' or n.tag == 'ClvAssert' then
+    elseif n.tag == 'ClvProof' or n.tag == 'ClvGhost' or n.tag == 'ClvAssert' or n.tag == 'ClvAssume' then
         visit_ghost(st, n, scope, unit)
         return
     elseif n.tag == 'Binder' then
@@ -850,7 +850,7 @@ local function top_level(src, root)
 end
 
 -- ghost code, which runs no code at runtime
-local GHOST_CODE = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost = true, ClvAssert = true }
+local GHOST_CODE = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost = true, ClvAssert = true, ClvAssume = true }
 
 --- Finds the top-level function definitions. Besides `local function f`, mutual recursion needs a
 --- function declared by a top-level `local g` without values and defined by the first top-level

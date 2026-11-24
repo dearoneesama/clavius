@@ -37,8 +37,8 @@ local M = {}
 --    unmasked anywhere, and other ghost code only in marked code, which a first conversion of the text
 --    as written finds. Steps 1 to 3 then run again on the unmasked text.
 -- 5. The converter walks the statements. Before each one, `splice.take` hands it the directives above
---    it. The statements of each ghost comment become one ClvSpec, ClvLemma, ClvProof, ClvGhost or
---    ClvAssert node, so the `---@assert` becomes `(ClvAssert (BinOp gt (Id n) (Literal number 0)))`.
+--    it. The statements of each ghost comment become one ClvSpec, ClvLemma, ClvProof, ClvGhost,
+--    ClvAssert or ClvAssume node, so the `---@assert` becomes `(ClvAssert (BinOp gt (Id n) (Literal number 0)))`.
 -- 6. `splice.place` parses the directives above a function or loop in marked code with `directive.parse`.
 --    Types become ClvType nodes through `typeexpr`. Lua code, such as the `n > 0`, is parsed by
 --    `luacheck.expressions` as `return n > 0`, with spans moved to where it is in the file. So

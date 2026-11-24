@@ -1,5 +1,6 @@
 -- Ghost code lowers like exec code, but its arithmetic is exact, so it has no range checks, and a ghost
--- `for` loop has no `for_bound`. An `---@assert` is a Check of its condition.
+-- `for` loop has no `for_bound`. An `---@assert` is a Check of its condition, and an `---@assume` an
+-- Assume of it.
 ---@clavius begin
 local x = 2
 local y = x * x
@@ -12,4 +13,5 @@ local y = x * x
     end
 ]]
 ---@assert g == 4
+---@assume y > 3
 ---@clavius end

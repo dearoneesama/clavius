@@ -135,6 +135,9 @@ M.source = {
     ClvAssert = {
         { name = 'cond', shape = 'node' },
     },
+    ClvAssume = {
+        { name = 'cond', shape = 'node' },
+    },
     ClvTypeName = {
         { name = 'name', shape = 'str' },
     },

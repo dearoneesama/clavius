@@ -33,6 +33,7 @@ M.KINDS = {
     ClvProof = true,
     ClvGhost = true,
     ClvAssert = true,
+    ClvAssume = true,
 }
 
 --- Source kinds that marked code must never use.

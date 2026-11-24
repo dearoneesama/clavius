@@ -40,7 +40,8 @@
             (Assume 3 (Bool false))]
            [])])]
      [])
-   (Check 6 (BinOp == (Var g$3) (Int 4)))])
+   (Check 6 (BinOp == (Var g$3) (Int 4)))
+   (Assume 4 (BinOp > (Var y$2) (Int 3)))])
 
 (obligation 1 :kind range :node 6)
 (obligation 2 :kind invariant_entry :node 31)
@@ -52,3 +53,4 @@
 (assumption 1 :kind invariant :node 31)
 (assumption 2 :kind invariant :node 21)
 (assumption 3 :kind back_edge :node 31)
+(assumption 4 :kind assumed :node 40)

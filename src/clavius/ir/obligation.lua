@@ -17,7 +17,7 @@
 --- | 'for_step' # a numeric `for`'s step is not 0
 --- | 'nat' # a value that ghost code passes or returns as a `Nat` is non-negative
 
---- Why an assumption may be made. Nothing proves a `trusted` one, so the trust report lists each.
+--- Why an assumption may be made. Nothing proves a `trusted` or `assumed` one, so the trust report lists each.
 ---
 --- Why 'precondition' is a justification for lemma not exec functions: unmarked code may call an exec
 --- function, so nothing checks what it assumes on entry and that is `trusted`, but only proof code calls
@@ -27,6 +27,7 @@
 --- | 'branch' # the condition of the branch being taken
 --- | 'callee_post' # a verified callee's `---@post`, proved where the callee returns or, at a recursive call, by induction on the measure
 --- | 'trusted' # what an `---@unsafe` callee promises, or what a verified function assumes on entry about outside callers
+--- | 'assumed' # an `---@assume` line's condition
 --- | 'invariant' # a loop invariant at the loop's head, checked on entry and after each iteration
 --- | 'back_edge' # `false` at the end of an iteration that iterates again
 --- | 'definition' # the axioms that define a spec function
@@ -68,6 +69,7 @@ M.JUSTIFICATIONS = {
     branch = true,
     callee_post = true,
     trusted = true,
+    assumed = true,
     invariant = true,
     back_edge = true,
     definition = true,

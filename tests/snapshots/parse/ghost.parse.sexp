@@ -15,6 +15,7 @@
         [(Local [(BinOp add (Id seen) (Id seen))] [(Binder twice)])
          (Set [(Id seen) (Id twice)] [(Id twice) (Id seen)])])
       (ClvAssert (BinOp eq (Id seen) (Literal number 2)))
+      (ClvAssume (BinOp gt (Id x) (Literal number 0)))
       (ClvProof true
         [(Local [(Id x)] [(Binder y)])
          (If [(IfArm (BinOp gt (Id y) (Literal number 0)) (Block []))] nil)])

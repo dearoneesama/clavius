@@ -22,7 +22,7 @@
 
 --- What a ghost comment holds: a `--[[@spec`, `--[[@lemma`, `--[[@proof` or `--[[@ghost` block, or a
 --- `---@proof`, `---@ghost` or `---@assert` line.
---- @alias GhostKind 'spec' | 'lemma' | 'proof' | 'ghost_block' | 'proof_line' | 'ghost' | 'assert'
+--- @alias GhostKind 'spec' | 'lemma' | 'proof' | 'ghost_block' | 'proof_line' | 'ghost' | 'assert' | 'assume'
 
 --- A comment that holds ghost code. Its code lies between `head` and `close`.
 --- @class GhostRange
@@ -42,9 +42,9 @@ local HEAD = '^%-%s*@'
 local BLOCK_KINDS = { spec = 'spec', lemma = 'lemma', proof = 'proof', ghost = 'ghost_block' }
 
 --- @type table<string, GhostKind>
-local LINE_KINDS = { ghost = 'ghost', proof = 'proof_line', assert = 'assert' }
+local LINE_KINDS = { ghost = 'ghost', proof = 'proof_line', assert = 'assert', assume = 'assume' }
 
--- an `---@assert E` line becomes this statement, which is no wider than its opening and tag
+-- an `---@assert E` or `---@assume E` line becomes this statement, which is no wider than its opening and tag
 local ASSERT = 'local _ ='
 
 --- Returns the directives among short comments in their order.
@@ -151,8 +151,8 @@ function M.ghost_at(ranges, offset)
     return nil
 end
 
---- Returns `text` with the comment markers and tags of `ranges` blanked out, and each `---@assert E` line
---- turned into the statement `local _ = E`. Every offset stays where it was.
+--- Returns `text` with the comment markers and tags of `ranges` blanked out, and each `---@assert E` and
+--- `---@assume E` line turned into the statement `local _ = E`. Every offset stays where it was.
 --- @param text string
 --- @param ranges GhostRange[] in source order
 --- @return string
@@ -162,7 +162,7 @@ function M.unmask(text, ranges)
     for _, gr in ipairs(ranges) do
         local width = gr.head - gr.span.start + 1
         parts[#parts + 1] = text:sub(at, gr.span.start - 1)
-        if gr.kind == 'assert' then
+        if gr.kind == 'assert' or gr.kind == 'assume' then
             parts[#parts + 1] = (' '):rep(width - #ASSERT) .. ASSERT
         else
             parts[#parts + 1] = (' '):rep(width)

@@ -198,6 +198,8 @@ describe('syntax.comments', function()
             { '---@proof l(1)', { at('-@proof l(1)', 1, 14) }, {}, { { 'proof_line', 9, 15 } } },
             --   --- @assert x
             { '  --- @assert x', { at('- @assert x', 3, 15) }, {}, { { 'assert', 13, 16 } } },
+            -- ---@assume x
+            { '---@assume x', { at('-@assume x', 1, 12) }, {}, { { 'assume', 10, 13 } } },
             -- code comes first on the line, so LuaLS gives the comment to `x = 1`
             { 'x = 1 ---@ghost g = 0', { at('-@ghost g = 0', 7, 21) }, {}, {} },
             -- tags that aren't ghost code
@@ -231,6 +233,8 @@ describe('syntax.comments', function()
             { '---@ghost g = 0', { { 'ghost', 1, 15, 9, 16 } }, (' '):rep(9) .. ' g = 0' },
             -- ---@assert x > 0, whose opening and tag make room for the statement `local _ =`
             { '---@assert x > 0', { { 'assert', 1, 16, 10, 17 } }, ' local _ = x > 0' },
+            -- ---@assume x > 0, the same way
+            { '---@assume x > 0', { { 'assume', 1, 16, 10, 17 } }, ' local _ = x > 0' },
             -- f()
             -- ---@ghost g = 1
             -- g()

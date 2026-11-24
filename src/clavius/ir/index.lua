@@ -5,14 +5,14 @@ local arena = require 'clavius.ir.arena'
 local source_nodes = require 'clavius.ir.source_nodes'
 
 -- the nodes that hold ghost code
-local GHOST = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost = true, ClvAssert = true }
+local GHOST = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost = true, ClvAssert = true, ClvAssume = true }
 
 --- @class NodeIndex
 --- @field by_tag table<string, NodeId[]> the ids of each kind's nodes in ascending order
 --- @field parent NodeId[] each node's parent, or 0 for the root
 --- @field region NodeId[] the ClvRegion node that a node is in, or 0 outside every region
 --- @field unit NodeId[] the root of the unit whose code a node is: its ClvRegion or verified Function. It is 0 for unmarked code, and for contracts and loop annotations, which are spec code.
---- @field ghost NodeId[] the innermost ClvSpec, ClvLemma, ClvProof, ClvGhost or ClvAssert node around a node, or 0
+--- @field ghost NodeId[] the innermost ClvSpec, ClvLemma, ClvProof, ClvGhost, ClvAssert or ClvAssume node around a node, or 0
 
 local M = {}
 
