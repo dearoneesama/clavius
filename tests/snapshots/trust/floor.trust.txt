@@ -1,0 +1,4 @@
+Trust report: floor.lua
+
+  stdlib unchanged
+    nothing outside verification replaces a library function

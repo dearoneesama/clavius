@@ -46,55 +46,12 @@ describe('lua programs', function()
         assert.are.equal(cli.EXIT_OK, cli.main({ 'verify', 'tests/e2e/verify/assign.lua' }, out, err))
     end)
 
-    it('prints the specs and host functions it trusts in the trust report', function()
-        local out = assert(io.tmpfile())
-        local err = assert(io.tmpfile())
-        local argv = { 'verify', '--trust-report', '--meta', 'tests/e2e/verify/extern.meta.lua', 'tests/e2e/verify/extern.lua' }
-        local status = cli.main(argv, out, err)
-        out:seek 'set'
-        local report = table.concat({
-            'Trust report: tests/e2e/verify/extern.lua',
-            '',
-            '  @extern functions',
-            '    host.damage  tests/e2e/verify/extern.meta.lua:12  @no_callback',
-            '    host.log     tests/e2e/verify/extern.meta.lua:17  @may_raise',
-            '    host_frame   tests/e2e/verify/extern.meta.lua:22',
-            '    host.half    tests/e2e/verify/extern.meta.lua:30',
-            '    host.ready   tests/e2e/verify/extern.meta.lua:35',
-            '',
-            '  callers outside verification',
-            '    hit          tests/e2e/verify/extern.lua:24',
-            '',
-        }, '\n')
-        assert.are.same({ cli.EXIT_OK, report }, { status, out:read '*a' })
-    end)
-
-    it('reports that integer division relies on the stdlib, and that `%` relies on nothing', function()
-        local err = assert(io.tmpfile())
-        local floor = assert(io.tmpfile())
-        local status = cli.main({ 'verify', '--trust-report', 'tests/e2e/verify/floor_only.lua' }, floor, err)
-        floor:seek 'set'
-        local report = table.concat({
-            'Trust report: tests/e2e/verify/floor_only.lua',
-            '',
-            '  stdlib unchanged',
-            '    nothing outside verification replaces a library function',
-            '',
-        }, '\n')
-        assert.are.same({ cli.EXIT_OK, report }, { status, floor:read '*a' })
-        local mod = assert(io.tmpfile())
-        status = cli.main({ 'verify', '--trust-report', 'tests/e2e/verify/mod_only.lua' }, mod, err)
-        mod:seek 'set'
-        assert.are.same({ cli.EXIT_OK, '' }, { status, mod:read '*a' })
-    end)
-
     it('prints the trust report from the command line', function()
         local out = assert(io.tmpfile())
         local err = assert(io.tmpfile())
         local status = cli.main({ 'verify', '--trust-report', 'tests/e2e/verify/unsafe.lua' }, out, err)
         out:seek 'set'
-        local report =
-            'Trust report: tests/e2e/verify/unsafe.lua\n\n  @unsafe functions\n    bump   tests/e2e/verify/unsafe.lua:11  @no_callback @may_raise\n    ready  tests/e2e/verify/unsafe.lua:20\n'
+        local report = 'Trust report: tests/e2e/verify/unsafe.lua\n\n  @unsafe functions\n    bump  tests/e2e/verify/unsafe.lua:8\n'
         assert.are.same({ cli.EXIT_OK, report }, { status, out:read '*a' })
         -- without the flag, nothing is printed
         local quiet = assert(io.tmpfile())

@@ -1,7 +1,13 @@
 Trust report: report.lua
 
   @unsafe functions
-    bump  report.lua:10
+    bump        report.lua:13  @no_callback @may_raise
+    ready       report.lua:23
+
+  @extern functions
+    host.scale  report.meta.lua:10  @no_callback
+    host.log    report.meta.lua:15  @may_raise
+    frame       report.meta.lua:19
 
   callers outside verification
-    max   report.lua:21
+    max         report.lua:31
