@@ -71,7 +71,8 @@ Clavius is being developed, so this table may change over time and may not refle
 |OOP and classes|-|
 |Clavius ownership modes|-|
 |Quantifiers|-|
-|Ghost code and spec functions|-|
+|Ghost code (`---@ghost`, `---@proof` and `---@assert`) |Yes|
+|Ghost functions (`--[[@spec` and `--[[@lemma`)|Yes|
 |Nonlinear arithmetic|-|
 |Reporting counterexamples for failed checks|-|
 |Bit operations|-|
