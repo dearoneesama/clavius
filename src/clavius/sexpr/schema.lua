@@ -14,6 +14,7 @@ M.source = {
         { name = 'statements', shape = 'list' },
     },
     ClvRegion = {
+        { name = 'directives', shape = 'list' },
         { name = 'statements', shape = 'list' },
     },
     Local = {

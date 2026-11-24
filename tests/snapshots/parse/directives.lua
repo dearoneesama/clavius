@@ -1,5 +1,5 @@
--- Directives above a function that is marked or in a region become its directive nodes. Elsewhere
--- they are left to LuaLS.
+-- Directives above a function that is marked or in a region become its directive nodes, and a
+-- `---@proof_by` right above a region's `begin` becomes the region's. Elsewhere they are left to LuaLS.
 
 ---@param n int53 the count
 ---@return boolean
@@ -24,6 +24,7 @@ local function size(s)
     return #s
 end
 
+---@proof_by(nonlinear_arith)
 ---@clavius begin
 ---@param xs Seq<int53>
 ---@decrease #xs

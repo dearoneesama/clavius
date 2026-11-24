@@ -76,6 +76,7 @@
      (BinOp lt (Id y$9) (Literal number 3))
      (Block [(Set [(Id y$9)] [(BinOp add (Id y$9) (Literal number 1))])]))
    (ClvRegion
+     []
      [(Local [(Literal number 0 :type int53)] [(Binder x$10 :type int53)])
       (Repeat
         [(ClvDecrease

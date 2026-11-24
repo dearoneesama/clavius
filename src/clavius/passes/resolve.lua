@@ -752,6 +752,12 @@ function visit(st, id, scope, unit)
         child_scope = open(st, scope)
     elseif n.tag == 'ClvRegion' then
         child_unit = id
+        for _, d in ipairs(n.directives) do
+            local dn = st.src.nodes[d] --[[@as SrcClvProofBy]]
+            if dn.theory ~= 'nonlinear_arith' then
+                report(st, 'E-unsupported-directive', d, { ('proof_by(%s)'):format(dn.theory) })
+            end
+        end
     elseif n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then
         visit_block(st, id, n, scope)
         return

@@ -892,7 +892,8 @@ function M.run(src, root, res, info, effects, termination)
                     statement(b, s, body)
                 end
                 regions = regions + 1
-                local unit = { tag = 'Unit', name = ('main$%d'):format(regions), arith = 'linear', vars = b.vars, body = body }
+                local arith = arena.has_directive(src, n --[[@as SrcClvRegion]], 'ClvProofBy') and 'nonlinear' or 'linear'
+                local unit = { tag = 'Unit', name = ('main$%d'):format(regions), arith = arith, vars = b.vars, body = body }
                 units[#units + 1] = builder.add(b, unit, id)
             end
         else
