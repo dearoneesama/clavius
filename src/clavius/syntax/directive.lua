@@ -264,14 +264,12 @@ end
 --- @mut g
 --- @return NodeId[]
 local function proof_by(g)
-    typeexpr.expect(g.lx, '(')
     local t = typeexpr.peek(g.lx)
     if not t or not THEORIES[t.text] then
         typeexpr.fail(g.lx, 'unknown-theory')
     end
     --- @cast t DocToken
     typeexpr.next(g.lx)
-    typeexpr.expect(g.lx, ')')
     finish(g.lx)
     return {
         add(g, {
@@ -285,11 +283,9 @@ end
 --- @mut g
 --- @return NodeId[]
 local function fuel(g)
-    typeexpr.expect(g.lx, '(')
     local f = name(g.lx, true)
     typeexpr.expect(g.lx, ',')
     local n = count(g.lx)
-    typeexpr.expect(g.lx, ')')
     finish(g.lx)
     return { add(g, { tag = 'ClvRevealWithFuel', name = f, fuel = n }) }
 end

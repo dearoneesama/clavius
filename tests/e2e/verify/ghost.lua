@@ -65,7 +65,7 @@ local function sum_to(n)
 end
 
 -- tri(3) unfolds four times, down to tri(0)
----@reveal_with_fuel(tri, 4)
+---@reveal_with_fuel tri, 4
 ---@post result == 6
 ---@return integer
 local function six()

@@ -536,7 +536,7 @@ end
 --- An exec function's callers are trusted to pass well-typed arguments that meet its `---@pre`s, since
 --- some may be outside verification; verified ones check the `---@pre`s. Only proof code calls a lemma,
 --- and it checks both. A spec function's unit checks its body without the definitions of its cycle. A
---- unit is nonlinear when its function is `---@proof_by(nonlinear_arith)`.
+--- unit is nonlinear when its function is `---@proof_by nonlinear_arith`.
 --- @param b Builder
 --- @param binder NodeId the Binder that the function's definition defines
 --- @mut b

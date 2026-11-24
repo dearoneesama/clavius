@@ -24,7 +24,7 @@ local function size(s)
     return #s
 end
 
----@proof_by(nonlinear_arith)
+---@proof_by nonlinear_arith
 ---@clavius begin
 ---@param xs Seq<int53>
 ---@decrease #xs

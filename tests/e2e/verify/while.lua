@@ -63,7 +63,7 @@ local function evens(n)
 end
 
 --[[@lemma
----@proof_by(nonlinear_arith)
+---@proof_by nonlinear_arith
 ---@param i integer
 ---@pre 0 <= i and i <= 1000
 ---@post 0 <= i * i and i * i <= 1000000

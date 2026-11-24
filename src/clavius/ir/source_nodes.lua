@@ -364,12 +364,12 @@
 --- @field tag 'ClvRlimit'
 --- @field limit integer
 
---- `---@proof_by(theory)`.
+--- `---@proof_by theory`.
 --- @class SrcClvProofBy
 --- @field tag 'ClvProofBy'
 --- @field theory 'nonlinear_arith' | 'bit_vector'
 
---- `---@reveal_with_fuel(f, n)`.
+--- `---@reveal_with_fuel f, n`.
 --- @class SrcClvRevealWithFuel
 --- @field tag 'ClvRevealWithFuel'
 --- @field name string

@@ -34,7 +34,7 @@ local function step(n) end
 
 -- ghost code has exact arithmetic and a ghost loop no `for_bound`, and the lemma call checks that
 -- `m` fits its `Nat` parameter
----@reveal_with_fuel(tri, 2)
+---@reveal_with_fuel tri, 2
 ---@param m integer
 ---@pre m >= 1 and m <= 10
 local function f(m)
