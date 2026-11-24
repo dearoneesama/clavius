@@ -623,7 +623,7 @@ describe('resolve', function()
             local function f()
                 --[[@proof if true then return end ]] --! E-mode
             end
-            ---@reveal_with_fuel(l, 2)
+            ---@reveal_with_fuel l, 2
             --! E-misplaced-directive
             local function g() end
             ---@clavius end
@@ -657,15 +657,15 @@ describe('resolve', function()
         markers.expect_diags(
             'resolve',
             [=[
-            ---@proof_by(nonlinear_arith)
+            ---@proof_by nonlinear_arith
             ---@clavius begin
-            ---@proof_by(nonlinear_arith)
+            ---@proof_by nonlinear_arith
             local function f() end
-            ---@proof_by(bit_vector)
+            ---@proof_by bit_vector
             --! E-unsupported-directive
             local function g() end
             ---@clavius end
-            ---@proof_by(bit_vector)
+            ---@proof_by bit_vector
             --! E-unsupported-directive
             ---@clavius begin
             local x = 1

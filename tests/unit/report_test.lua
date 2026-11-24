@@ -131,7 +131,7 @@ describe('report.messages', function()
                 posts[#posts + 1] = id
             end
         end
-        local hint = 'the solver knows nothing about a product of two variables here; try `---@proof_by(nonlinear_arith)` or a lemma'
+        local hint = 'the solver knows nothing about a product of two variables here; try `---@proof_by nonlinear_arith` or a lemma'
         assert.are.same({
             ('8:5: post: the function may return here without satisfying its postcondition `result >= 0`; hint: %s [O2]'):format(hint),
             '15:5: post: the function may return here without satisfying its postcondition `result > 0` [O5]',

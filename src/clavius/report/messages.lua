@@ -176,7 +176,7 @@ local CALL_FAILURES = {
 }
 
 -- what a failure adds when its unit leaves products of two variables opaque
-local OPAQUE_PRODUCT = 'the solver knows nothing about a product of two variables here; try `---@proof_by(nonlinear_arith)` or a lemma'
+local OPAQUE_PRODUCT = 'the solver knows nothing about a product of two variables here; try `---@proof_by nonlinear_arith` or a lemma'
 
 --- @param text string
 --- @param offset integer

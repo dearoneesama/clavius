@@ -137,7 +137,7 @@ describe('syntax.comments', function()
         local found = comments.directives {
             comment '-@clavius begin',
             comment '- @param x integer the count  ',
-            comment '-@proof_by(bit_vector)',
+            comment '-@proof_by bit_vector',
             comment ' plain comment',
             comment '--@clavius begin',
             comment '-',
@@ -145,7 +145,7 @@ describe('syntax.comments', function()
         assert.are.same({
             { 'clavius', 'begin' },
             { 'param', 'x integer the count' },
-            { 'proof_by', '(bit_vector)' },
+            { 'proof_by', 'bit_vector' },
         }, {
             { found[1].tag, found[1].args },
             { found[2].tag, found[2].args },
@@ -169,7 +169,7 @@ describe('syntax.comments', function()
     end)
 
     it('reads the long comments that start with a tag', function()
-        local found = comments.annotations { comment '@spec\nlocal x', comment '@proof_by(x)', comment ' @as T', comment '@ x', comment 'x' }
+        local found = comments.annotations { comment '@spec\nlocal x', comment '@proof_by x', comment ' @as T', comment '@ x', comment 'x' }
         assert.are.same({ 'spec', 'proof_by', 'as' }, { found[1].tag, found[2].tag, found[3].tag })
         assert.are.equal(3, #found)
     end)
@@ -366,12 +366,12 @@ describe('syntax.splice', function()
 
     it('gives a region the `---@proof_by` right above its `begin`', function()
         local text = stringx.dedent [=[
-            ---@proof_by(nonlinear_arith)
+            ---@proof_by nonlinear_arith
             ---@clavius begin
             ---@param n integer
             local function f(n) end
             ---@clavius end
-            ---@proof_by(nonlinear_arith)
+            ---@proof_by nonlinear_arith
 
             ---@clavius begin
             local x = 1

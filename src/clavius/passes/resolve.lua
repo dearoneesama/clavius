@@ -502,7 +502,7 @@ local function visit_directives(st, id, scope)
         elseif dn.tag == 'ClvRevealWithFuel' then
             visit_fuel(st, d, scope)
         elseif dn.tag == 'ClvProofBy' and dn.theory ~= 'nonlinear_arith' then
-            report(st, 'E-unsupported-directive', d, { ('proof_by(%s)'):format(dn.theory) })
+            report(st, 'E-unsupported-directive', d, { ('proof_by %s'):format(dn.theory) })
         elseif dn.tag == 'ClvParam' and not params[dn.name] then
             report(st, 'E-misplaced-directive', d, { 'no-such-param' })
         elseif dn.tag == 'ClvParam' and typed[dn.name] then
@@ -755,7 +755,7 @@ function visit(st, id, scope, unit)
         for _, d in ipairs(n.directives) do
             local dn = st.src.nodes[d] --[[@as SrcClvProofBy]]
             if dn.theory ~= 'nonlinear_arith' then
-                report(st, 'E-unsupported-directive', d, { ('proof_by(%s)'):format(dn.theory) })
+                report(st, 'E-unsupported-directive', d, { ('proof_by %s'):format(dn.theory) })
             end
         end
     elseif n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then

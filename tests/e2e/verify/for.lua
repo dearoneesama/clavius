@@ -120,7 +120,7 @@ end
 
 -- `break` leaves without the invariant, which the code after the loop doesn't see there. `i * i` is
 -- a product of two variables, whose range needs nonlinear arithmetic
----@proof_by(nonlinear_arith)
+---@proof_by nonlinear_arith
 ---@param n integer
 ---@pre n >= 0 and n < 1000
 ---@post result >= 0 and result <= n
