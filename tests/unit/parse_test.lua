@@ -354,12 +354,36 @@ describe('syntax.splice', function()
         local p, diags = parse.run(text, 1)
         assert.are.same({}, diags)
         assert.are.equal(
-            '(Block [(ClvRegion [(LocalFunction (Binder f) (Function '
+            '(Block [(ClvRegion [] [(LocalFunction (Binder f) (Function '
                 .. '[(ClvParam n false (ClvTypeName integer)) (ClvPre (BinOp gt (Id n) (Literal number 0)))] '
                 .. '[(Binder n)] false (Block [(Return [(Id n)])]))) '
                 .. '(Local [(Function '
                 .. '[(ClvParam m false (ClvTypeName integer)) (ClvReturn nil (ClvTypeName integer))] '
                 .. '[(Binder m)] false (Block [(Return [(BinOp add (Id m) (Literal number 1))])]))] [(Binder g)])])])',
+            write.flat(dump.write_src(p.src, p.root, {}))
+        )
+    end)
+
+    it('gives a region the `---@proof_by` right above its `begin`', function()
+        local text = stringx.dedent [=[
+            ---@proof_by(nonlinear_arith)
+            ---@clavius begin
+            ---@param n integer
+            local function f(n) end
+            ---@clavius end
+            ---@proof_by(nonlinear_arith)
+
+            ---@clavius begin
+            local x = 1
+            ---@clavius end
+        ]=]
+        local p, diags = parse.run(text, 1)
+        assert.are.same({}, diags)
+        -- the second is apart from its `begin`, so it annotates nothing
+        assert.are.equal(
+            '(Block [(ClvRegion [(ClvProofBy nonlinear_arith)] [(LocalFunction (Binder f) (Function '
+                .. '[(ClvParam n false (ClvTypeName integer))] [(Binder n)] false (Block [])))]) '
+                .. '(ClvRegion [] [(Local [(Literal number 1)] [(Binder x)])])])',
             write.flat(dump.write_src(p.src, p.root, {}))
         )
     end)

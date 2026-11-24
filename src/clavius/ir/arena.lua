@@ -78,9 +78,9 @@ function M.add_src(a, node, span)
 end
 
 --- A source node that the directives above it annotate.
---- @alias SrcAnnotated SrcFunction | SrcWhile | SrcRepeat | SrcFornum | SrcForin
+--- @alias SrcAnnotated SrcFunction | SrcWhile | SrcRepeat | SrcFornum | SrcForin | SrcClvRegion
 
---- Returns whether a source function or loop has a directive of kind `tag`, such as `ClvUnsafe`.
+--- Returns whether a source function, loop or region has a directive of kind `tag`, such as `ClvUnsafe`.
 --- @param a SrcArena
 --- @param n SrcAnnotated
 --- @param tag SrcTag
@@ -94,7 +94,7 @@ function M.has_directive(a, n, tag)
     return false
 end
 
---- Returns a source function's or loop's directives of kind `tag`, in order.
+--- Returns a source function's, loop's or region's directives of kind `tag`, in order.
 --- @param a SrcArena
 --- @param n SrcAnnotated
 --- @param tag SrcTag

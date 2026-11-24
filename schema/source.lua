@@ -23,8 +23,8 @@ local NODES = {
     },
     {
         tag = 'ClvRegion',
-        doc = 'The statements between `---@clavius begin` and `---@clavius end`. It is not a scope.',
-        fields = { { 'statements', 'node[]', 'statement nodes' } },
+        doc = 'The statements between `---@clavius begin` and `---@clavius end`, and the directives right above its `begin`. It is not a scope.',
+        fields = { { 'directives', 'node[]', 'ClvProofBy nodes' }, { 'statements', 'node[]', 'statement nodes' } },
     },
     {
         tag = 'Local',

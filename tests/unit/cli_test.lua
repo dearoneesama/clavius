@@ -93,8 +93,8 @@ describe('cli', function()
     it('dumps a Lua file after a stage', function()
         local text = '---@clavius begin\nlocal x = 1\n---@clavius end\n'
         local cases = {
-            { 'parse', '(Block [(ClvRegion [(Local [(Literal number 1)] [(Binder x)])])])\n' },
-            { 'types', '(Block [(ClvRegion [(Local [(Literal number 1 :type int53)] [(Binder x$1 :type int53)])])])\n' },
+            { 'parse', '(Block [(ClvRegion [] [(Local [(Literal number 1)] [(Binder x)])])])\n' },
+            { 'types', '(Block [(ClvRegion [] [(Local [(Literal number 1 :type int53)] [(Binder x$1 :type int53)])])])\n' },
             { 'validate', '(Unit main$1 linear [(VarDecl x$1 int)] [(Assign x$1 (Int 1))])\n' },
         }
         for _, c in ipairs(cases) do

@@ -8,6 +8,7 @@
           false
           (Block [(Return [(Id n)])])))])
    (ClvRegion
+     []
      [(Local [(Literal number 1)] [(Binder x)])
       (ClvGhost [(Local [(Literal number 0)] [(Binder seen)])])
       (ClvGhost [(Set [(Id seen)] [(BinOp add (Id seen) (Id x))])])

@@ -50,6 +50,7 @@ local splice = require 'clavius.syntax.splice'
 --- @field statements NodeId[] the top-level statements
 --- @field comments Comment[] short comments in source order
 --- @field regions SpliceRegion[]
+--- @field region_directives table<integer, NodeId[]> each region's directive nodes, by the offset of its `begin`
 --- @field annotations LongAnnotation[] the long comments that start with a tag
 --- @field marks MarkedSpan[] where the marking changes, each after the spans that hold it
 --- @field ghosts GhostRange[] the unmasked ghost comments
@@ -855,6 +856,7 @@ local function convert_parsed(src, text, file, parsed, ghosts, meta)
         statements = statements,
         comments = parsed.short,
         regions = regions,
+        region_directives = st.cursor.regions,
         annotations = comments.annotations(parsed.long),
         marks = st.marks,
         ghosts = ghosts,

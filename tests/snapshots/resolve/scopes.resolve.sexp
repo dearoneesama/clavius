@@ -28,6 +28,7 @@
      (Block [(Call (Id print) nil [(Id k$11) (Id v$12) (Id f$5) (Id g$8)])]))
    (Repeat [] (Block [(Local [(Literal number 1)] [(Binder r$13)])]) (Id r$13))
    (ClvRegion
+     []
      [(Local [(Literal number 1)] [(Binder a$14)])
       (Block [(Local [(BinOp add (Id a$14) (Literal number 1))] [(Binder a$15)])])
       (Set [(Id a$14)] [(BinOp add (Id a$14) (Literal number 1))])])

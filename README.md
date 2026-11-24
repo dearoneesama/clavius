@@ -74,7 +74,7 @@ Clavius is being developed, so this table may change over time and may not refle
 |Quantifiers|-|
 |Ghost code (`---@ghost`, `---@proof`, `---@assert` and `---@assume`) |Yes|
 |Ghost functions (`--[[@spec` and `--[[@lemma`)|Yes|
-|Solver theories|Function level `---@proof_by(nonlinear_arith)`|
+|Solver theories|Function and region level `---@proof_by(nonlinear_arith)`|
 |Reporting counterexamples for failed checks|-|
 |Bit operations|-|
 |LuaJIT FFI|-|

@@ -1,6 +1,7 @@
 -- Places annotations in the source tree while the converter builds it: the directives above a function
 -- or a loop become its directive nodes, and the top-level statements between `---@clavius begin` and `end` become
--- regions. It reports misplaced directives, and the annotations in marked code that it doesn't place.
+-- regions, optionally with directives. It reports misplaced directives, and the annotations in marked code that it
+-- doesn't place.
 
 local arena = require 'clavius.ir.arena'
 local comments = require 'clavius.syntax.comments'
@@ -29,6 +30,7 @@ local directive = require 'clavius.syntax.directive'
 --- @field code_parser CodeParser
 --- @field diags Diag[]
 --- @field ghosts GhostRange[] the unmasked ghost comments
+--- @field regions table<integer, NodeId[]> the directive nodes of each region, by the offset of its `begin`
 --- @field meta boolean whether the file is a `---@meta` file
 
 --- The directive nodes of a function or a loop, and whether a function's body is marked code.
@@ -178,7 +180,17 @@ end
 --- @param meta boolean whether the file is a `---@meta` file
 --- @return SpliceCursor
 function M.cursor(src, text, directives, code_parser, diags, ghosts, meta)
-    return { src = src, text = text, directives = directives, next = 1, code_parser = code_parser, diags = diags, ghosts = ghosts, meta = meta }
+    return {
+        src = src,
+        text = text,
+        directives = directives,
+        next = 1,
+        code_parser = code_parser,
+        diags = diags,
+        ghosts = ghosts,
+        regions = {},
+        meta = meta,
+    }
 end
 
 --- Returns why a ghost line or block at `offset` was left a comment: `proof-in-spec` or `ghost-in-ghost`
@@ -233,8 +245,49 @@ local function dangling(cur, list, marked)
     end
 end
 
+--- Returns the index of the first directive in `list` with only comment lines between it and `offset`.
+--- As in LuaLS, a blank line between a directive and what follows leaves the directive above nothing.
+--- @param cur SpliceCursor
+--- @param list Directive[] in source order, all before `offset`
+--- @param offset integer
+--- @return integer
+local function first_attached(cur, list, offset)
+    local first = #list + 1
+    while first > 1 and not cur.text:sub(list[first - 1].span.finish + 1, offset - 1):find '\n[ \t\r]*\n' do
+        first = first - 1
+    end
+    return first
+end
+
+--- Parses the directives right above a `---@clavius begin` into its region's directives, and returns
+--- the other directives of `above`.
+--- @param cur SpliceCursor
+--- @param above Directive[]
+--- @param marker Directive
+--- @mut cur
+--- @return Directive[]
+local function begin_directives(cur, above, marker)
+    local first = first_attached(cur, above, marker.span.start)
+    local ids, rest = {}, {}
+    for i, d in ipairs(above) do
+        if i >= first and d.tag == 'proof_by' then
+            local nodes, diags = directive.parse(cur.src, d, cur.code_parser)
+            for _, id in ipairs(nodes) do
+                ids[#ids + 1] = id
+            end
+            for _, e in ipairs(diags) do
+                cur.diags[#cur.diags + 1] = e
+            end
+        else
+            rest[#rest + 1] = d
+        end
+    end
+    cur.regions[marker.span.start] = ids
+    return rest
+end
+
 --- Takes the directives that end before `offset` and returns them. At the top level, a region marker
---- splits them: those before it are above no statement.
+--- splits them: those before it are above no statement, except a `begin`'s own directives.
 --- @param cur SpliceCursor
 --- @param offset number
 --- @param top boolean
@@ -248,6 +301,9 @@ local function take_all(cur, offset, top)
         -- `regions` has reported every `---@clavius` with arguments that is out of place
         if d.tag == 'clavius' and d.args ~= '' then
             if top and is_region_marker(d) then
+                if d.args == 'begin' then
+                    above = begin_directives(cur, above, d)
+                end
                 dangling(cur, above, d.args == 'end')
                 above = {}
             end
@@ -269,11 +325,7 @@ end
 --- @return Directive[]
 function M.take(cur, offset, top, marked)
     local above = take_all(cur, offset, top)
-    -- the first directive with only comment lines between it and the statement
-    local first = #above + 1
-    while first > 1 and not cur.text:sub(above[first - 1].span.finish + 1, offset - 1):find '\n[ \t\r]*\n' do
-        first = first - 1
-    end
+    local first = first_attached(cur, above, offset)
     local apart, attached = {}, {}
     for i, d in ipairs(above) do
         if i < first then
@@ -410,7 +462,8 @@ function M.run(src, chunk, root_span)
         for j = r.first, r.last do
             body[#body + 1] = statements[j]
         end
-        top[#top + 1] = arena.add_src(src, { tag = 'ClvRegion', statements = body }, r.span)
+        local directives = chunk.region_directives[r.span.start] or {}
+        top[#top + 1] = arena.add_src(src, { tag = 'ClvRegion', directives = directives, statements = body }, r.span)
         i = r.last + 1
     end
     while i <= #statements do

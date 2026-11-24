@@ -1,5 +1,6 @@
 (Block
   [(ClvRegion
+     []
      [(Local [(Literal number 0x10 :type int53)] [(Binder n$1 :type int53)])
       (Local
         [(BinOp and

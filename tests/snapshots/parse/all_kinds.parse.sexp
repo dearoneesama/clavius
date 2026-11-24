@@ -101,6 +101,7 @@
    (ClvSpec
      [(LocalFunction (Binder same) (Function [] [(Binder x)] false (Block [(Return [(Id x)])])))])
    (ClvRegion
+     []
      [(Local [(BinOp sub (Literal number 1) (Literal number 2))] [(Binder m)])
       (ClvGhost [(Local [(Id m)] [(Binder g)])])
       (ClvAssert (BinOp eq (Id g) (Id m)))

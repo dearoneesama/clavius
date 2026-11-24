@@ -664,16 +664,22 @@ describe('resolve', function()
         )
     end)
 
-    it('proves a function or lemma only in nonlinear arithmetic', function()
+    it('proves a function, lemma or region only in nonlinear arithmetic', function()
         markers.expect_diags(
             'resolve',
             [=[
+            ---@proof_by(nonlinear_arith)
             ---@clavius begin
             ---@proof_by(nonlinear_arith)
             local function f() end
             ---@proof_by(bit_vector)
             --! E-unsupported-directive
             local function g() end
+            ---@clavius end
+            ---@proof_by(bit_vector)
+            --! E-unsupported-directive
+            ---@clavius begin
+            local x = 1
             ---@clavius end
             ]=]
         )

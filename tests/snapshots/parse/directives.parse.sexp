@@ -26,6 +26,7 @@
        false
        (Block [(Return [(UnOp len (Id s))])])))
    (ClvRegion
+     [(ClvProofBy nonlinear_arith)]
      [(Local
         [(Function
            [(ClvParam xs false (ClvTypeApply (ClvTypeName Seq) [(ClvTypeName int53)]))
