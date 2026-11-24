@@ -27,7 +27,7 @@ describe('boogie.print', function()
     end
 
     it('prints the resource limit and splits the units it is asked to', function()
-        local prog = read_core '(Unit a [] []) (Unit b [] [(Havoc x)])'
+        local prog = read_core '(Unit a linear [] []) (Unit b linear [] [(Havoc x)])'
         assert.are.equal(
             table.concat({
                 'procedure {:rlimit 5} a()',

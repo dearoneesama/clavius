@@ -1,6 +1,6 @@
 ; fails:
 ; Every term kind and operator appears in a check that holds.
-(Unit terms
+(Unit terms linear
   [(VarDecl x int) (VarDecl p bool) (VarDecl q bool)]
   [(Havoc x)
    (Check 1 (BinOp == (BinOp * (Int 3) (Int -2)) (Int -6)))

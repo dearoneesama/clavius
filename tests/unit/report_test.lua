@@ -1,6 +1,8 @@
 local arena = require 'clavius.ir.arena'
 local diag = require 'clavius.ir.diag'
 local driver = require 'clavius.driver'
+local dump = require 'clavius.sexpr.dump'
+local hints = require 'clavius.report.hints'
 local messages = require 'clavius.report.messages'
 local stringx = require 'pl.stringx'
 
@@ -22,7 +24,7 @@ describe('report.messages', function()
             '3:20: range: x + 1 may leave ±2^53 [O1]',
             '5:15: unreachable: this `error` may be reached [O2]',
             '5:27: assert: this assertion may fail [O3]',
-        }, messages.failures({ 3, 2, 1 }, prog.obligations, c.src, text))
+        }, messages.failures({ 3, 2, 1 }, prog, c.src, text))
     end)
 
     it('quotes the condition of a failing contract clause', function()
@@ -42,7 +44,7 @@ describe('report.messages', function()
         assert.are.same({
             '5:7: post: the function may return here without satisfying its postcondition `n > 1` [O1]',
             '7:1: pre: this call may not satisfy its precondition `n > 0` [O2]',
-        }, messages.failures({ 1, 2 }, prog.obligations, c.src, text))
+        }, messages.failures({ 1, 2 }, prog, c.src, text))
     end)
 
     it("quotes a loop's invariant and measure, and names its counter, bound and step", function()
@@ -76,7 +78,7 @@ describe('report.messages', function()
             "7:1: for_step: this loop's step may be 0 [O8]",
             "7:1: invariant_entry: the loop counter's range may not hold when the loop starts [O10]",
             "7:1: invariant_preserved: the loop counter's range may not hold again after an iteration [O11]",
-        }, messages.failures(kinds, prog.obligations, c.src, text))
+        }, messages.failures(kinds, prog, c.src, text))
     end)
 
     it("quotes the callee's measure at a call in a cycle of recursive calls", function()
@@ -97,7 +99,47 @@ describe('report.messages', function()
         assert.are.same({
             '5:21: decrease: this call may not decrease the measure `n - 1, 0`, or the measure may be negative on entry [O1]',
             '8:15: decrease: this call may not decrease the measure `n, 1`, or the measure may be negative on entry [O2]',
-        }, messages.failures({ 1, 2 }, prog.obligations, c.src, text))
+        }, messages.failures({ 1, 2 }, prog, c.src, text))
+    end)
+
+    it('says when a product of two variables in the failing unit is opaque', function()
+        local text = stringx.dedent [=[
+            ---@clavius begin
+            ---@param w integer
+            ---@param h integer
+            ---@pre 0 <= w and w <= 10 and 0 <= h and h <= 10
+            ---@post result >= 0
+            ---@return integer
+            local function area(w, h)
+                return w * h
+            end
+            ---@param n integer
+            ---@pre 0 <= n and n <= 10
+            ---@post result > 0
+            ---@return integer
+            local function double(n)
+                return 2 * n
+            end
+            ---@clavius end
+        ]=]
+        local c = driver.run_until('validate', text, 1)
+        assert.are.same({}, c.diags)
+        local prog = assert(c.prog)
+        local posts = {}
+        for id, o in ipairs(prog.obligations) do
+            if o.kind == 'post' then
+                posts[#posts + 1] = id
+            end
+        end
+        local hint = 'the solver knows nothing about a product of two variables here; try `---@proof_by(nonlinear_arith)` or a lemma'
+        assert.are.same({
+            ('8:5: post: the function may return here without satisfying its postcondition `result >= 0`; hint: %s [O2]'):format(hint),
+            '15:5: post: the function may return here without satisfying its postcondition `result > 0` [O5]',
+        }, messages.failures(posts, prog, c.src, text))
+        assert.are.same({
+            '8:5: post: the function may return here without satisfying its postcondition `result >= 0` [O2]',
+            '15:5: post: the function may return here without satisfying its postcondition `result > 0` [O5]',
+        }, messages.failures(posts, prog, c.src, text, true))
     end)
 
     it('orders diagnostics by position, then code', function()
@@ -128,5 +170,20 @@ describe('report.messages', function()
         local d = diag.at_span('E-unsupported-feature', arena.span(1, 1, 1), { 'Forin' })
         local expected = "1:1: E-unsupported-feature: a generic `for` loop isn't supported in this version; leave this code unmarked"
         assert.are.equal(expected, messages.diag(d, {}, 'x'))
+    end)
+end)
+
+describe('report.hints', function()
+    it('finds the obligations of linear units that multiply two variables', function()
+        local text = table.concat({
+            -- true true
+            '(Unit a linear [] [(Assign r (BinOp * (Var x) (Var y))) (Check 1 (Bool true)) (Check 2 (Bool true))])',
+            -- false
+            '(Unit b linear [] [(Check 3 (BinOp == (BinOp * (Int 2) (Var x)) (Var x)))])',
+            -- the solver has nonlinear arithmetic here
+            '(Unit c nonlinear [] [(Check 4 (BinOp == (BinOp * (Var x) (Var y)) (Var x)))])',
+        }, '\n')
+        local prog = assert(dump.read_core(text, 1))
+        assert.are.same({ true, true, false }, hints.opaque_products(prog.core, prog.units))
     end)
 end)

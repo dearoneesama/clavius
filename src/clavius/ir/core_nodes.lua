@@ -21,10 +21,11 @@
 --- @field tag 'Axiom'
 --- @field cond NodeId a term node
 
---- One independent proof: its variables and its statements.
+--- One independent proof: its variables and its statements. A linear one leaves Z3 no nonlinear arithmetic.
 --- @class CoreUnit
 --- @field tag 'Unit'
 --- @field name string
+--- @field arith 'linear' | 'nonlinear'
 --- @field vars NodeId[] VarDecl nodes
 --- @field body NodeId[] statement nodes
 

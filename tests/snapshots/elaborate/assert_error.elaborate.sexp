@@ -1,4 +1,4 @@
-(Unit main$1
+(Unit main$1 linear
   [(VarDecl x$1 int)]
   [(Assign x$1 (Int 1))
    (Check 1 (BinOp == (Var x$1) (Int 1)))

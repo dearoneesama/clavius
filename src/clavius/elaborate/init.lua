@@ -535,7 +535,8 @@ end
 ---
 --- An exec function's callers are trusted to pass well-typed arguments that meet its `---@pre`s, since
 --- some may be outside verification; verified ones check the `---@pre`s. Only proof code calls a lemma,
---- and it checks both. A spec function's unit checks its body without the definitions of its cycle.
+--- and it checks both. A spec function's unit checks its body without the definitions of its cycle. A
+--- unit is nonlinear when its function is `---@proof_by(nonlinear_arith)`.
 --- @param b Builder
 --- @param binder NodeId the Binder that the function's definition defines
 --- @mut b
@@ -597,7 +598,8 @@ local function function_unit(b, binder)
     end
     b.fn, b.ghost, b.fuel = nil, false, {}
     builder.emit(b, body, { tag = 'Block', label = 'body', body = inner }, fn_id)
-    return builder.add(b, { tag = 'Unit', name = builder.name_of(b, binder), vars = b.vars, body = body }, fn_id)
+    local arith = arena.has_directive(b.src, fn, 'ClvProofBy') and 'nonlinear' or 'linear'
+    return builder.add(b, { tag = 'Unit', name = builder.name_of(b, binder), arith = arith, vars = b.vars, body = body }, fn_id)
 end
 
 --- Returns whether a top-level function definition is verified: marked `---@clavius`, or in a region and
@@ -890,7 +892,8 @@ function M.run(src, root, res, info, effects, termination)
                     statement(b, s, body)
                 end
                 regions = regions + 1
-                units[#units + 1] = builder.add(b, { tag = 'Unit', name = ('main$%d'):format(regions), vars = b.vars, body = body }, id)
+                local unit = { tag = 'Unit', name = ('main$%d'):format(regions), arith = 'linear', vars = b.vars, body = body }
+                units[#units + 1] = builder.add(b, unit, id)
             end
         else
             definition_units(b, id, false, units)

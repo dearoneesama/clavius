@@ -10,6 +10,7 @@ local boogie_print = require 'clavius.backend.boogie.print'
 
 --- @class BoogieRunOptions
 --- @field rlimit integer|nil Z3 resource limit of each unit
+--- @field nonlinear boolean|nil whether every unit may use Z3's nonlinear arithmetic, not only nonlinear ones
 
 local M = {}
 
@@ -19,10 +20,13 @@ local function shell_quote(s)
     return ("'%s'"):format((s:gsub("'", "'\\''")))
 end
 
---- Runs Boogie on one program and returns everything it prints.
+--- Runs Boogie on one program and returns everything it prints. Unless `nonlinear` is set, Z3's
+--- nonlinear arithmetic is off, so a product of two variables is an opaque term outside nonlinear units.
+--- With it set, Z3 runs with its default options.
 --- @param bpl string
+--- @param nonlinear boolean
 --- @return string
-local function run_boogie(bpl)
+local function run_boogie(bpl, nonlinear)
     -- Boogie only reads files whose name ends in .bpl
     local base = os.tmpname()
     local path = base .. '.bpl'
@@ -30,6 +34,13 @@ local function run_boogie(bpl)
     f:write(bpl)
     f:close()
     local args = { shell_quote(os.getenv 'BOOGIE' or 'boogie'), '/errorLimit:0' }
+    if not nonlinear then
+        -- the older arithmetic solver, since the default one ignores `smt.arith.nl`
+        args[#args + 1] = '/proverOpt:O:smt.arith.solver=2'
+        -- no second solver for a query with no quantifiers that comes back unknown, since it would solve it
+        args[#args + 1] = '/proverOpt:O:combined_solver.solver2_unknown=0'
+        args[#args + 1] = '/proverOpt:O:smt.arith.nl=false'
+    end
     local z3 = os.getenv 'Z3'
     if z3 then
         args[#args + 1] = shell_quote(('/proverOpt:PROVER_PATH=%s'):format(z3))
@@ -48,10 +59,11 @@ end
 --- @param decls NodeId[]
 --- @param units NodeId[]
 --- @param print_opts BoogiePrintOptions
+--- @param nonlinear boolean
 --- @return BoogieOutput|nil result
 --- @return string|nil err
-local function check_once(core, decls, units, print_opts)
-    local text = run_boogie(boogie_print.program(core, decls, units, print_opts))
+local function check_once(core, decls, units, print_opts, nonlinear)
+    local text = run_boogie(boogie_print.program(core, decls, units, print_opts), nonlinear)
     local result, err = boogie_output.parse(text)
     if not result then
         return nil, ('%s:\n%s'):format(err, text)
@@ -73,7 +85,8 @@ function M.check(core, decls, units, opts)
         return {}, nil
     end
     local rlimit = opts and opts.rlimit
-    local first, err = check_once(core, decls, units, { rlimit = rlimit })
+    local nonlinear = (opts and opts.nonlinear) == true
+    local first, err = check_once(core, decls, units, { rlimit = rlimit }, nonlinear)
     if not first then
         return nil, err
     end
@@ -93,7 +106,7 @@ function M.check(core, decls, units, opts)
                 rerun[#rerun + 1] = id
             end
         end
-        local second, err2 = check_once(core, decls, rerun, { rlimit = rlimit, split = split })
+        local second, err2 = check_once(core, decls, rerun, { rlimit = rlimit, split = split }, nonlinear)
         if not second then
             return nil, err2
         end

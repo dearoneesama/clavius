@@ -1,6 +1,7 @@
 -- Prints core programs as Boogie. The declarations come first, as types, functions and axioms. Each
--- unit becomes a procedure with no contract that is checked on its own under a Z3 resource limit. Each
--- `Check` becomes an `assert` labeled with its obligation id:
+-- unit becomes a procedure with no contract that is checked on its own under a Z3 resource limit, and a
+-- nonlinear one turns on Z3's nonlinear arithmetic for itself. Each `Check` becomes an `assert` labeled
+-- with its obligation id:
 --
 --   procedure {:rlimit 10000000} main()
 --   {
@@ -192,6 +193,9 @@ function M.program(core, decls, units, opts)
             out[#out + 1] = ''
         end
         local attrs = ('{:rlimit %d}'):format(rlimit)
+        if u.arith == 'nonlinear' then
+            attrs = attrs .. ' {:smt_option "smt.arith.nl", "true"}'
+        end
         if split[u.name] then
             attrs = attrs .. ' {:vcs_split_on_every_assert}'
         end

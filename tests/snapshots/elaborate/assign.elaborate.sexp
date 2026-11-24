@@ -1,4 +1,4 @@
-(Unit main$1
+(Unit main$1 linear
   [(VarDecl a$1 int) (VarDecl b$2 int) (VarDecl $t1 int) (VarDecl $t2 int)]
   [(Assign a$1 (Int 1))
    (Assign b$2 (Int 2))

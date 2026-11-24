@@ -42,7 +42,7 @@ describe('validate', function()
 
     it('reports a Check with no obligation of a known kind', function()
         local text = [=[
-            (Unit u [] [(Branch (Bool true) [(Check 2 (Bool true))] [(Check 1 (Bool true))])])
+            (Unit u linear [] [(Branch (Bool true) [(Check 2 (Bool true))] [(Check 1 (Bool true))])])
             (obligation 1 :kind frob :node 0)
         ]=]
         assert.are.same({
@@ -53,7 +53,7 @@ describe('validate', function()
 
     it('reports an Assume with no allowed justification', function()
         local text = [=[
-            (Unit u [] [(Choice [(Assume 2 (Bool true))] [(Block b [(Assume 1 (Bool true))])])])
+            (Unit u linear [] [(Choice [(Assume 2 (Bool true))] [(Block b [(Assume 1 (Bool true))])])])
             (assumption 1 :kind makeup :node 0)
         ]=]
         assert.are.same({
@@ -64,7 +64,7 @@ describe('validate', function()
 
     it('reports a back_edge Assume that does not end its statement list', function()
         local text = [=[
-            (Unit u [] [(Branch (Bool true) [(Assume 1 (Bool false)) (Check 1 (Bool true))] [(Assume 2 (Bool false))])])
+            (Unit u linear [] [(Branch (Bool true) [(Assume 1 (Bool false)) (Check 1 (Bool true))] [(Assume 2 (Bool false))])])
             (obligation 1 :kind assert :node 0)
             (assumption 1 :kind back_edge :node 0)
             (assumption 2 :kind back_edge :node 0)
@@ -74,7 +74,7 @@ describe('validate', function()
 
     it('reports an Exit that no Block with its label encloses', function()
         local text = [=[
-            (Unit u []
+            (Unit u linear []
               [(Block a [(Exit a) (Block b [(Exit a) (Exit b)])])
                (Exit b)
                (Block c [])
@@ -88,8 +88,8 @@ describe('validate', function()
 
     it('reports a Block label used twice in a unit', function()
         local text = [=[
-            (Unit u [] [(Block a []) (Block b [(Block a [(Exit a)])])])
-            (Unit v [] [(Block a [])])
+            (Unit u linear [] [(Block a []) (Block b [(Block a [(Exit a)])])])
+            (Unit v linear [] [(Block a [])])
         ]=]
         assert.are.same({
             { code = 'E-internal-label', tag = 'Block', args = { 'a' } },
@@ -98,11 +98,11 @@ describe('validate', function()
 
     it('reports nodes out of place', function()
         local text = [=[
-            (Unit u
+            (Unit u linear
               [(Havoc x)]
               [(Var x)
                (Assign x (BinOp + (Exit l) (Not (VarDecl y int))))
-               (Unit v [] [])])
+               (Unit v linear [] [])])
         ]=]
         assert.are.same({
             { code = 'E-internal-node', tag = 'Havoc', args = { 'Havoc', 'variable declaration' } },
@@ -118,7 +118,7 @@ describe('validate', function()
         local sp = arena.span(1, 1, 0)
         local src = arena.add_core(c, { tag = 'Literal', kind = 'nil', text = 'nil' } --[[@as CoreNode]], sp)
         local statement = arena.add_core(c, { tag = 'Assign', target = 'x', value = src }, sp)
-        local unit = arena.add_core(c, { tag = 'Unit', name = 'u', vars = {}, body = { statement } }, sp)
+        local unit = arena.add_core(c, { tag = 'Unit', name = 'u', arith = 'linear', vars = {}, body = { statement } }, sp)
         assert.are.same({
             { code = 'E-internal-node', tag = 'Literal', args = { 'Literal', 'term' } },
             { code = 'E-internal-node', tag = 'Assign', args = { 'Assign', 'unit' } },
@@ -140,7 +140,7 @@ describe('validate', function()
 
     it('reports a declaration that is not one', function()
         local c = arena.new_core()
-        local unit = arena.add_core(c, { tag = 'Unit', name = 'u', vars = {}, body = {} }, arena.span(1, 1, 0))
+        local unit = arena.add_core(c, { tag = 'Unit', name = 'u', arith = 'linear', vars = {}, body = {} }, arena.span(1, 1, 0))
         assert.are.same({
             { code = 'E-internal-node', tag = 'Unit', args = { 'Unit', 'declaration' } },
         }, run { core = c, decls = { unit }, units = {}, obligations = {}, assumptions = {} })

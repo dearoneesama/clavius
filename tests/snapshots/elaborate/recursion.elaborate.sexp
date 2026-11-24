@@ -1,4 +1,4 @@
-(Unit even$2
+(Unit even$2 linear
   [(VarDecl n$3 int) (VarDecl result$4 bool) (VarDecl $t1 bool)]
   [(Assume 1
      (BinOp and
@@ -18,7 +18,7 @@
       (Assign result$4 (Var $t1))
       (Exit body)
       (Check 3 (Bool false))])])
-(Unit odd$1
+(Unit odd$1 linear
   [(VarDecl n$5 int) (VarDecl result$6 bool) (VarDecl $t1 int) (VarDecl $t2 bool)]
   [(Assume 3
      (BinOp and
@@ -43,7 +43,7 @@
       (Assign result$6 (Not (Var $t2)))
       (Exit body)
       (Check 7 (Bool false))])])
-(Unit fib$7
+(Unit fib$7 linear
   [(VarDecl n$8 int) (VarDecl result$9 int) (VarDecl $t1 int) (VarDecl $t2 int)]
   [(Assume 5
      (BinOp and
@@ -83,7 +83,7 @@
       (Assign result$9 (BinOp + (Var $t1) (Var $t2)))
       (Exit body)
       (Check 15 (Bool false))])])
-(Unit check$10
+(Unit check$10 linear
   [(VarDecl n$11 int) (VarDecl result$12 bool) (VarDecl $t1 bool)]
   [(Assume 9
      (BinOp and
@@ -96,7 +96,7 @@
       (Assign result$12 (Var $t1))
       (Exit body)
       (Check 17 (Bool false))])])
-(Unit main$1
+(Unit main$1 linear
   [(VarDecl $t1 bool) (VarDecl x$13 bool)]
   [(Check 18 (BinOp >= (Int 4) (Int 0))) (Havoc $t1) (Assign x$13 (Var $t1))])
 

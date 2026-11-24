@@ -19,8 +19,13 @@ local NODES = {
     { tag = 'Axiom', doc = 'A fact that every unit may assume.', fields = { { 'cond', 'node', 'a term node' } } },
     {
         tag = 'Unit',
-        doc = 'One independent proof: its variables and its statements.',
-        fields = { { 'name', 'string' }, { 'vars', 'node[]', 'VarDecl nodes' }, { 'body', 'node[]', 'statement nodes' } },
+        doc = 'One independent proof: its variables and its statements. A linear one leaves Z3 no nonlinear arithmetic.',
+        fields = {
+            { 'name', 'string' },
+            { 'arith', "'linear' | 'nonlinear'" },
+            { 'vars', 'node[]', 'VarDecl nodes' },
+            { 'body', 'node[]', 'statement nodes' },
+        },
     },
     {
         tag = 'VarDecl',

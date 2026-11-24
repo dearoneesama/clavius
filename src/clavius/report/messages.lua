@@ -1,6 +1,7 @@
 -- Turns diagnostics and failing obligations into messages in source order.
 
 local arena = require 'clavius.ir.arena'
+local hints = require 'clavius.report.hints'
 
 local M = {}
 
@@ -129,7 +130,7 @@ local PHRASES = {
     ['spec-statement'] = "a spec function's body holds only `if`, `local` and `return`",
     ['spec-missing-return'] = 'every path through a spec function should end in `return`',
     ['spec-directive'] = 'a spec function takes only `---@param`, `---@return` and `---@decrease`',
-    ['lemma-directive'] = 'a lemma takes only `---@param`, `---@return`, `---@pre`, `---@post`, `---@decrease` and `---@reveal_with_fuel`',
+    ['lemma-directive'] = "a lemma takes a function's contract, `---@proof_by` and `---@reveal_with_fuel`, but no other directive",
     ['fuel-not-spec'] = '`---@reveal_with_fuel` names a spec function declared above',
     ['ghost-function'] = 'ghost code defines no functions; a lemma goes in a `--[[@lemma` block and a spec function in a `--[[@spec` one',
     ['ghost-after-exit'] = "ghost code can't follow `return` or `break`, which end their block",
@@ -174,6 +175,9 @@ local CALL_FAILURES = {
     decrease = 'this call may not decrease the measure `%s`, or the measure may be negative on entry',
 }
 
+-- what a failure adds when its unit leaves products of two variables opaque
+local OPAQUE_PRODUCT = 'the solver knows nothing about a product of two variables here; try `---@proof_by(nonlinear_arith)` or a lemma'
+
 --- @param text string
 --- @param offset integer
 --- @return string `line:col`
@@ -197,13 +201,15 @@ function M.diag(d, spans, text)
     return ('%s: %s: %s'):format(position(text, span.start), d.code, template:format(unpack(args)))
 end
 
---- Formats the failing obligation `id` as `line:col: kind: message [O17]`.
+--- Formats the failing obligation `id` as `line:col: kind: message [O17]`. With `opaque`, the message
+--- says that the solver knows nothing about a product of two variables in its unit.
 --- @param id integer
 --- @param o Obligation
 --- @param src SrcArena
 --- @param text string
+--- @param opaque boolean|nil
 --- @return string
-function M.failure(id, o, src, text)
+function M.failure(id, o, src, text, opaque)
     local span = src.spans[o.node]
     local template = FAILURES[o.kind]
     if src.nodes[o.node].tag == 'Call' and CALL_FAILURES[o.kind] then
@@ -224,6 +230,9 @@ function M.failure(id, o, src, text)
     end
     local snippet = text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
     local message = assert(template, ('messages: no message for %s'):format(o.kind)):format(snippet)
+    if opaque then
+        message = ('%s; hint: %s'):format(message, OPAQUE_PRODUCT)
+    end
     return ('%s: %s: %s [O%d]'):format(position(text, span.start), o.kind, message, id)
 end
 
@@ -268,17 +277,21 @@ function M.diags(diags, spans, text)
     return in_order(list)
 end
 
---- Formats failing obligations in source order: by span start, then kind.
+--- Formats failing obligations in source order: by span start, then kind. Unless `nonlinear` is set, a
+--- failure in a linear unit that multiplies two variables says that the product is opaque.
 --- @param failed integer[] obligation ids
---- @param obligations Obligation[]
+--- @param prog CoreProgram
 --- @param src SrcArena
 --- @param text string
+--- @param nonlinear boolean|nil whether every unit used nonlinear arithmetic
 --- @return string[]
-function M.failures(failed, obligations, src, text)
+function M.failures(failed, prog, src, text, nonlinear)
+    local opaque = nonlinear and {} or hints.opaque_products(prog.core, prog.units)
     local list = {}
     for i, id in ipairs(failed) do
-        local o = obligations[id]
-        list[i] = { start = src.spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = M.failure(id, o, src, text) }
+        local o = prog.obligations[id]
+        local message = M.failure(id, o, src, text, opaque[id])
+        list[i] = { start = src.spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = message }
     end
     return in_order(list)
 end

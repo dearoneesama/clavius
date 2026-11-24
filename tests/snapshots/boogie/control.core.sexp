@@ -1,7 +1,7 @@
 ; fails: O4
 ; An Exit leaves its Block, and code after an Exit never runs. The check inside the block runs only
 ; when x <= 0 and the first choice is taken.
-(Unit control
+(Unit control linear
   [(VarDecl x int) (VarDecl y int)]
   [(Block done
      [(Branch (BinOp > (Var x) (Int 0))

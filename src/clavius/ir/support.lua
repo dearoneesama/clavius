@@ -79,6 +79,7 @@ M.FUNCTION_DIRECTIVES = {
     ClvReturn = true,
     ClvDecrease = true,
     ClvRevealWithFuel = true,
+    ClvProofBy = true,
 }
 
 --- Directive kinds that a spec function may have.
@@ -87,7 +88,15 @@ M.SPEC_DIRECTIVES = { ClvParam = true, ClvReturn = true, ClvDecrease = true }
 
 --- Directive kinds that a lemma may have.
 --- @type table<string, boolean>
-M.LEMMA_DIRECTIVES = { ClvParam = true, ClvReturn = true, ClvPre = true, ClvPost = true, ClvDecrease = true, ClvRevealWithFuel = true }
+M.LEMMA_DIRECTIVES = {
+    ClvParam = true,
+    ClvReturn = true,
+    ClvPre = true,
+    ClvPost = true,
+    ClvDecrease = true,
+    ClvRevealWithFuel = true,
+    ClvProofBy = true,
+}
 
 --- Directive kinds that marked code may use above a loop.
 --- @type table<string, boolean>

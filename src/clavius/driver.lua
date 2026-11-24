@@ -212,10 +212,11 @@ end
 --- Verifies a valid core program with Boogie. Returns the ids of the failing obligations in ascending order,
 --- or nil and an error when Boogie gives no verdict.
 --- @param prog CoreProgram
+--- @param opts BoogieRunOptions|nil
 --- @return integer[]|nil failed
 --- @return string|nil err
-function M.verify_core(prog)
-    return boogie_run.check(prog.core, prog.decls, prog.units, nil)
+function M.verify_core(prog, opts)
+    return boogie_run.check(prog.core, prog.decls, prog.units, opts)
 end
 
 return M

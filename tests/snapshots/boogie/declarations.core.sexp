@@ -9,7 +9,7 @@
     [(VarDecl s S) (VarDecl k int)]
     [(Trigger [(App size [(Var s) (Var k)])])]
     (BinOp <= (Var k) (App size [(Var s) (Var k)]))))
-(Unit sizes
+(Unit sizes linear
   [(VarDecl t S)]
   [(Havoc t)
    (Check 1 (BinOp >= (App size [(Var t) (Int 3)]) (Int 3)))

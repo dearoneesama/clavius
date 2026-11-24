@@ -1,4 +1,4 @@
-(Unit main$1
+(Unit main$1 linear
   [(VarDecl x$1 int)
    (VarDecl y$2 int)
    (VarDecl g$3 int)

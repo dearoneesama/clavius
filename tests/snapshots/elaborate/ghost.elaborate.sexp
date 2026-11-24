@@ -47,7 +47,7 @@
           (App double$4 [(App $succ [(Var $fuel)]) (Var n$5)])
           (Let d$7 (BinOp + (Var n$5) (Var n$5)) (Var d$7)))))))
 
-(Unit tri$1
+(Unit tri$1 linear
   [(VarDecl n$2 int)]
   [(Assume 1 (App $ok$double$4 []))
    (Assume 2 (BinOp <= (Int 0) (Var n$2)))
@@ -65,12 +65,12 @@
             (App tri$1 [(App $succ [(App $zero [])]) (BinOp - (Var n$2) (Int 1))])
             (Var n$2))))
       (Exit body)])])
-(Unit double$4
+(Unit double$4 linear
   [(VarDecl n$5 int) (VarDecl d$7 int)]
   [(Assume 4 (App $ok$tri$1 []))
    (Assume 5 (BinOp <= (Int 0) (Var n$5)))
    (Block body [(Assign d$7 (BinOp + (Var n$5) (Var n$5))) (Exit body)])])
-(Unit step$8
+(Unit step$8 linear
   [(VarDecl n$9 int)]
   [(Assume 6 (App $ok$tri$1 []))
    (Assume 7 (App $ok$double$4 []))
@@ -83,7 +83,7 @@
           (BinOp +
             (App tri$1 [(App $succ [(App $zero [])]) (BinOp - (Var n$9) (Int 1))])
             (Var n$9))))])])
-(Unit f$10
+(Unit f$10 linear
   [(VarDecl m$11 int) (VarDecl g$12 int) (VarDecl $t1 int) (VarDecl i$13 int)]
   [(Assume 10 (App $ok$tri$1 []))
    (Assume 11 (App $ok$double$4 []))

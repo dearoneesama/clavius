@@ -32,11 +32,11 @@
               (Let hi$8 (Int 10) (Var hi$8))
               (Let m$9 (Var n$5) (Var m$9)))))))))
 
-(Unit sign$1
+(Unit sign$1 linear
   [(VarDecl n$2 int)]
   [(Assume 1 (App $ok$clamp$4 []))
    (Block body [(Branch (BinOp > (Var n$2) (Int 0)) [(Exit body)] [(Exit body)])])])
-(Unit clamp$4
+(Unit clamp$4 linear
   [(VarDecl n$5 int) (VarDecl lo$7 int) (VarDecl hi$8 int) (VarDecl m$9 int)]
   [(Assume 2 (App $ok$sign$1 []))
    (Block body
@@ -48,7 +48,7 @@
            (BinOp > (Var n$5) (Int 10))
            [(Assign hi$8 (Int 10)) (Exit body)]
            [(Assign m$9 (Var n$5)) (Exit body)])])])])
-(Unit nonneg$10
+(Unit nonneg$10 linear
   [(VarDecl k$11 int)]
   [(Assume 3 (App $ok$sign$1 []))
    (Assume 4 (App $ok$clamp$4 []))
@@ -58,7 +58,7 @@
        (BinOp <= (Var k$11) (Int 9007199254740992))))
    (Block body
      [(Check 1 (BinOp >= (App sign$1 [(App $succ [(App $zero [])]) (Var k$11)]) (Int 0)))])])
-(Unit main$1
+(Unit main$1 linear
   [(VarDecl g$12 int)]
   [(Assume 6 (App $ok$sign$1 []))
    (Assume 7 (App $ok$clamp$4 []))

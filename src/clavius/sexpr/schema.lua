@@ -324,6 +324,7 @@ M.core = {
     },
     Unit = {
         { name = 'name', shape = 'str' },
+        { name = 'arith', shape = 'enum', values = { 'linear', 'nonlinear' } },
         { name = 'vars', shape = 'list' },
         { name = 'body', shape = 'list' },
     },

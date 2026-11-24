@@ -1,7 +1,7 @@
 -- Converts between programs and printable s-expressions. A node is written as its tag followed by its
 -- fields in schema order:
 --
---   (Unit main
+--   (Unit main linear
 --     [(VarDecl x int)]
 --     [(Assume 1 (BinOp > (Var x) (Int 0)))
 --      (Check 1 (BinOp > (BinOp + (Var x) (Int 1)) (Var x)))])
