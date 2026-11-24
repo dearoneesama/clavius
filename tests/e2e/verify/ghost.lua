@@ -12,12 +12,25 @@ local function tri(n)
     end
     return tri(n - 1) + n
 end
+
+-- locals in a spec function's body, the second using the first
+---@param n Nat
+---@return Int
+local function tri_twice(n)
+    local t = tri(n)
+    local d = t + t
+    return d
+end
 ]]
 
 --[[@lemma
 ---@param n Nat
 ---@post tri(n + 1) == tri(n) + n + 1
 local function lemma_tri_step(n) end
+
+---@param n Nat
+---@post tri_twice(n) == 2 * tri(n)
+local function lemma_twice(n) end
 
 -- by induction: the call is the hypothesis for n - 1
 ---@param n Nat

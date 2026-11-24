@@ -6,7 +6,7 @@ local OPS = "'+' | '-' | '*' | 'mod' | '<' | '<=' | '>' | '>=' | '==' | '!=' | '
 local DOC = [[
 A declaration is a SortDecl, FunDecl or Axiom node.
 A statement node is an Assign, Havoc, Assume, Check, Branch, Choice, Block or Exit node.
-A term node is a Var, Int, Bool, BinOp, Not, Ite, App or Forall node.]]
+A term node is a Var, Int, Bool, BinOp, Not, Ite, Let, App or Forall node.]]
 
 --- @type NodeType[]
 local NODES = {
@@ -68,6 +68,11 @@ local NODES = {
         tag = 'Ite',
         doc = '`if cond then if_true else if_false`, as a term.',
         fields = { { 'cond', 'node', 'a term node' }, { 'if_true', 'node', 'a term node' }, { 'if_false', 'node', 'a term node' } },
+    },
+    {
+        tag = 'Let',
+        doc = '`body` with the variable `name` bound to `value`.',
+        fields = { { 'name', 'string' }, { 'value', 'node', 'a term node' }, { 'body', 'node', 'a term node' } },
     },
     { tag = 'App', doc = 'The function of a FunDecl applied to terms.', fields = { { 'fn', 'string' }, { 'args', 'node[]', 'term nodes' } } },
     {

@@ -549,8 +549,8 @@ describe('resolve', function()
             ---@param n Nat
             ---@return Nat
             local function a(n)
-                local m = n --! E-unsupported-feature
-                return n
+                local m = n
+                return m
             end
             ---@param n Nat
             ---@return Nat

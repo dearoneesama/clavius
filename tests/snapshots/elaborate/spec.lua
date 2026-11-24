@@ -16,6 +16,24 @@ local function sign(n)
 end
 ]]
 
+-- a `local` is a `Let` around the rest of its block, and each `elseif` is one more `Ite`
+--[[@spec
+---@param n Int
+---@return Int
+local function clamp(n)
+    local lo = 0
+    if n < lo then
+        return lo
+    elseif n > 10 then
+        local hi = 10
+        return hi
+    else
+        local m = n
+        return m
+    end
+end
+]]
+
 -- a call with an `Int` checks that it fits the `integer`
 --[[@lemma
 ---@param k integer

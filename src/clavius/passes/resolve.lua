@@ -386,10 +386,10 @@ local function visit_set(st, id, scope, unit)
 end
 
 -- the statements that a spec function's body may hold: its body is one term
-local SPEC_STATEMENTS = { If = true, Return = true, Block = true }
+local SPEC_STATEMENTS = { If = true, Local = true, Return = true, Block = true }
 
 --- Visits the statements of a list. A call among them is a statement call. In a spec function's body,
---- a statement other than `if` and `return` is reported and not visited.
+--- a statement other than `if`, `local` and `return` is reported and not visited.
 --- @param st ResolveState
 --- @param statements NodeId[]
 --- @param scope integer
@@ -398,9 +398,7 @@ local SPEC_STATEMENTS = { If = true, Return = true, Block = true }
 local function visit_statements(st, statements, scope, unit)
     for _, statement in ipairs(statements) do
         local tag = st.src.nodes[statement].tag
-        if unit ~= 0 and st.mode == 'spec' and tag == 'Local' then
-            report(st, 'E-unsupported-feature', statement, { 'spec-local' })
-        elseif unit ~= 0 and st.mode == 'spec' and not SPEC_STATEMENTS[tag] then
+        if unit ~= 0 and st.mode == 'spec' and not SPEC_STATEMENTS[tag] then
             report(st, 'E-mode', statement, { 'spec-statement' })
         elseif tag == 'Call' then
             visit_call(st, statement, scope, unit, true)

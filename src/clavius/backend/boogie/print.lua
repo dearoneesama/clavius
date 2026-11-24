@@ -77,6 +77,8 @@ local function term(core, id)
         return ('!%s'):format(operand(n.arg))
     elseif n.tag == 'Ite' then
         return ('if %s then %s else %s'):format(operand(n.cond), operand(n.if_true), operand(n.if_false))
+    elseif n.tag == 'Let' then
+        return ('(var %s := %s; %s)'):format(n.name, term(core, n.value), term(core, n.body))
     elseif n.tag == 'App' then
         local args = {}
         for i, a in ipairs(n.args) do

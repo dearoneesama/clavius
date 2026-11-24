@@ -2,7 +2,7 @@
 --
 -- A declaration is a SortDecl, FunDecl or Axiom node.
 -- A statement node is an Assign, Havoc, Assume, Check, Branch, Choice, Block or Exit node.
--- A term node is a Var, Int, Bool, BinOp, Not, Ite, App or Forall node.
+-- A term node is a Var, Int, Bool, BinOp, Not, Ite, Let, App or Forall node.
 
 --- A sort with no values of its own but those of its functions.
 --- @class CoreSortDecl
@@ -115,6 +115,13 @@
 --- @field if_true NodeId a term node
 --- @field if_false NodeId a term node
 
+--- `body` with the variable `name` bound to `value`.
+--- @class CoreLet
+--- @field tag 'Let'
+--- @field name string
+--- @field value NodeId a term node
+--- @field body NodeId a term node
+
 --- The function of a FunDecl applied to terms.
 --- @class CoreApp
 --- @field tag 'App'
@@ -153,6 +160,7 @@
 --- | 'BinOp'
 --- | 'Not'
 --- | 'Ite'
+--- | 'Let'
 --- | 'App'
 --- | 'Forall'
 --- | 'Trigger'
@@ -177,6 +185,7 @@
 --- | CoreBinOp
 --- | CoreNot
 --- | CoreIte
+--- | CoreLet
 --- | CoreApp
 --- | CoreForall
 --- | CoreTrigger
@@ -235,6 +244,9 @@ function M.children(n)
         kids[#kids + 1] = n.cond
         kids[#kids + 1] = n.if_true
         kids[#kids + 1] = n.if_false
+    elseif n.tag == 'Let' then
+        kids[#kids + 1] = n.value
+        kids[#kids + 1] = n.body
     elseif n.tag == 'App' then
         for _, kid in ipairs(n.args) do
             kids[#kids + 1] = kid

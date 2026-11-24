@@ -49,6 +49,9 @@ local function check_term(core, id, diags)
         check_term(core, n.cond, diags)
         check_term(core, n.if_true, diags)
         check_term(core, n.if_false, diags)
+    elseif n.tag == 'Let' then
+        check_term(core, n.value, diags)
+        check_term(core, n.body, diags)
     elseif n.tag == 'App' then
         for _, a in ipairs(n.args) do
             check_term(core, a, diags)

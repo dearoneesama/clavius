@@ -618,7 +618,7 @@ end
 --- @field next SpecRest|nil
 
 --- Lowers what is left of a spec function's body to the term for its value. An `if` is an Ite whose arms
---- each go on with the statements after it.
+--- each go on with the statements after it, and a `local` binds its names in a Let around the rest.
 --- @param b Builder
 --- @param rest SpecRest
 --- @mut b
@@ -634,6 +634,17 @@ local function spec_term(b, rest)
     local after = { statements = rest.statements, index = rest.index + 1, next = rest.next }
     if n.tag == 'Return' then
         return expr.clause(b, n.values[1], {})
+    elseif n.tag == 'Local' then
+        -- the names are fresh, so a value can't refer to the names bound before it
+        local values = {}
+        for i, v in ipairs(n.values) do
+            values[i] = expr.clause(b, v, {})
+        end
+        local value = spec_term(b, after)
+        for i = #n.names, 1, -1 do
+            value = builder.add(b, { tag = 'Let', name = builder.name_of(b, n.names[i]), value = values[i], body = value }, id)
+        end
+        return value
     elseif n.tag == 'Block' then
         return spec_term(b, { statements = n.statements, index = 1, next = after })
     elseif n.tag == 'If' then

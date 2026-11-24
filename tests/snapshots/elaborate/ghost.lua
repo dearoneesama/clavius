@@ -14,6 +14,14 @@ local function tri(n)
     end
     return tri(n - 1) + n
 end
+
+-- a local is a Let in the definition
+---@param n Nat
+---@return Int
+local function double(n)
+    local d = n + n
+    return d
+end
 ]]
 
 -- its unit assumes the `---@pre`, since only proof code calls it, and that call checks it

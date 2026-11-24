@@ -381,6 +381,11 @@ M.core = {
         { name = 'if_true', shape = 'node' },
         { name = 'if_false', shape = 'node' },
     },
+    Let = {
+        { name = 'name', shape = 'str' },
+        { name = 'value', shape = 'node' },
+        { name = 'body', shape = 'node' },
+    },
     App = {
         { name = 'fn', shape = 'str' },
         { name = 'args', shape = 'list' },
