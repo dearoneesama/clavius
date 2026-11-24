@@ -64,9 +64,9 @@ M.UNOPS = { unm = true, ['not'] = true }
 --- @type table<string, boolean>
 M.TYPES = { int53 = true, boolean = true }
 
---- Library functions that marked code may call.
+--- Library functions that marked code may call, and `assume`, which only proof code may call.
 --- @type table<string, boolean>
-M.CALLS = { assert = true, error = true }
+M.CALLS = { assert = true, assume = true, error = true }
 
 --- Directive kinds that marked code may use above a function.
 --- @type table<string, boolean>
@@ -204,7 +204,7 @@ M.GLOBALS = {
 }
 
 --- What a global name is to marked code:
---- - `supported`: a library function in `CALLS`;
+--- - `supported`: a function in `CALLS`;
 --- - `banned`: a feature that verified code must never use, such as `pcall` or `debug.traceback`;
 --- - `library`: a part of the library that Clavius has no rule for, such as `print` or `math.floor`;
 --- - `global`: a global outside the library. Verified code must never use one.

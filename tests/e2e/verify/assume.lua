@@ -32,6 +32,23 @@ local function pruned(n)
     return n
 end
 
+--[[@lemma
+-- a lemma whose proof is still to come, admitted with `assume(false)`. its `---@post` is false for
+-- small `n`, yet it holds at every call
+---@param n Nat
+---@post n >= 10
+local function lemma_big(n)
+    assume(false)
+end
+]]
+
+---@param n integer
+---@pre 0 <= n and n <= 5
+local function uses(n)
+    ---@proof lemma_big(n)
+    ---@assert n >= 10
+end
+
 -- a caller gets the `---@post`, which rests on the assumption
 assert(positive(3) > 0)
 

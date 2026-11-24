@@ -40,17 +40,19 @@
             (Assume 3 (Bool false))]
            [])])]
      [])
+   (Assume 4 (BinOp == (Var s$4) (Int 10)))
    (Check 6 (BinOp == (Var g$3) (Int 4)))
-   (Assume 4 (BinOp > (Var y$2) (Int 3)))])
+   (Assume 5 (BinOp > (Var y$2) (Int 3)))])
 
 (obligation 1 :kind range :node 6)
 (obligation 2 :kind invariant_entry :node 31)
 (obligation 3 :kind invariant_entry :node 31 :clause 21)
 (obligation 4 :kind invariant_preserved :node 31)
 (obligation 5 :kind invariant_preserved :node 31 :clause 21)
-(obligation 6 :kind assert :node 36)
+(obligation 6 :kind assert :node 41)
 
 (assumption 1 :kind invariant :node 31)
 (assumption 2 :kind invariant :node 21)
 (assumption 3 :kind back_edge :node 31)
-(assumption 4 :kind assumed :node 40)
+(assumption 4 :kind assumed :node 36)
+(assumption 5 :kind assumed :node 45)

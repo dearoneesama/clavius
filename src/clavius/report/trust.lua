@@ -10,7 +10,7 @@
 --       inc   prog.lua:15
 --       max   prog.lua:22
 --
---     ---@assume lines
+--     assumptions
 --       n > 0  prog.lua:30
 -- means:
 --
@@ -25,7 +25,7 @@ local arena = require 'clavius.ir.arena'
 
 local M = {}
 
---- A function in the report, with the line of its `local function`, or an `---@assume` line's condition.
+--- A function in the report, with the line of its `local function`, or an assumption's condition.
 --- @class TrustEntry
 --- @field name string
 --- @field line integer
@@ -52,7 +52,7 @@ end
 --- Returns the trust report of a run as lines, or no lines when it trusted nothing. The trusted
 --- assumptions name their Functions: an `---@unsafe` one, whose contract its callers rely on, or a
 --- verified one, whose callers outside verification are trusted to meet its boundary assumptions. The
---- assumed ones are `---@assume` lines, each listed by its condition.
+--- assumed ones are `---@assume` lines and `assume` calls, each listed by its condition.
 --- @param prog CoreProgram
 --- @param src SrcArena
 --- @param index NodeIndex
@@ -108,8 +108,9 @@ function M.report(prog, src, index, text, file)
     --- @type TrustEntry[]
     local assumed = {}
     for _, id in ipairs(assumes) do
-        local n = src.nodes[id] --[[@as SrcClvAssume]]
-        local cond = src.spans[n.cond]
+        -- an `---@assume` line, or an `assume` call in proof code
+        local n = src.nodes[id] --[[@as SrcClvAssume|SrcCall]]
+        local cond = src.spans[n.tag == 'Call' and n.args[1] or n.cond]
         local name = (text:sub(cond.start, cond.finish):gsub('%s+', ' '))
         assumed[#assumed + 1] = { name = name, line = arena.line_col(text, starts, src.spans[id].start) }
         width = math.max(width, #name)
@@ -117,7 +118,7 @@ function M.report(prog, src, index, text, file)
     local out = { ('Trust report: %s'):format(file) }
     section(out, '@unsafe functions', unsafe, width, file)
     section(out, 'callers outside verification', callers, width, file)
-    section(out, '---@assume lines', assumed, width, file)
+    section(out, 'assumptions', assumed, width, file)
     return out
 end
 

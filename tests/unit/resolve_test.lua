@@ -630,4 +630,26 @@ describe('resolve', function()
             ]=]
         )
     end)
+
+    it('lets only proof code call `assume`, with one condition', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            --[[@lemma
+            local function l()
+                assume(false)
+            end
+            ]]
+            local x = 0
+            --[[@proof
+                assume(x > 0)
+                assume(x > 0, 'why') --! E-unsupported-feature
+                local b = assume(x > 0) --! E-unsupported-feature
+            ]]
+            assume(x > 0) --! E-mode
+            ---@clavius end
+            ]=]
+        )
+    end)
 end)

@@ -27,7 +27,7 @@
 --- | 'branch' # the condition of the branch being taken
 --- | 'callee_post' # a verified callee's `---@post`, proved where the callee returns or, at a recursive call, by induction on the measure
 --- | 'trusted' # what an `---@unsafe` callee promises, or what a verified function assumes on entry about outside callers
---- | 'assumed' # an `---@assume` line's condition
+--- | 'assumed' # the condition of an `---@assume` line, or of an `assume` call in proof code
 --- | 'invariant' # a loop invariant at the loop's head, checked on entry and after each iteration
 --- | 'back_edge' # `false` at the end of an iteration that iterates again
 --- | 'definition' # the axioms that define a spec function

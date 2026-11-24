@@ -170,7 +170,8 @@ end
 
 --- Returns the obligations that the source node `id` in marked code needs. This follows from what
 --- `clavius.ir.support` lets marked code use: every `+`, `-` and `*` is on `int53`, every call is to
---- `assert`, `error` or a local function, and every `return` is in a verified function.
+--- `assert`, `error`, a local function or, in proof code, `assume`, and every `return` is in a verified
+--- function.
 --- @param source ValidateSource
 --- @param id NodeId
 --- @return NeededKey[]
@@ -192,7 +193,11 @@ local function needed(source, id)
         end
     elseif n.tag == 'Call' then
         local callee = src.nodes[n.func]
-        keys[1] = { kind = (callee.tag == 'Id' and callee.name == 'assert') and 'assert' or 'unreachable', clause = 0 }
+        local name = callee.tag == 'Id' and callee.name
+        -- an `assume` proves nothing
+        if name ~= 'assume' then
+            keys[1] = { kind = name == 'assert' and 'assert' or 'unreachable', clause = 0 }
+        end
     elseif n.tag == 'Return' then
         local fn = src.nodes[source.index.unit[id]] --[[@as SrcFunction]]
         add_clauses(keys, 'post', arena.directives(src, fn, 'ClvPost'))

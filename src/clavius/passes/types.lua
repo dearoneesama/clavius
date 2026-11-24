@@ -421,9 +421,9 @@ function statement(st, id)
     elseif n.tag == 'Call' and st.res.decl[n.func] ~= nil then
         call(st, id)
     elseif n.tag == 'Call' then
-        -- `assert` or `error`; a message is a literal that is never used as a value
+        -- `assert`, `assume` or `error`; a message is a literal that is never used as a value
         local callee = st.src.nodes[n.func] --[[@as SrcId]]
-        if callee.name == 'assert' then
+        if callee.name == 'assert' or callee.name == 'assume' then
             want_bool(st, n.args[1], expression(st, n.args[1]))
         end
     elseif n.tag == 'Return' then

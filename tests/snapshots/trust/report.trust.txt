@@ -6,5 +6,6 @@ Trust report: report.lua
   callers outside verification
     max    report.lua:22
 
-  ---@assume lines
+  assumptions
     x > 3  report.lua:32
+    x > 4  report.lua:34

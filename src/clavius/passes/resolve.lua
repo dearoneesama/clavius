@@ -133,7 +133,7 @@ local function global_name(st, id, scope)
     return nil, nil
 end
 
---- Reports a use of a global in marked code other than a call to `assert` or `error`.
+--- Reports a use of a global in marked code other than a call to `assert`, `assume` or `error`.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param base string
@@ -180,7 +180,7 @@ end
 --- Forward declaration.
 local visit
 
---- Checks the arguments of a statement call to `assert` or `error`.
+--- Checks the arguments of a statement call to `assert`, `assume` or `error`.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param n SrcCall
@@ -191,6 +191,11 @@ local function check_builtin_args(st, id, n, name)
         local msg = n.args[2] and st.src.nodes[n.args[2]]
         if #n.args == 0 or #n.args > 2 or (msg and msg.tag ~= 'Literal') then
             report(st, 'E-unsupported-feature', id, { 'assert-args' })
+        end
+        return
+    elseif name == 'assume' then
+        if #n.args ~= 1 then
+            report(st, 'E-unsupported-feature', id, { 'assume-args' })
         end
         return
     end
@@ -317,6 +322,9 @@ local function visit_call(st, id, scope, unit, is_statement)
     elseif unit ~= 0 then
         if path == nil then
             check_local_call(st, id, n, scope)
+        elseif path == 'assume' and st.mode ~= 'proof' then
+            -- `assume` doesn't exist at runtime
+            report(st, 'E-mode', id, { 'assume-call' })
         elseif support.global_use(assert(base), path) == 'supported' and is_statement then
             check_builtin_args(st, id, n, path)
         elseif support.global_use(assert(base), path) == 'supported' then

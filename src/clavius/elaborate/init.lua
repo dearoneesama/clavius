@@ -494,6 +494,8 @@ function statement(b, id, out)
         local callee = b.src.nodes[n.func] --[[@as SrcId]]
         if callee.name == 'assert' then
             builder.check(b, out, 'assert', expr.lower(b, n.args[1], out), id)
+        elseif callee.name == 'assume' then
+            builder.assume(b, out, 'assumed', expr.lower(b, n.args[1], out), id)
         else
             -- `error` must be unreachable
             builder.check(b, out, 'unreachable', builder.add(b, { tag = 'Bool', value = false }, id), id)
