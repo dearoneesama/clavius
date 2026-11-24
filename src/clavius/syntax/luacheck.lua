@@ -867,8 +867,7 @@ end
 --- the result is nil and the one error luacheck raised.
 ---
 --- Spec and lemma blocks are unmasked wherever they sit. Other ghost code is unmasked only in marked
---- code, so it stays a comment, as LuaJIT reads it, everywhere else. Marked code is found by converting
---- the text as written first.
+--- code, which is found by converting the text as written first, and is reported anywhere else.
 --- @param src SrcArena
 --- @param text string
 --- @param file FileId
@@ -902,6 +901,9 @@ function M.convert(src, text, file)
                 else
                     ghosts[#ghosts + 1] = gr
                 end
+            else
+                diags[#diags + 1] = diag.at_span('E-misplaced-directive', gr.span, { 'ghost-outside' })
+                dropped[#dropped + 1] = gr
             end
         end
     end

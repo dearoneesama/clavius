@@ -536,7 +536,7 @@ describe('syntax.splice', function()
         markers.expect_diags(
             'parse',
             [=[
-            --[[@proof x ]]
+            --[[@proof x ]] --! E-misplaced-directive
             local x = 1 --[[@as integer]]
             --[[@spec local function s() end ]]
             ---@clavius begin
@@ -676,6 +676,7 @@ describe('syntax.luacheck ghost code', function()
             local function plain()
                 return
                 ---@ghost local g = 0
+                --! E-misplaced-directive
             end
             ]=]
         )
@@ -702,16 +703,17 @@ describe('syntax.luacheck ghost code', function()
         )
     end)
 
-    it('leaves ghost code in unmarked code a comment, even when it would not parse', function()
+    it('reports ghost code in unmarked code, even when it would not parse', function()
         markers.expect_diags(
             'parse',
             [=[
-            --[[@proof this is not code ]]
+            --[[@proof this is not code ]] --! E-misplaced-directive
             ---@assert )
+            --! E-misplaced-directive
             ---@clavius begin
             ---@unsafe
             local function trusted()
-                --[[@proof neither is this ]]
+                --[[@proof neither is this ]] --! E-misplaced-directive
             end
             ---@clavius end
             ---@ghost local g = 0
@@ -729,7 +731,7 @@ describe('syntax.luacheck ghost code', function()
             ---@clavius begin
             ---@unsafe
             local function trusted()
-                --[[@proof not code ]]
+                --[[@proof not code ]] --! E-misplaced-directive
                 local a = 1 --[[@as integer]]
 
                 ---@clavius
@@ -739,7 +741,7 @@ describe('syntax.luacheck ghost code', function()
 
                     ---@unsafe
                     local function inner()
-                        --[[@proof nor this ]]
+                        --[[@proof nor this ]] --! E-misplaced-directive
                         local c = 1 --[[@as integer]]
                     end
                 end

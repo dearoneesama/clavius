@@ -1,5 +1,5 @@
 -- Ghost code in comments becomes nodes: spec and lemma blocks wherever they sit, and in marked code
--- proof blocks and `---@proof`, `---@ghost` and `---@assert` lines. Elsewhere they stay comments.
+-- proof blocks and `---@proof`, `---@ghost` and `---@assert` lines.
 
 --[[@spec
 ---@param n Nat
@@ -8,8 +8,6 @@ local function same(n)
     return n
 end
 ]]
-
----@ghost local unmarked = 0
 
 ---@clavius begin
 
