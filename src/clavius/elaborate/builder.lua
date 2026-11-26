@@ -11,11 +11,13 @@ local arena = require 'clavius.ir.arena'
 --- @field posts NodeId[] its ClvPost nodes
 --- @field entry table<NodeId, NodeId> the snapshot taken on entry of each parameter the body assigns, as a Var term
 
---- A spec function's declarations: the FunDecl that stands for it, and the constant that guards its axioms.
+--- A spec function's declarations: the FunDecl that stands for it, and the constant that guards its
+--- axioms. Only a recursive one takes fuel, its FunDecl's first parameter.
 --- @class BuilderSpec
 --- @field id NodeId its Function node
 --- @field name string
 --- @field guard string
+--- @field recursive boolean
 
 --- The spec function whose definition is being lowered to an axiom: calls in its cycle take the fuel
 --- that the axiom binds.

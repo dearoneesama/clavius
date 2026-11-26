@@ -1,27 +1,22 @@
-(SortDecl $Fuel)
-(FunDecl $zero [] $Fuel)
-(FunDecl $succ [(VarDecl $fuel $Fuel)] $Fuel)
-(FunDecl sign$1 [(VarDecl $fuel $Fuel) (VarDecl n$2 int)] int)
+(FunDecl sign$1 [(VarDecl n$2 int)] int)
 (FunDecl $ok$sign$1 [] bool)
-(FunDecl clamp$4 [(VarDecl $fuel $Fuel) (VarDecl n$5 int)] int)
+(FunDecl clamp$4 [(VarDecl n$5 int)] int)
 (FunDecl $ok$clamp$4 [] bool)
 (Axiom
   (BinOp =>
     (App $ok$sign$1 [])
     (Forall
-      [(VarDecl $fuel $Fuel) (VarDecl n$2 int)]
-      [(Trigger [(App sign$1 [(App $succ [(Var $fuel)]) (Var n$2)])])]
-      (BinOp ==
-        (App sign$1 [(App $succ [(Var $fuel)]) (Var n$2)])
-        (Ite (BinOp > (Var n$2) (Int 0)) (Int 1) (Int 0))))))
+      [(VarDecl n$2 int)]
+      [(Trigger [(App sign$1 [(Var n$2)])])]
+      (BinOp == (App sign$1 [(Var n$2)]) (Ite (BinOp > (Var n$2) (Int 0)) (Int 1) (Int 0))))))
 (Axiom
   (BinOp =>
     (App $ok$clamp$4 [])
     (Forall
-      [(VarDecl $fuel $Fuel) (VarDecl n$5 int)]
-      [(Trigger [(App clamp$4 [(App $succ [(Var $fuel)]) (Var n$5)])])]
+      [(VarDecl n$5 int)]
+      [(Trigger [(App clamp$4 [(Var n$5)])])]
       (BinOp ==
-        (App clamp$4 [(App $succ [(Var $fuel)]) (Var n$5)])
+        (App clamp$4 [(Var n$5)])
         (Let lo$7
           (Int 0)
           (Ite
@@ -56,8 +51,7 @@
      (BinOp and
        (BinOp <= (Int -9007199254740992) (Var k$11))
        (BinOp <= (Var k$11) (Int 9007199254740992))))
-   (Block body
-     [(Check 1 (BinOp >= (App sign$1 [(App $succ [(App $zero [])]) (Var k$11)]) (Int 0)))])])
+   (Block body [(Check 1 (BinOp >= (App sign$1 [(Var k$11)]) (Int 0)))])])
 (Unit main$1 linear
   [(VarDecl g$12 int)]
   [(Assume 6 (App $ok$sign$1 []))
@@ -67,7 +61,7 @@
      (BinOp and
        (BinOp <= (Int -9007199254740992) (Var g$12))
        (BinOp <= (Var g$12) (Int 9007199254740992))))
-   (Assume 8 (BinOp >= (App sign$1 [(App $succ [(App $zero [])]) (Var g$12)]) (Int 0)))])
+   (Assume 8 (BinOp >= (App sign$1 [(Var g$12)]) (Int 0)))])
 
 (obligation 1 :kind post :node 71 :clause 67)
 (obligation 2 :kind range :node 79)

@@ -72,6 +72,14 @@ local function six()
     return sum_to(3)
 end
 
+-- fuel for a spec function that isn't recursive is ignored, since it unfolds at every use
+---@reveal_with_fuel tri_twice, 2
+---@post result == tri_twice(0)
+---@return integer
+local function zero()
+    return 0
+end
+
 -- a ghost loop in a proof block, and a lemma whose fact the body uses
 ---@param n integer
 ---@pre n >= 1 and n <= 100

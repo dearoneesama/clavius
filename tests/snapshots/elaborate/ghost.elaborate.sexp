@@ -3,7 +3,7 @@
 (FunDecl $succ [(VarDecl $fuel $Fuel)] $Fuel)
 (FunDecl tri$1 [(VarDecl $fuel $Fuel) (VarDecl n$2 int)] int)
 (FunDecl $ok$tri$1 [] bool)
-(FunDecl double$4 [(VarDecl $fuel $Fuel) (VarDecl n$5 int)] int)
+(FunDecl double$4 [(VarDecl n$5 int)] int)
 (FunDecl $ok$double$4 [] bool)
 (Axiom
   (BinOp =>
@@ -39,13 +39,11 @@
   (BinOp =>
     (App $ok$double$4 [])
     (Forall
-      [(VarDecl $fuel $Fuel) (VarDecl n$5 int)]
-      [(Trigger [(App double$4 [(App $succ [(Var $fuel)]) (Var n$5)])])]
+      [(VarDecl n$5 int)]
+      [(Trigger [(App double$4 [(Var n$5)])])]
       (BinOp =>
         (BinOp <= (Int 0) (Var n$5))
-        (BinOp ==
-          (App double$4 [(App $succ [(Var $fuel)]) (Var n$5)])
-          (Let d$7 (BinOp + (Var n$5) (Var n$5)) (Var d$7)))))))
+        (BinOp == (App double$4 [(Var n$5)]) (Let d$7 (BinOp + (Var n$5) (Var n$5)) (Var d$7)))))))
 
 (Unit tri$1 linear
   [(VarDecl n$2 int)]
