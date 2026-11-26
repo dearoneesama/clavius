@@ -150,7 +150,7 @@ end
 --- @param c CompilerContext
 --- @return Diag[]
 local function run_elaborate(c)
-    c.prog = elaborate.run(c.src, c.root, assert(c.res), assert(c.info), assert(c.effects), assert(c.termination))
+    c.prog = elaborate.run(c.src, c.root, assert(c.index), assert(c.res), assert(c.info), assert(c.effects), assert(c.termination))
     return {}
 end
 

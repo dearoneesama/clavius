@@ -518,14 +518,17 @@ function statement(b, id, out)
     end
 end
 
---- Returns how often the unit of `fn` may unfold each spec function that its `---@reveal_with_fuel`s name.
+--- Returns how often a unit may unfold each spec function that the `---@reveal_with_fuel`s of `nodes`
+--- name: its region and perhaps its function, whose own directive wins.
 --- @param b Builder
---- @param fn SrcFunction
+--- @param nodes (SrcClvRegion|SrcFunction)[] outermost first
 --- @return table<NodeId, integer>
-local function unit_fuel(b, fn)
+local function unit_fuel(b, nodes)
     local fuel = {}
-    for _, d in ipairs(arena.directives(b.src, fn, 'ClvRevealWithFuel')) do
-        fuel[b.res.fuel[d]] = (b.src.nodes[d] --[[@as SrcClvRevealWithFuel]]).fuel
+    for _, n in ipairs(nodes) do
+        for _, d in ipairs(arena.directives(b.src, n, 'ClvRevealWithFuel')) do
+            fuel[b.res.fuel[d]] = (b.src.nodes[d] --[[@as SrcClvRevealWithFuel]]).fuel
+        end
     end
     return fuel
 end
@@ -536,7 +539,7 @@ end
 --- An exec function's callers are trusted to pass well-typed arguments that meet its `---@pre`s, since
 --- some may be outside verification; verified ones check the `---@pre`s. Only proof code calls a lemma,
 --- and it checks both. A spec function's unit checks its body without the definitions of its cycle. A
---- unit is nonlinear when its function is `---@proof_by nonlinear_arith`.
+--- unit is nonlinear when its function or the region it is in is `---@proof_by nonlinear_arith`.
 --- @param b Builder
 --- @param binder NodeId the Binder that the function's definition defines
 --- @mut b
@@ -545,8 +548,13 @@ local function function_unit(b, binder)
     local fn_id = b.res.functions[binder]
     local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
     local kind = b.res.kinds[fn_id]
+    local region = b.index.region[fn_id]
+    local around = region ~= 0 and {
+        b.src.nodes[region] --[[@as SrcClvRegion]],
+        fn,
+    } or { fn }
     builder.start_unit(b)
-    b.fuel = unit_fuel(b, fn)
+    b.fuel = unit_fuel(b, around)
     local body = {}
     builder.definitions(b, body, kind == 'spec' and fn_id or nil, fn_id)
     --- @type Justification
@@ -598,7 +606,11 @@ local function function_unit(b, binder)
     end
     b.fn, b.ghost, b.fuel = nil, false, {}
     builder.emit(b, body, { tag = 'Block', label = 'body', body = inner }, fn_id)
-    local arith = arena.has_directive(b.src, fn, 'ClvProofBy') and 'nonlinear' or 'linear'
+    local nonlinear = false
+    for _, n in ipairs(around) do
+        nonlinear = nonlinear or arena.has_directive(b.src, n, 'ClvProofBy')
+    end
+    local arith = nonlinear and 'nonlinear' or 'linear'
     return builder.add(b, { tag = 'Unit', name = builder.name_of(b, binder), arith = arith, vars = b.vars, body = body }, fn_id)
 end
 
@@ -684,16 +696,19 @@ local function declare_fuel(b, origin)
     b.decls[#b.decls + 1] = builder.add(b, { tag = 'FunDecl', name = '$succ', params = { fuel }, sort = FUEL }, origin)
 end
 
---- Returns the variables that an axiom about a spec function binds, its fuel and its parameters, and the
---- term for each parameter.
+--- Returns the variables that an axiom about a spec function binds, its fuel when it is recursive and
+--- its parameters, and the term for each parameter.
 --- @param b Builder
---- @param fn SrcFunction
---- @param origin NodeId
+--- @param spec BuilderSpec
 --- @mut b
 --- @return NodeId[] vars
 --- @return NodeId[] params
-local function bound(b, fn, origin)
-    local vars = { builder.add(b, { tag = 'VarDecl', name = '$fuel', sort = FUEL }, origin) }
+local function bound(b, spec)
+    local fn = b.src.nodes[spec.id] --[[@as SrcFunction]]
+    local vars = {}
+    if spec.recursive then
+        vars[1] = builder.add(b, { tag = 'VarDecl', name = '$fuel', sort = FUEL }, spec.id)
+    end
     local params = {}
     for _, p in ipairs(fn.params) do
         local name = builder.name_of(b, p)
@@ -703,10 +718,10 @@ local function bound(b, fn, origin)
     return vars, params
 end
 
---- Returns a spec function's FunDecl applied to `fuel` and `params`.
+--- Returns a spec function's FunDecl applied to `params`, after `fuel` when it is recursive.
 --- @param b Builder
 --- @param spec BuilderSpec
---- @param fuel NodeId
+--- @param fuel NodeId|nil
 --- @param params NodeId[]
 --- @mut b
 --- @return NodeId
@@ -733,7 +748,8 @@ local function axiom(b, spec, vars, trigger, body)
     b.decls[#b.decls + 1] = builder.add(b, { tag = 'Axiom', cond = cond }, spec.id)
 end
 
---- Declares a spec function: a FunDecl of the fuel and its parameters, and a constant that guards its axioms.
+--- Declares a spec function: a FunDecl of its parameters, after the fuel when it is recursive, and a
+--- constant that guards its axioms.
 --- @param b Builder
 --- @param binder NodeId
 --- @mut b
@@ -741,39 +757,42 @@ local function declare_spec(b, binder)
     local fn_id = b.res.functions[binder]
     local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
     local name = b.res.names[binder]
-    local vars = bound(b, fn, fn_id)
+    --- @type BuilderSpec
+    local spec = { id = fn_id, name = name, guard = ('$ok$%s'):format(name), recursive = b.termination.cycle[fn_id] ~= nil }
+    local vars = bound(b, spec)
     local result = arena.directives(b.src, fn, 'ClvReturn')[1]
     local sort = builder.sort(b.info.types[result])
     -- spec's declaration
     b.decls[#b.decls + 1] = builder.add(b, { tag = 'FunDecl', name = name, params = vars, sort = sort }, fn_id)
     -- it's guard constant
-    --- @type BuilderSpec
-    local spec = { id = fn_id, name = name, guard = ('$ok$%s'):format(name) }
     b.decls[#b.decls + 1] = builder.add(b, { tag = 'FunDecl', name = spec.guard, params = {}, sort = 'bool' }, fn_id)
     b.specs[#b.specs + 1] = spec
     b.spec_of[fn_id] = spec
 end
 
---- Adds the axioms that define a spec function. One more unit of fuel unfolds it once, and its value
---- is then its body's; calls in its cycle in the body take the smaller fuel, so unfolding stops. A
---- recursive one has the same value at every fuel.
+--- Adds the axioms that define a spec function. For a recursive one, one more unit of fuel unfolds it
+--- once, and its value is then its body's; calls in its cycle in the body take the smaller fuel, so
+--- unfolding stops, and it has the same value at every fuel. Any other one unfolds wherever it is used.
 --- @param b Builder
 --- @param spec BuilderSpec
 --- @mut b
 local function define_spec(b, spec)
     local fn = b.src.nodes[spec.id] --[[@as SrcFunction]]
     -- layer axiom: f(succ(fuel), x) == f(fuel, x)
-    if b.termination.cycle[spec.id] ~= nil then
-        local vars, params = bound(b, fn, spec.id)
+    if spec.recursive then
+        local vars, params = bound(b, spec)
         local fuel = builder.add(b, { tag = 'Var', name = '$fuel' }, spec.id)
         local more = apply(b, spec, builder.add(b, { tag = 'App', fn = '$succ', args = { fuel } }, spec.id), params)
         axiom(b, spec, vars, more, builder.add(b, { tag = 'BinOp', op = '==', lhs = more, rhs = apply(b, spec, fuel, params) }, spec.id))
     end
 
-    -- definition axiom: f(succ(fuel), x) == body, whose calls in the cycle take fuel
-    local vars, params = bound(b, fn, spec.id)
-    local fuel = builder.add(b, { tag = 'Var', name = '$fuel' }, spec.id)
-    local more = apply(b, spec, builder.add(b, { tag = 'App', fn = '$succ', args = { fuel } }, spec.id), params)
+    -- definition axiom: f(succ(fuel), x) == body, whose calls in the cycle take fuel, or f(x) == body
+    local vars, params = bound(b, spec)
+    local succ = nil
+    if spec.recursive then
+        succ = builder.add(b, { tag = 'App', fn = '$succ', args = { builder.add(b, { tag = 'Var', name = '$fuel' }, spec.id) } }, spec.id)
+    end
+    local more = apply(b, spec, succ, params)
     b.axiom = { fn = spec.id, fuel = '$fuel' }
     local body = b.src.nodes[fn.body] --[[@as SrcBlock]]
     local value = spec_term(b, { statements = body.statements, index = 1, next = nil })
@@ -790,8 +809,9 @@ local function define_spec(b, spec)
 
     -- type-fact axiom: f(fuel, x) has the result's type
     local result = arena.directives(b.src, fn, 'ClvReturn')[1]
-    local fact_vars, fact_params = bound(b, fn, spec.id)
-    local value_at = apply(b, spec, builder.add(b, { tag = 'Var', name = '$fuel' }, spec.id), fact_params)
+    local fact_vars, fact_params = bound(b, spec)
+    local fuel = spec.recursive and builder.add(b, { tag = 'Var', name = '$fuel' }, spec.id) or nil
+    local value_at = apply(b, spec, fuel, fact_params)
     local fact = builder.type_fact(b, b.info.types[result], value_at, result)
     if fact ~= nil then
         axiom(b, spec, fact_vars, value_at, fact)
@@ -849,20 +869,24 @@ end
 --- `main$2` and so on. The declarations come first: the Funs and axioms of the spec functions.
 --- @param src SrcArena
 --- @param root NodeId
+--- @param index NodeIndex
 --- @param res Resolution
 --- @param info TypeInfo
 --- @param effects Effects
 --- @param termination Termination
 --- @return CoreProgram
-function M.run(src, root, res, info, effects, termination)
-    local b = builder.new(src, res, info, effects, termination)
+function M.run(src, root, index, res, info, effects, termination)
+    local b = builder.new(src, index, res, info, effects, termination)
+    local fueled = false
     for _, block in ipairs(blocks(src, root)) do
         for _, s in ipairs(block.tag == 'ClvSpec' and block.statements or {}) do
-            if res.defined[s] ~= nil then
-                if #b.specs == 0 then
+            local binder = res.defined[s]
+            if binder ~= nil then
+                if not fueled and termination.cycle[res.functions[binder]] ~= nil then
                     declare_fuel(b, s)
+                    fueled = true
                 end
-                declare_spec(b, res.defined[s])
+                declare_spec(b, binder)
             end
         end
     end
@@ -886,11 +910,15 @@ function M.run(src, root, res, info, effects, termination)
             end
             if #others > 0 then
                 builder.start_unit(b)
+                b.fuel = unit_fuel(b, {
+                    n --[[@as SrcClvRegion]],
+                })
                 local body = {}
                 builder.definitions(b, body, nil, id)
                 for _, s in ipairs(others) do
                     statement(b, s, body)
                 end
+                b.fuel = {}
                 regions = regions + 1
                 local arith = arena.has_directive(src, n --[[@as SrcClvRegion]], 'ClvProofBy') and 'nonlinear' or 'linear'
                 local unit = { tag = 'Unit', name = ('main$%d'):format(regions), arith = arith, vars = b.vars, body = body }

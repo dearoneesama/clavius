@@ -262,10 +262,10 @@ local function mod(b, id, n, out)
     return remainder
 end
 
---- Lowers a call of a spec function to the term that applies its FunDecl to the fuel and the
---- arguments. In the axiom that defines a function of the callee's cycle, the fuel is one less than the
---- axiom's. A call that stays in the cycle of the spec function whose unit is being built checks the
---- measure, and then assumes the value's type, which that unit proves.
+--- Lowers a call of a spec function to the term that applies its FunDecl to the arguments, after the
+--- fuel when the callee is recursive. In the axiom that defines a function of the callee's cycle, the
+--- fuel is one less than the axiom's. A call that stays in the cycle of the spec function whose unit is
+--- being built checks the measure, and then assumes the value's type, which that unit proves.
 --- @param b Builder
 --- @param id NodeId
 --- @param out NodeId[]
@@ -279,17 +279,17 @@ function M.spec_call(b, id, out)
     local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
     local subst = arguments(b, n, fn, out)
     local recursive = not b.spec and check_decrease(b, id, fn_id, subst, out)
-    local fuel
-    if b.axiom ~= nil and (b.axiom.fn == fn_id or builder.same_cycle(b, b.axiom.fn, fn_id)) then
-        fuel = builder.add(b, { tag = 'Var', name = b.axiom.fuel }, id)
-    else
-        fuel = builder.fuel(b, b.fuel[fn_id] or 1, id)
+    local spec = b.spec_of[fn_id]
+    local args = {}
+    if spec.recursive and b.axiom ~= nil and builder.same_cycle(b, b.axiom.fn, fn_id) then
+        args[1] = builder.add(b, { tag = 'Var', name = b.axiom.fuel }, id)
+    elseif spec.recursive then
+        args[1] = builder.fuel(b, b.fuel[fn_id] or 1, id)
     end
-    local args = { fuel }
     for _, p in ipairs(fn.params) do
         args[#args + 1] = subst[p]
     end
-    local app = builder.add(b, { tag = 'App', fn = b.spec_of[fn_id].name, args = args }, id)
+    local app = builder.add(b, { tag = 'App', fn = spec.name, args = args }, id)
     local r = arena.directives(b.src, fn, 'ClvReturn')[1]
     local fact = recursive and builder.type_fact(b, b.info.types[r], app, id)
     if fact then

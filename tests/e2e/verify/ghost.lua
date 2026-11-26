@@ -21,6 +21,16 @@ local function tri_twice(n)
     local d = t + t
     return d
 end
+
+---@param n Nat
+---@return Nat
+---@decrease n
+local function pow2(n)
+    if n == 0 then
+        return 1
+    end
+    return 2 * pow2(n - 1)
+end
 ]]
 
 --[[@lemma
@@ -72,6 +82,23 @@ local function six()
     return sum_to(3)
 end
 
+-- each spec function takes its own fuel
+---@reveal_with_fuel tri, 4
+---@reveal_with_fuel pow2, 3
+---@post result == tri(3) + pow2(2)
+---@return integer
+local function ten()
+    return 10
+end
+
+-- fuel for a spec function that isn't recursive is ignored, since it unfolds at every use
+---@reveal_with_fuel tri_twice, 2
+---@post result == tri_twice(0)
+---@return integer
+local function zero()
+    return 0
+end
+
 -- a ghost loop in a proof block, and a lemma whose fact the body uses
 ---@param n integer
 ---@pre n >= 1 and n <= 100
@@ -93,5 +120,32 @@ end
 
 assert(six() == 6)
 assert(at_least(4) >= 4)
+
+---@clavius end
+
+-- a tag above a region's `begin` gives fuel to the unit of its statements and to its functions
+---@reveal_with_fuel tri, 4
+---@clavius begin
+
+---@post result == tri(3)
+---@return integer
+local function six_again()
+    return 6
+end
+
+---@assert tri(3) == 6
+
+---@clavius end
+
+-- a function's own tag wins over its region's
+---@reveal_with_fuel tri, 2
+---@clavius begin
+
+---@reveal_with_fuel tri, 4
+---@post result == tri(3)
+---@return integer
+local function six_more()
+    return 6
+end
 
 ---@clavius end

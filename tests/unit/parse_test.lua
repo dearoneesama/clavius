@@ -364,9 +364,10 @@ describe('syntax.splice', function()
         )
     end)
 
-    it('gives a region the `---@proof_by` right above its `begin`', function()
+    it('gives a region the `---@proof_by` and `---@reveal_with_fuel` right above its `begin`', function()
         local text = stringx.dedent [=[
             ---@proof_by nonlinear_arith
+            ---@reveal_with_fuel f, 2
             ---@clavius begin
             ---@param n integer
             local function f(n) end
@@ -381,7 +382,7 @@ describe('syntax.splice', function()
         assert.are.same({}, diags)
         -- the second is apart from its `begin`, so it annotates nothing
         assert.are.equal(
-            '(Block [(ClvRegion [(ClvProofBy nonlinear_arith)] [(LocalFunction (Binder f) (Function '
+            '(Block [(ClvRegion [(ClvProofBy nonlinear_arith) (ClvRevealWithFuel f 2)] [(LocalFunction (Binder f) (Function '
                 .. '[(ClvParam n false (ClvTypeName integer))] [(Binder n)] false (Block [])))]) '
                 .. '(ClvRegion [] [(Local [(Literal number 1)] [(Binder x)])])])',
             write.flat(dump.write_src(p.src, p.root, {}))
