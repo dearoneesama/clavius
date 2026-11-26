@@ -21,6 +21,16 @@ local function tri_twice(n)
     local d = t + t
     return d
 end
+
+---@param n Nat
+---@return Nat
+---@decrease n
+local function pow2(n)
+    if n == 0 then
+        return 1
+    end
+    return 2 * pow2(n - 1)
+end
 ]]
 
 --[[@lemma
@@ -70,6 +80,15 @@ end
 ---@return integer
 local function six()
     return sum_to(3)
+end
+
+-- each spec function takes its own fuel
+---@reveal_with_fuel tri, 4
+---@reveal_with_fuel pow2, 3
+---@post result == tri(3) + pow2(2)
+---@return integer
+local function ten()
+    return 10
 end
 
 -- fuel for a spec function that isn't recursive is ignored, since it unfolds at every use

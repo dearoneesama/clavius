@@ -452,19 +452,25 @@ local function visit_clause(st, cond, scope, unit)
     st.in_clause = false
 end
 
---- Records the spec function that a `---@reveal_with_fuel` names, as seen from `scope`.
+--- Records the spec function that a `---@reveal_with_fuel` names, as seen from `scope`. A function
+--- gives each spec function its fuel once, and `revealed` holds those it already has.
 --- @param st ResolveState
 --- @param d NodeId the ClvRevealWithFuel
 --- @param scope integer
+--- @param revealed table<NodeId, boolean>
 --- @mut st
-local function visit_fuel(st, d, scope)
+--- @mut revealed
+local function visit_fuel(st, d, scope, revealed)
     local dn = st.src.nodes[d] --[[@as SrcClvRevealWithFuel]]
     local b = lookup(st, scope, dn.name, true)
     local fn_id = b and st.out.functions[b]
-    if fn_id and st.out.kinds[fn_id] == 'spec' then
-        st.out.fuel[d] = fn_id
-    else
+    if not (fn_id and st.out.kinds[fn_id] == 'spec') then
         report(st, 'E-misplaced-directive', d, { 'fuel-not-spec' })
+    elseif revealed[fn_id] then
+        report(st, 'E-misplaced-directive', d, { 'repeated-fuel' })
+    else
+        st.out.fuel[d] = fn_id
+        revealed[fn_id] = true
     end
 end
 
@@ -493,6 +499,7 @@ local function visit_directives(st, id, scope)
     end
     local typed, returns, clauses = {}, {}, {}
     local measures = {}
+    local revealed = {}
     for _, d in ipairs(fn.directives) do
         local dn = st.src.nodes[d]
         if kind ~= 'exec' and not allowed[dn.tag] then
@@ -500,7 +507,7 @@ local function visit_directives(st, id, scope)
         elseif not allowed[dn.tag] then
             report(st, 'E-unsupported-directive', d, { support.DIRECTIVE_TAGS[dn.tag] })
         elseif dn.tag == 'ClvRevealWithFuel' then
-            visit_fuel(st, d, scope)
+            visit_fuel(st, d, scope, revealed)
         elseif dn.tag == 'ClvProofBy' and dn.theory ~= 'nonlinear_arith' then
             report(st, 'E-unsupported-directive', d, { ('proof_by %s'):format(dn.theory) })
         elseif dn.tag == 'ClvParam' and not params[dn.name] then

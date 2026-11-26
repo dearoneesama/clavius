@@ -295,6 +295,32 @@ describe('resolve', function()
         )
     end)
 
+    it('takes one `---@reveal_with_fuel` per spec function', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@return Int
+            local function one()
+                return 1
+            end
+
+            ---@return Int
+            local function two()
+                return 2
+            end
+            ]]
+            ---@reveal_with_fuel one, 2
+            ---@reveal_with_fuel two, 2
+            ---@reveal_with_fuel one, 3
+            --! E-misplaced-directive
+            local function f() end
+            ---@clavius end
+            ]=]
+        )
+    end)
+
     it('resolves a measure over the parameters only', function()
         markers.expect_diags(
             'resolve',
