@@ -122,3 +122,30 @@ assert(six() == 6)
 assert(at_least(4) >= 4)
 
 ---@clavius end
+
+-- a tag above a region's `begin` gives fuel to the unit of its statements and to its functions
+---@reveal_with_fuel tri, 4
+---@clavius begin
+
+---@post result == tri(3)
+---@return integer
+local function six_again()
+    return 6
+end
+
+---@assert tri(3) == 6
+
+---@clavius end
+
+-- a function's own tag wins over its region's
+---@reveal_with_fuel tri, 2
+---@clavius begin
+
+---@reveal_with_fuel tri, 4
+---@post result == tri(3)
+---@return integer
+local function six_more()
+    return 6
+end
+
+---@clavius end

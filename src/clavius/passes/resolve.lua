@@ -452,8 +452,8 @@ local function visit_clause(st, cond, scope, unit)
     st.in_clause = false
 end
 
---- Records the spec function that a `---@reveal_with_fuel` names, as seen from `scope`. A function
---- gives each spec function its fuel once, and `revealed` holds those it already has.
+--- Records the spec function that a `---@reveal_with_fuel` names, as seen from `scope`. A function or
+--- region gives each spec function its fuel once, and `revealed` holds those it already has.
 --- @param st ResolveState
 --- @param d NodeId the ClvRevealWithFuel
 --- @param scope integer
@@ -482,7 +482,7 @@ end
 --- @param id NodeId the Function
 --- @param scope integer the scope of the parameters
 --- @mut st
-local function visit_directives(st, id, scope)
+local function visit_function_directives(st, id, scope)
     local fn = st.src.nodes[id] --[[@as SrcFunction]]
     local kind = st.out.kinds[id]
     local allowed = support.FUNCTION_DIRECTIVES
@@ -551,6 +551,24 @@ local function visit_directives(st, id, scope)
     end
 end
 
+--- Resolves the directives above a region's `begin` in `scope`, which holds what is declared above
+--- the region.
+--- @param st ResolveState
+--- @param region SrcClvRegion
+--- @param scope integer
+--- @mut st
+local function visit_region_directives(st, region, scope)
+    local revealed = {}
+    for _, d in ipairs(region.directives) do
+        local dn = st.src.nodes[d] --[[@as SrcClvProofBy|SrcClvRevealWithFuel]]
+        if dn.tag == 'ClvRevealWithFuel' then
+            visit_fuel(st, d, scope, revealed)
+        elseif dn.theory ~= 'nonlinear_arith' then
+            report(st, 'E-unsupported-directive', d, { ('proof_by %s'):format(dn.theory) })
+        end
+    end
+end
+
 --- Resolves a loop's directives in `scope`. A loop has at most one measure.
 --- @param st ResolveState
 --- @param loop SrcWhile|SrcRepeat|SrcFornum
@@ -606,7 +624,7 @@ local function visit_function(st, id, scope, unit, binder)
         declare(st, p, name, s, root)
     end
     if root ~= 0 then
-        visit_directives(st, id, s)
+        visit_function_directives(st, id, s)
     end
     local body_unit = (unit ~= 0 and not unsafe) and id or 0
     st.verified[id] = body_unit ~= 0
@@ -759,12 +777,7 @@ function visit(st, id, scope, unit)
         child_scope = open(st, scope)
     elseif n.tag == 'ClvRegion' then
         child_unit = id
-        for _, d in ipairs(n.directives) do
-            local dn = st.src.nodes[d] --[[@as SrcClvProofBy]]
-            if dn.theory ~= 'nonlinear_arith' then
-                report(st, 'E-unsupported-directive', d, { ('proof_by %s'):format(dn.theory) })
-            end
-        end
+        visit_region_directives(st, n, scope)
     elseif n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then
         visit_block(st, id, n, scope)
         return

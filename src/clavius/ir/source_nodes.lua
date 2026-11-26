@@ -14,7 +14,7 @@
 --- The statements between `---@clavius begin` and `---@clavius end`, and the directives right above its `begin`. It is not a scope.
 --- @class SrcClvRegion
 --- @field tag 'ClvRegion'
---- @field directives NodeId[] ClvProofBy nodes
+--- @field directives NodeId[] ClvProofBy and ClvRevealWithFuel nodes
 --- @field statements NodeId[] statement nodes
 
 --- `local names = values`. The values come first, because they are evaluated before the names are bound.

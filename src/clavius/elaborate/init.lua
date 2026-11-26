@@ -518,14 +518,17 @@ function statement(b, id, out)
     end
 end
 
---- Returns how often the unit of `fn` may unfold each spec function that its `---@reveal_with_fuel`s name.
+--- Returns how often a unit may unfold each spec function that the `---@reveal_with_fuel`s of `nodes`
+--- name: its region and perhaps its function, whose own directive wins.
 --- @param b Builder
---- @param fn SrcFunction
+--- @param nodes (SrcClvRegion|SrcFunction)[] outermost first
 --- @return table<NodeId, integer>
-local function unit_fuel(b, fn)
+local function unit_fuel(b, nodes)
     local fuel = {}
-    for _, d in ipairs(arena.directives(b.src, fn, 'ClvRevealWithFuel')) do
-        fuel[b.res.fuel[d]] = (b.src.nodes[d] --[[@as SrcClvRevealWithFuel]]).fuel
+    for _, n in ipairs(nodes) do
+        for _, d in ipairs(arena.directives(b.src, n, 'ClvRevealWithFuel')) do
+            fuel[b.res.fuel[d]] = (b.src.nodes[d] --[[@as SrcClvRevealWithFuel]]).fuel
+        end
     end
     return fuel
 end
@@ -545,8 +548,13 @@ local function function_unit(b, binder)
     local fn_id = b.res.functions[binder]
     local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
     local kind = b.res.kinds[fn_id]
+    local region = b.index.region[fn_id]
+    local around = region ~= 0 and {
+        b.src.nodes[region] --[[@as SrcClvRegion]],
+        fn,
+    } or { fn }
     builder.start_unit(b)
-    b.fuel = unit_fuel(b, fn)
+    b.fuel = unit_fuel(b, around)
     local body = {}
     builder.definitions(b, body, kind == 'spec' and fn_id or nil, fn_id)
     --- @type Justification
@@ -598,9 +606,11 @@ local function function_unit(b, binder)
     end
     b.fn, b.ghost, b.fuel = nil, false, {}
     builder.emit(b, body, { tag = 'Block', label = 'body', body = inner }, fn_id)
-    local region = b.index.region[fn_id]
-    local nonlinear_region = region ~= 0 and arena.has_directive(b.src, b.src.nodes[region] --[[@as SrcClvRegion]], 'ClvProofBy')
-    local arith = (nonlinear_region or arena.has_directive(b.src, fn, 'ClvProofBy')) and 'nonlinear' or 'linear'
+    local nonlinear = false
+    for _, n in ipairs(around) do
+        nonlinear = nonlinear or arena.has_directive(b.src, n, 'ClvProofBy')
+    end
+    local arith = nonlinear and 'nonlinear' or 'linear'
     return builder.add(b, { tag = 'Unit', name = builder.name_of(b, binder), arith = arith, vars = b.vars, body = body }, fn_id)
 end
 
@@ -900,11 +910,15 @@ function M.run(src, root, index, res, info, effects, termination)
             end
             if #others > 0 then
                 builder.start_unit(b)
+                b.fuel = unit_fuel(b, {
+                    n --[[@as SrcClvRegion]],
+                })
                 local body = {}
                 builder.definitions(b, body, nil, id)
                 for _, s in ipairs(others) do
                     statement(b, s, body)
                 end
+                b.fuel = {}
                 regions = regions + 1
                 local arith = arena.has_directive(src, n --[[@as SrcClvRegion]], 'ClvProofBy') and 'nonlinear' or 'linear'
                 local unit = { tag = 'Unit', name = ('main$%d'):format(regions), arith = arith, vars = b.vars, body = body }

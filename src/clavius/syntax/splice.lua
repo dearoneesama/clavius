@@ -267,7 +267,7 @@ local function begin_directives(cur, above, marker)
     local first = first_attached(cur, above, marker.span.start)
     local ids, rest = {}, {}
     for i, d in ipairs(above) do
-        if i >= first and d.tag == 'proof_by' then
+        if i >= first and (d.tag == 'proof_by' or d.tag == 'reveal_with_fuel') then
             local nodes, diags = directive.parse(cur.src, d, cur.code_parser)
             for _, id in ipairs(nodes) do
                 ids[#ids + 1] = id

@@ -321,6 +321,37 @@ describe('resolve', function()
         )
     end)
 
+    it('lets a region give fuel only to spec functions above it', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            --[[@spec
+            ---@return Int
+            local function one()
+                return 1
+            end
+            ]]
+            local x = 1
+
+            ---@reveal_with_fuel one, 2
+            ---@reveal_with_fuel one, 3
+            --! E-misplaced-directive
+            ---@reveal_with_fuel x, 2
+            --! E-misplaced-directive
+            ---@reveal_with_fuel two, 2
+            --! E-misplaced-directive
+            ---@clavius begin
+            --[[@spec
+            ---@return Int
+            local function two()
+                return 2
+            end
+            ]]
+            ---@clavius end
+            ]=]
+        )
+    end)
+
     it('resolves a measure over the parameters only', function()
         markers.expect_diags(
             'resolve',
