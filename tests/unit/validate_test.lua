@@ -197,7 +197,7 @@ describe('validate', function()
             prog.obligations[relabel].kind = 'assert'
         end
         local out = {}
-        local source = { src = c.src, index = assert(c.index), callees = assert(c.info).callees, cycle = assert(c.termination).cycle }
+        local source = { src = c.src, index = assert(c.index), ops = assert(c.info).ops, cycle = assert(c.termination).cycle }
         for i, d in ipairs(validate.run(prog.core, prog.decls, prog.units, prog.obligations, prog.assumptions, source)) do
             local s = assert(d.span)
             out[i] = { d.code, d.args[1], d.args[2], program:sub(s.start, s.finish):match '^[^\n]*' }
@@ -250,6 +250,28 @@ describe('validate', function()
             { 'E-internal-coverage', 'Function', 'missing_return', 'function inc(n)' },
             { 'E-internal-coverage', 'Function', 'post', 'function idle() end' },
         }, coverage(CONTRACTS, { [2] = true, [3] = true, [4] = true, [5] = true }, nil))
+    end)
+
+    -- the obligations of `%`, integer division and library calls that elaborate emits, by id
+    local DIVISION = [=[
+        ---@clavius begin
+        local x = 7
+        local y = x % 3 -- 1 (div_zero); 2 (mod_range)
+        local z = math.floor(x / y) -- 3 (div_zero)
+        local w = math.abs(math.min(x, z)) -- none: the shipped specs have no `---@pre`
+        ---@clavius end
+    ]=]
+
+    it('accepts the obligations of `%`, integer division and library calls', function()
+        assert.are.same({}, coverage(DIVISION, {}, nil))
+    end)
+
+    it('reports a `%` or an integer division whose obligation has no Check', function()
+        assert.are.same({
+            { 'E-internal-coverage', 'BinOp', 'div_zero', 'x % 3' },
+            { 'E-internal-coverage', 'BinOp', 'mod_range', 'x % 3' },
+            { 'E-internal-coverage', 'Call', 'div_zero', 'math.floor(x / y)' },
+        }, coverage(DIVISION, { [1] = true, [2] = true, [3] = true }, nil))
     end)
 
     -- the loop obligations that elaborate emits, by id

@@ -819,10 +819,11 @@ end
 --- @param file FileId
 --- @param parsed LcParse
 --- @param ghosts GhostRange[]
+--- @param meta boolean whether the file is a `---@meta` file
 --- @mut src
 --- @return Chunk chunk
 --- @return Diag[] diags
-local function convert_parsed(src, text, file, parsed, ghosts)
+local function convert_parsed(src, text, file, parsed, ghosts, meta)
     local st = new_state(src, file, 0)
     st.ghosts = ghosts
     local directives = comments.directives(parsed.short)
@@ -839,7 +840,7 @@ local function convert_parsed(src, text, file, parsed, ghosts)
     local function code(text_of_code, start)
         return M.expressions(src, file, text_of_code, start)
     end
-    st.cursor = splice.cursor(src, text, directives, code, st.diags, ghosts)
+    st.cursor = splice.cursor(src, text, directives, code, st.diags, ghosts, meta)
     local statements = statement_list(st, parsed.ast, regions)
     splice.finish(st.cursor)
     -- ghost code that no statement list took is inside some exec statement
@@ -873,10 +874,11 @@ end
 --- @param src SrcArena
 --- @param text string
 --- @param file FileId
+--- @param meta boolean|nil whether the file is a `---@meta` file
 --- @mut src
 --- @return Chunk|nil chunk
 --- @return Diag[] diags
-function M.convert(src, text, file)
+function M.convert(src, text, file, meta)
     -- parse once to know which ghosts are kept, then parse again with unmasked ghosts
     local parsed, err = parse_text(text, file)
     if not parsed then
@@ -893,7 +895,7 @@ function M.convert(src, text, file)
             -- declarations, which need no marked code
             ghosts[#ghosts + 1] = gr
         else
-            written = written or convert_parsed(arena.new_src(), text, file, parsed, {})
+            written = written or convert_parsed(arena.new_src(), text, file, parsed, {}, meta == true)
             if splice.marked_at(written.marks, gr.span.start) then
                 local key = misplaced_exit(text, written.exits, gr)
                 if key then
@@ -910,7 +912,7 @@ function M.convert(src, text, file)
         end
     end
     if #ghosts == 0 and #dropped == 0 then
-        return convert_parsed(src, text, file, parsed, {})
+        return convert_parsed(src, text, file, parsed, {}, meta == true)
     end
 
     local unmasked = comments.unmask(text, ghosts)
@@ -926,7 +928,7 @@ function M.convert(src, text, file)
         return nil, diags
     end
     --- @cast reparsed LcParse
-    local chunk, more = convert_parsed(src, unmasked, file, reparsed, ghosts)
+    local chunk, more = convert_parsed(src, unmasked, file, reparsed, ghosts, meta == true)
     for _, d in ipairs(more) do
         diags[#diags + 1] = d
     end

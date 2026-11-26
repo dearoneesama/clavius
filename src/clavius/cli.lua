@@ -15,6 +15,7 @@ local trust = require 'clavius.report.trust'
 --- @field file string
 --- @field after string|nil
 --- @field trust_report boolean|nil `verify --trust-report`
+--- @field meta string[] the `---@meta` files given with `--meta`
 --- @field nonlinear_arith boolean|nil `verify --nonlinear-arith`
 
 local M = {}
@@ -45,11 +46,13 @@ local function build_parser(help)
     local verify = with_help(parser:command('verify', 'Verify a Lua file.'))
     verify:argument('file', 'The .lua file or .core.sexp file to verify.')
     verify:flag('--trust-report', 'Also print what the run assumed rather than proved.')
+    verify:option('--meta', 'A ---@meta file with ---@extern host functions that the Lua file may call.'):argname('<file>'):count '*'
     verify:flag('--nonlinear-arith', 'Let the solver use nonlinear arithmetic everywhere.')
 
     local dump = with_help(parser:command('dump', 'Print the program as an s-expression after a stage.'))
     dump:argument('file', 'The .lua file to read.')
     dump:option('--after', 'The stage to stop after.'):argname('<stage>'):choices(driver.STAGES):count(1)
+    dump:option('--meta', 'A ---@meta file with ---@extern host functions that the Lua file may call.'):argname('<file>'):count '*'
 
     local lower = with_help(parser:command('lower', 'Print a Boogie file from a core s-expression file.'))
     lower:argument('file', 'The .core.sexp file to read.')
@@ -98,6 +101,27 @@ local function run_core(args, text, out, err)
     return #failed > 0 and M.EXIT_FAILED or M.EXIT_OK
 end
 
+--- Writes diagnostics under the name of the file each is in.
+--- @param stream file*
+--- @param c CompilerContext
+local function write_diags(stream, c)
+    local by_file = {}
+    for _, d in ipairs(c.diags) do
+        local file = (d.span or c.spans[d.node]).file
+        by_file[file] = by_file[file] or {}
+        by_file[file][#by_file[file] + 1] = d
+    end
+    local ids = {}
+    for id in pairs(by_file) do
+        ids[#ids + 1] = id
+    end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+        local f = c.files[id]
+        write_lines(stream, f.name, messages.diags(by_file[id], c.spans, f.text))
+    end
+end
+
 --- Runs `dump` or `verify` on a Lua file.
 --- @param args CliArgs
 --- @param text string the file's contents
@@ -105,9 +129,19 @@ end
 --- @param err file*
 --- @return integer status
 local function run_lua(args, text, out, err)
-    local c = driver.run_until(args.after or 'validate', text, 1)
+    local metas = {}
+    for _, path in ipairs(args.meta or {}) do
+        local f, open_err = io.open(path, 'rb')
+        if not f then
+            err:write(('clavius: %s\n'):format(open_err))
+            return M.EXIT_ERROR
+        end
+        metas[#metas + 1] = { name = path, text = f:read '*a' }
+        f:close()
+    end
+    local c = driver.run_until(args.after or 'validate', text, 1, metas, args.file)
     if #c.diags > 0 then
-        write_lines(err, args.file, messages.diags(c.diags, c.spans, text))
+        write_diags(err, c)
         return M.EXIT_ERROR
     end
     if args.command == 'dump' then
@@ -120,11 +154,11 @@ local function run_lua(args, text, out, err)
         err:write(('clavius: %s\n'):format(run_err))
         return M.EXIT_ERROR
     end
-    local failures = messages.failures(failed, prog, c.src, text, args.nonlinear_arith)
+    local failures = messages.failures(failed, prog, c.src, c.files, args.nonlinear_arith)
     write_lines(out, args.file, failures)
     local report = {}
     if args.trust_report then
-        report = trust.report(prog, c.src, assert(c.index), text, args.file)
+        report = trust.report(prog, c.src, assert(c.index), c.files, c.file)
     end
     if #report > 0 and #failures > 0 then
         out:write '\n'

@@ -46,6 +46,7 @@ M.BINOPS = {
     add = true,
     sub = true,
     mul = true,
+    mod = true,
     eq = true,
     ne = true,
     lt = true,
@@ -64,9 +65,25 @@ M.UNOPS = { unm = true, ['not'] = true }
 --- @type table<string, boolean>
 M.TYPES = { int53 = true, boolean = true }
 
---- Library functions that marked code may call, and `assume`, which only proof code may call.
+--- Library functions that marked code may call and that Clavius encodes itself rather than by a spec, and
+--- `assume`, which only proof code may call.
 --- @type table<string, boolean>
 M.CALLS = { assert = true, assume = true, error = true }
+
+--- The library function whose call `math.floor(a / b)` is integer division rather than a call.
+M.FLOORDIV = 'math.floor'
+
+--- Directive kinds that a function in a `---@meta` file may have.
+--- @type table<string, boolean>
+M.META_DIRECTIVES = {
+    ClvPre = true,
+    ClvPost = true,
+    ClvParam = true,
+    ClvReturn = true,
+    ClvExtern = true,
+    ClvNoCallback = true,
+    ClvMayRaise = true,
+}
 
 --- Directive kinds that marked code may use above a function.
 --- @type table<string, boolean>
@@ -97,6 +114,10 @@ M.LEMMA_DIRECTIVES = {
     ClvRevealWithFuel = true,
     ClvProofBy = true,
 }
+
+--- Directive kinds that only trusted functions may have: `---@extern` and `---@unsafe` ones.
+--- @type table<string, boolean>
+M.TRUST_FLAGS = { ClvNoCallback = true, ClvMayRaise = true }
 
 --- Directive kinds that marked code may use above a loop.
 --- @type table<string, boolean>
@@ -218,6 +239,48 @@ M.GLOBALS = {
 --- - `library`: a part of the library that Clavius has no rule for, such as `print` or `math.floor`;
 --- - `global`: a global outside the library. Verified code must never use one.
 --- @alias GlobalUse 'supported' | 'banned' | 'library' | 'global'
+
+--- Returns the name that `id` would give a global, as its base and its path: `print` and `print` for an
+--- Id, or `math` and `math.floor` for a field of one. Returns nil for any other expression. Whether the
+--- base is a local instead is for `resolve` to decide.
+--- @param src SrcArena
+--- @param id NodeId
+--- @return string|nil base
+--- @return string|nil path
+function M.global_path(src, id)
+    local n = src.nodes[id]
+    if n.tag == 'Id' then
+        return n.name, n.name
+    elseif n.tag == 'Index' then
+        local obj = src.nodes[n.obj]
+        local key = src.nodes[n.key]
+        if obj.tag == 'Id' and key.tag == 'Literal' and key.kind == 'string' then
+            return obj.name, ('%s.%s'):format(obj.name, key.text)
+        end
+    end
+    return nil, nil
+end
+
+--- If `call` has the form `f(a / b)`, returns the `/` node, looking through parentheses. Whether `f` is
+--- `math.floor` is for `resolve` to decide.
+--- @param src SrcArena
+--- @param call SrcCall
+--- @return NodeId|nil
+function M.floordiv_arg(src, call)
+    if call.method ~= nil or #call.args ~= 1 then
+        return nil
+    end
+    local id = call.args[1]
+    local n = src.nodes[id]
+    while n.tag == 'Paren' do
+        id = n.expr
+        n = src.nodes[id]
+    end
+    if n.tag == 'BinOp' and n.op == 'div' then
+        return id
+    end
+    return nil
+end
 
 --- Says what a global, or a field of one, is to marked code.
 --- @param base string the global's name

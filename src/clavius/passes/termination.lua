@@ -21,7 +21,7 @@ local diag = require 'clavius.ir.diag'
 local M = {}
 
 --- Returns the verified functions by id, and the verified functions that each one calls, from the
---- callee table of `types`.
+--- operations that `types` resolved.
 --- @param src SrcArena
 --- @param idx NodeIndex
 --- @param info TypeInfo
@@ -39,7 +39,9 @@ local function call_graph(src, idx, info)
     end
     for _, id in ipairs(idx.by_tag.Call or {}) do
         local caller = idx.unit[id]
-        local callee = info.callees[id]
+        local op = info.ops[id]
+        local callee = op ~= nil and op.callee or nil
+        -- a library, host or `---@unsafe` callee has no entry, since its body isn't its own unit
         if calls[caller] ~= nil and callee ~= nil and calls[callee] ~= nil then
             calls[caller][#calls[caller] + 1] = callee
         end

@@ -83,7 +83,7 @@ end
 --- @class ValidateSource
 --- @field src SrcArena
 --- @field index NodeIndex
---- @field callees table<NodeId, NodeId> the Function node that each call of a local function calls
+--- @field ops table<NodeId, ResolvedOp> the operations that `types` resolved
 --- @field cycle table<NodeId, NodeId> the smallest Function id in each recursive Function's cycle
 
 --- One obligation that a source node needs: its kind, and the clause for a contract kind or 0.
@@ -169,26 +169,34 @@ local function add_clauses(keys, kind, clauses)
 end
 
 --- Returns the obligations that the source node `id` in marked code needs. This follows from what
---- `clavius.ir.support` lets marked code use: every `+`, `-` and `*` is on `int53`, every call is to
---- `assert`, `error`, a local function or, in proof code, `assume`, and every `return` is in a verified
---- function.
+--- `clavius.ir.support` lets marked code use: every `+`, `-`, `*` and `%` is on `int53`, every call is
+--- to `assert`, `error`, a local function, a function a `---@meta` file declares or, in proof code,
+--- `assume`, or is `math.floor(a / b)`, and every `return` is in a verified function.
 --- @param source ValidateSource
 --- @param id NodeId
 --- @return NeededKey[]
 local function needed(source, id)
     local src = source.src
     local n = src.nodes[id]
-    -- ghost code never runs, so its arithmetic is exact
+    -- ghost code never runs, so its arithmetic is exact and never fails
     local ghost = source.index.ghost[id] ~= 0
     local keys = {}
+    local op = source.ops[id]
     if n.tag == 'BinOp' and RANGE_CHECKED[n.op] and not ghost then
         keys[1] = { kind = 'range', clause = 0 }
-    elseif n.tag == 'Call' and source.callees[id] ~= nil then
-        local callee = src.nodes[source.callees[id]] --[[@as SrcFunction]]
+    elseif n.tag == 'BinOp' and op ~= nil and op.op == 'int.mod' and not ghost then
+        keys[1] = { kind = 'div_zero', clause = 0 }
+        keys[2] = { kind = 'mod_range', clause = 0 }
+    elseif n.tag == 'Call' and op ~= nil and op.op == 'int.floordiv' then
+        if not ghost then
+            keys[1] = { kind = 'div_zero', clause = 0 }
+        end
+    elseif n.tag == 'Call' and op ~= nil then
+        local callee = src.nodes[assert(op.callee)] --[[@as SrcFunction]]
         add_clauses(keys, 'pre', arena.directives(src, callee, 'ClvPre'))
         -- a call that stays in its caller's cycle checks the callee's measure
         local cycle = source.cycle[source.index.unit[id]]
-        if cycle ~= nil and cycle == source.cycle[source.callees[id]] then
+        if cycle ~= nil and cycle == source.cycle[op.callee] then
             add_clauses(keys, 'decrease', arena.directives(src, callee, 'ClvDecrease'))
         end
     elseif n.tag == 'Call' then

@@ -24,7 +24,7 @@ describe('report.messages', function()
             '3:20: range: x + 1 may leave ±2^53 [O1]',
             '5:15: unreachable: this `error` may be reached [O2]',
             '5:27: assert: this assertion may fail [O3]',
-        }, messages.failures({ 3, 2, 1 }, prog, c.src, text))
+        }, messages.failures({ 3, 2, 1 }, prog, c.src, c.files))
     end)
 
     it('quotes the condition of a failing contract clause', function()
@@ -44,7 +44,49 @@ describe('report.messages', function()
         assert.are.same({
             '5:7: post: the function may return here without satisfying its postcondition `n > 1` [O1]',
             '7:1: pre: this call may not satisfy its precondition `n > 0` [O2]',
-        }, messages.failures({ 1, 2 }, prog, c.src, text))
+        }, messages.failures({ 1, 2 }, prog, c.src, c.files))
+    end)
+
+    it('names the divisor and the inexact remainder, and quotes a library spec from its own file', function()
+        local text = stringx.dedent [=[
+            ---@clavius begin
+            local z = 0
+            local a = 5 % z
+            ---@clavius end
+            ---@clavius begin
+            local b = math.floor(5 / 0)
+            ---@clavius end
+            ---@clavius begin
+            local c = 9007199254740992 % -3
+            ---@clavius end
+            ---@clavius begin
+            host.f(-1)
+            ---@clavius end
+        ]=]
+        local meta = stringx.dedent [=[
+            ---@meta
+            ---@extern
+            ---@param n integer
+            ---@pre   n >= 0
+            function host.f(n) end
+        ]=]
+        local c = driver.run_until('validate', text, 1, { { name = 'host.lua', text = meta } })
+        assert.are.same({}, c.diags)
+        local prog = assert(c.prog)
+        local ids = {}
+        for id, o in ipairs(prog.obligations) do
+            if o.kind == 'div_zero' or o.kind == 'mod_range' or o.kind == 'pre' then
+                ids[#ids + 1] = id
+            end
+        end
+        assert.are.same({
+            '3:11: div_zero: the divisor of `5 % z` may be 0 [O1]',
+            '3:11: mod_range: `5 % z` may be computed inexactly, since the dividend minus the remainder may leave ±2^53 [O2]',
+            '6:11: div_zero: the divisor of `math.floor(5 / 0)` may be 0 [O3]',
+            '9:11: div_zero: the divisor of `9007199254740992 % -3` may be 0 [O4]',
+            '9:11: mod_range: `9007199254740992 % -3` may be computed inexactly, since the dividend minus the remainder may leave ±2^53 [O5]',
+            '12:1: pre: this call may not satisfy its precondition `n >= 0` [O6]',
+        }, messages.failures(ids, prog, c.src, c.files))
     end)
 
     it("quotes a loop's invariant and measure, and names its counter, bound and step", function()
@@ -78,7 +120,7 @@ describe('report.messages', function()
             "7:1: for_step: this loop's step may be 0 [O8]",
             "7:1: invariant_entry: the loop counter's range may not hold when the loop starts [O10]",
             "7:1: invariant_preserved: the loop counter's range may not hold again after an iteration [O11]",
-        }, messages.failures(kinds, prog, c.src, text))
+        }, messages.failures(kinds, prog, c.src, c.files))
     end)
 
     it("quotes the callee's measure at a call in a cycle of recursive calls", function()
@@ -99,7 +141,7 @@ describe('report.messages', function()
         assert.are.same({
             '5:21: decrease: this call may not decrease the measure `n - 1, 0`, or the measure may be negative on entry [O1]',
             '8:15: decrease: this call may not decrease the measure `n, 1`, or the measure may be negative on entry [O2]',
-        }, messages.failures({ 1, 2 }, prog, c.src, text))
+        }, messages.failures({ 1, 2 }, prog, c.src, c.files))
     end)
 
     it('says when a product of two variables in the failing unit is opaque', function()
@@ -135,11 +177,11 @@ describe('report.messages', function()
         assert.are.same({
             ('8:5: post: the function may return here without satisfying its postcondition `result >= 0`; hint: %s [O2]'):format(hint),
             '15:5: post: the function may return here without satisfying its postcondition `result > 0` [O5]',
-        }, messages.failures(posts, prog, c.src, text))
+        }, messages.failures(posts, prog, c.src, c.files))
         assert.are.same({
             '8:5: post: the function may return here without satisfying its postcondition `result >= 0` [O2]',
             '15:5: post: the function may return here without satisfying its postcondition `result > 0` [O5]',
-        }, messages.failures(posts, prog, c.src, text, true))
+        }, messages.failures(posts, prog, c.src, c.files, true))
     end)
 
     it('orders diagnostics by position, then code', function()

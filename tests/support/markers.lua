@@ -65,7 +65,7 @@ function M.diags(c)
     local out = {}
     for i, d in ipairs(c.diags) do
         local span = d.span or c.spans[d.node]
-        out[i] = { line = line_of(c.text, span.start), name = d.code }
+        out[i] = { line = line_of(c.files[c.file].text, span.start), name = d.code }
     end
     return sorted(out)
 end
@@ -79,7 +79,7 @@ function M.failures(c, failed)
     local out = {}
     for i, id in ipairs(failed) do
         local o = prog.obligations[id]
-        out[i] = { line = line_of(c.text, c.src.spans[o.node].start), name = o.kind }
+        out[i] = { line = line_of(c.files[c.file].text, c.src.spans[o.node].start), name = o.kind }
     end
     return sorted(out)
 end

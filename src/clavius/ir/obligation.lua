@@ -15,6 +15,8 @@
 --- | 'decrease' # a `---@decrease` measure decreases, on a loop's back edge or at a recursive call
 --- | 'for_bound' # a numeric `for`'s limit plus its step stays within ±2^53, so the counter can pass it
 --- | 'for_step' # a numeric `for`'s step is not 0
+--- | 'div_zero' # the divisor of `%` or of `math.floor(a / b)` isn't 0
+--- | 'mod_range' # `a - a % b` stays within ±2^53, so LuaJIT computes `a % b` exactly
 --- | 'nat' # a value that ghost code passes or returns as a `Nat` is non-negative
 
 --- Why an assumption may be made. Nothing proves a `trusted` or `assumed` one, so the trust report lists each.
@@ -26,7 +28,7 @@
 --- | 'type_fact' # a value of a declared type satisfies that type's predicate
 --- | 'branch' # the condition of the branch being taken
 --- | 'callee_post' # a verified callee's `---@post`, proved where the callee returns or, at a recursive call, by induction on the measure
---- | 'trusted' # what an `---@unsafe` callee promises, or what a verified function assumes on entry about outside callers
+--- | 'trusted' # what a trusted callee promises, or what a verified function assumes on entry about outside callers
 --- | 'assumed' # the condition of an `---@assume` line, or of an `assume` call in proof code
 --- | 'invariant' # a loop invariant at the loop's head, checked on entry and after each iteration
 --- | 'back_edge' # `false` at the end of an iteration that iterates again
@@ -59,6 +61,8 @@ M.OBLIGATION_KINDS = {
     decrease = true,
     for_bound = true,
     for_step = true,
+    div_zero = true,
+    mod_range = true,
     nat = true,
 }
 

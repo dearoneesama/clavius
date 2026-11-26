@@ -82,19 +82,24 @@ local PHRASES = {
     ['repeated-param'] = 'this parameter already has a `---@param`',
     ['return-name-clash'] = "a parameter has the name of the function's value",
     ['marked-unsafe'] = "a function can't be both `---@clavius` and `---@unsafe`",
+    ['untrusted-flag'] = '`---@no_callback` and `---@may_raise` belong on an `---@unsafe` function',
     ['repeated-decrease'] = 'this loop or function already has a `---@decrease`',
     ['missing-decrease'] = 'a `while` or `repeat` loop needs a `---@decrease` above it',
     ['missing-function-decrease'] = 'a recursive function needs a `---@decrease` above it',
     ['decrease-length'] = 'the measures in a recursion cycle need the same number of expressions; pad the shorter ones with constants',
     ['unsafe-decrease'] = "an `---@unsafe` function's body is never checked, so it takes no `---@decrease`",
+    -- `---@meta` files
+    ['missing-extern'] = 'a function in a `---@meta` file given with `--meta` needs `---@extern` above it',
+    ['marked-meta'] = 'a `---@meta` file holds only specs, so nothing in it can be marked',
+    ['repeated-declaration'] = 'this function is already declared in a `---@meta` file of the run',
+    ['library-name'] = "a host function can't have the name of a Lua global or of a library function",
     -- node kinds
     Index = 'indexing',
     Table = 'a table constructor',
     Forin = 'a generic `for` loop',
     Dots = '`...`',
     -- operators
-    div = 'the `/` operator',
-    mod = 'the `%` operator',
+    div = 'the `/` operator, other than in `math.floor(a / b)`,',
     pow = 'the `^` operator',
     concat = 'the `..` operator',
     len = 'the `#` operator',
@@ -102,16 +107,18 @@ local PHRASES = {
     ['local-values'] = 'a `local` whose names and values differ in number',
     ['assign-values'] = 'an assignment whose targets and values differ in number',
     ['repeated-target'] = 'assigning a local twice in one assignment',
-    ['call'] = 'a call of anything but `assert`, `error` or a `local function` by its name',
+    ['call'] = 'a call of anything but `assert`, `error`, a `local function` by its name, or a function that a `---@meta` file declares',
     ['call-args'] = "a call whose arguments and the callee's parameters differ in number",
     ['call-in-contract'] = 'a call of anything but a spec function in a contract or a loop annotation',
     ['unmarked-callee'] = 'a call to a function that is neither `---@clavius` nor `---@unsafe`',
     ['reassigned-function'] = 'a call to a function that is assigned somewhere in the file',
+    ['reassigned-alias'] = 'a call through a library alias that is assigned somewhere in the file',
     ['forward-gap'] = 'a call to a function whose `local` declaration and definition have other code between them',
     ['function-value'] = 'a function other than a top-level `local function` or `function f` after `local f`, or one used as a value',
     ['return-outside-function'] = '`return` outside a function',
     ['multiple-returns'] = 'more than one return value',
     ['call-value'] = '`assert`, `assume` or `error` used other than as a call statement',
+    ['library-value'] = 'a library or host function used as a value',
     ['assert-args'] = '`assert` with arguments other than a condition and a literal message',
     ['assume-args'] = '`assume` with arguments other than one condition',
     ['error-args'] = '`error` with arguments that are not literals',
@@ -160,6 +167,8 @@ local FAILURES = {
     decrease = 'an iteration may start with the measure `%s` negative, or may not decrease it',
     for_bound = "this loop's limit plus its step may leave ±2^53",
     for_step = "this loop's step may be 0",
+    div_zero = 'the divisor of `%s` may be 0',
+    mod_range = '`%s` may be computed inexactly, since the dividend minus the remainder may leave ±2^53',
     nat = '%s may be negative where a `Nat` is expected',
 }
 
@@ -202,15 +211,16 @@ function M.diag(d, spans, text)
     return ('%s: %s: %s'):format(position(text, span.start), d.code, template:format(unpack(args)))
 end
 
---- Formats the failing obligation `id` as `line:col: kind: message [O17]`. With `opaque`, the message
---- says that the solver knows nothing about a product of two variables in its unit.
+--- Formats the failing obligation `id` as `line:col: kind: message [O17]`. The clause it quotes may sit in
+--- another file of the run, such as a library spec's `---@pre`. With `opaque`, the message says that the
+--- solver knows nothing about a product of two variables in its unit.
 --- @param id integer
 --- @param o Obligation
 --- @param src SrcArena
---- @param text string
+--- @param files table<FileId, SourceFile>
 --- @param opaque boolean|nil
 --- @return string
-function M.failure(id, o, src, text, opaque)
+function M.failure(id, o, src, files, opaque)
     local span = src.spans[o.node]
     local template = FAILURES[o.kind]
     if src.nodes[o.node].tag == 'Call' and CALL_FAILURES[o.kind] then
@@ -229,12 +239,12 @@ function M.failure(id, o, src, text, opaque)
             quoted = src.spans[clause.cond]
         end
     end
-    local snippet = text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
+    local snippet = files[quoted.file].text:sub(quoted.start, quoted.finish):gsub('%s+', ' ')
     local message = assert(template, ('messages: no message for %s'):format(o.kind)):format(snippet)
     if opaque then
         message = ('%s; hint: %s'):format(message, OPAQUE_PRODUCT)
     end
-    return ('%s: %s: %s [O%d]'):format(position(text, span.start), o.kind, message, id)
+    return ('%s: %s: %s [O%d]'):format(position(files[span.file].text, span.start), o.kind, message, id)
 end
 
 --- A message with its sort key.
@@ -283,15 +293,15 @@ end
 --- @param failed integer[] obligation ids
 --- @param prog CoreProgram
 --- @param src SrcArena
---- @param text string
+--- @param files table<FileId, SourceFile> every file of the run
 --- @param nonlinear boolean|nil whether every unit used nonlinear arithmetic
 --- @return string[]
-function M.failures(failed, prog, src, text, nonlinear)
+function M.failures(failed, prog, src, files, nonlinear)
     local opaque = nonlinear and {} or hints.opaque_products(prog.core, prog.units)
     local list = {}
     for i, id in ipairs(failed) do
         local o = prog.obligations[id]
-        local message = M.failure(id, o, src, text, opaque[id])
+        local message = M.failure(id, o, src, files, opaque[id])
         list[i] = { start = src.spans[o.node].start, key = ('%s %08d'):format(o.kind, id), text = message }
     end
     return in_order(list)

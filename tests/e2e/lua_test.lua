@@ -4,12 +4,13 @@ local driver = require 'clavius.driver'
 local markers = require 'support.markers'
 local utils = require 'pl.utils'
 
--- Every Lua program under tests/e2e/ but the *_test.lua files. Its markers name exactly the
--- diagnostics it gets or, when it gets none, the obligations that may fail.
+-- Every Lua program under tests/e2e/ but the *_test.lua and *.meta.lua files. Its markers name exactly
+-- the diagnostics it gets or, when it gets none, the obligations that may fail. A program `foo.lua` with
+-- a `foo.meta.lua` next to it is verified with that file as its `--meta` file.
 describe('lua programs', function()
     local inputs = {}
     for _, path in ipairs(dir.getallfiles('tests/e2e', '*.lua')) do
-        if not path:match '_test%.lua$' then
+        if not path:match '_test%.lua$' and not path:match '%.meta%.lua$' then
             inputs[#inputs + 1] = path
         end
     end
@@ -17,7 +18,10 @@ describe('lua programs', function()
     for _, input in ipairs(inputs) do
         it(input, function()
             local text = assert(utils.readfile(input, true))
-            local c = driver.run_until('validate', text, 1)
+            local meta_path = input:gsub('%.lua$', '.meta.lua')
+            local meta_text = utils.readfile(meta_path, true)
+            local metas = meta_text and { { name = meta_path, text = meta_text } } or nil
+            local c = driver.run_until('validate', text, 1, metas)
             if #c.diags > 0 then
                 assert.are.same(markers.read(text), markers.diags(c))
                 return

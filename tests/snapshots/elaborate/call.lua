@@ -15,6 +15,13 @@ end
 ---@post flag
 local function trusted(flag) end
 
+-- a boolean value and no `---@post`: the call assumes `true`, so the trust report lists the callee
+---@unsafe
+---@return boolean
+local function ready()
+    return true
+end
+
 ---@clavius begin
 
 ---@unsafe
@@ -30,4 +37,5 @@ end
 local x = inc(inc(1))
 trusted(x > 1)
 local y = bump(x)
+local z = ready()
 ---@clavius end

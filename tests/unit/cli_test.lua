@@ -119,6 +119,25 @@ describe('cli', function()
         assert.are.equal('f.lua:2:15: E-type-mismatch: expected int53, found boolean\n', r.err)
     end)
 
+    it('reads `---@meta` files given with `--meta`, and reports their diagnostics under their own names', function()
+        local meta = os.tmpname()
+        assert(utils.writefile(meta, '---@meta\n---@extern\n---@param n integer\nfunction host.f(n) end\n', true))
+        local text = '---@clavius begin\nhost.f(1)\n---@clavius end\n'
+        -- `dump --after validate` runs every stage but Boogie, which this tier doesn't need
+        local r = run_with_file({ 'dump', '--after', 'validate', '--meta', meta }, '.lua', text)
+        assert.are.same({ cli.EXIT_OK, '' }, { r.status, r.err })
+        r = run_with_file({ 'verify' }, '.lua', text)
+        assert.are.same({ cli.EXIT_ERROR, "f.lua:2:1: E-banned-global: the global `host` can't be used in verified code\n" }, { r.status, r.err })
+        assert(utils.writefile(meta, '---@meta\nfunction host.f() end\n', true))
+        r = run_with_file({ 'verify', '--meta', meta }, '.lua', text)
+        local message = '%s:2:1: E-misplaced-directive: a function in a `---@meta` file given with `--meta` needs `---@extern` above it\n'
+        assert.are.same({ cli.EXIT_ERROR, message:format(meta) }, { r.status, r.err })
+        r = run_with_file({ 'verify', '--meta', 'tests/no-such-file.lua' }, '.lua', text)
+        assert.are.equal(cli.EXIT_ERROR, r.status)
+        assert.is_truthy(r.err:find('no-such-file.lua', 1, true))
+        os.remove(meta)
+    end)
+
     it('prints help on stdout and succeeds', function()
         for _, argv in ipairs { { '-h' }, { 'verify', '-h' }, { 'dump', '--help' }, { 'lower', '-h', 'f' } } do
             local r = run(argv)

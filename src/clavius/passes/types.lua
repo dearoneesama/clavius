@@ -10,9 +10,18 @@ local support = require 'clavius.ir.support'
 
 --- @alias Type 'int53' | 'Int' | 'Nat' | 'boolean'
 
+--- What a node does, when its kind doesn't say. `types` records it, and later passes read it.
+--- - `call`: a call of a local, library or host function;
+--- - `int.floordiv`: `math.floor(a / b)` on `int53` operands;
+--- - `int.mod`: `a % b` on `int53` operands, with Lua's floored semantics.
+--- @class ResolvedOp
+--- @field op 'call' | 'int.floordiv' | 'int.mod'
+--- @field callee NodeId|nil for a call, the Function node it calls
+--- @field trusted boolean for a call, whether the callee is `---@unsafe` or in a `---@meta` file
+
 --- @class TypeInfo
 --- @field types table<NodeId, Type> the type of each expression and Binder in marked code and contracts, and of each function's ClvReturn
---- @field callees table<NodeId, NodeId> the Function node that each call of a local function calls
+--- @field ops table<NodeId, ResolvedOp> the operation of each call, `%` and integer division
 
 --- @class TypesState
 --- @field src SrcArena
@@ -29,7 +38,7 @@ local M = {}
 local INT53_MAX = '9007199254740992'
 local INT53_MAX_HEX = '20000000000000'
 
-local ARITH = { add = true, sub = true, mul = true }
+local ARITH = { add = true, sub = true, mul = true, mod = true }
 local ORDER = { lt = true, le = true, gt = true, ge = true }
 
 local INTEGERS = { int53 = true, Int = true, Nat = true }
@@ -208,8 +217,8 @@ end
 --- Forward declaration.
 local expression
 
---- Types a call of a local function against the callee's parameters, records the callee, and returns
---- the type of its value: nil when the callee has no `---@return`.
+--- Types a call of a local, library or host function against the callee's parameters, records the
+--- callee, and returns the type of its value: nil when the callee has no `---@return`.
 --- @param st TypesState
 --- @param id NodeId
 --- @mut st
@@ -217,9 +226,11 @@ local expression
 --- @return Type|nil
 local function call(st, id)
     local n = st.src.nodes[id] --[[@as SrcCall]]
-    local fn_id = st.res.functions[st.res.decl[n.func]]
-    st.out.callees[id] = fn_id
+    local library = st.res.library[id]
+    local fn_id = library or st.res.functions[st.res.decl[n.func]]
     local fn = st.src.nodes[fn_id] --[[@as SrcFunction]]
+    local trusted = library ~= nil or arena.has_directive(st.src, fn, 'ClvUnsafe')
+    st.out.ops[id] = { op = 'call', callee = fn_id, trusted = trusted }
     for i, a in ipairs(n.args) do
         local ty = expression(st, a)
         local want = st.out.types[fn.params[i]]
@@ -266,9 +277,18 @@ function expression(st, id)
         else
             ty = st.out.types[constant or decl]
         end
+    elseif n.tag == 'Call' and st.res.floordiv[id] then
+        -- math.floor(a / b)
+        local q = st.src.nodes[assert(support.floordiv_arg(st.src, n))] --[[@as SrcBinOp]]
+        local ok_l = want_int(st, q.lhs, expression(st, q.lhs))
+        local ok_r = want_int(st, q.rhs, expression(st, q.rhs))
+        if ok_l and ok_r then
+            ty = st.ghost and 'Int' or 'int53'
+            st.out.ops[id] = { op = 'int.floordiv', callee = nil, trusted = false }
+        end
     elseif n.tag == 'Call' then
-        local fn = st.src.nodes[st.res.functions[st.res.decl[n.func]]] --[[@as SrcFunction]]
         ty = call(st, id)
+        local fn = st.src.nodes[st.out.ops[id].callee] --[[@as SrcFunction]]
         if not arena.has_directive(st.src, fn, 'ClvReturn') then
             report(st, 'E-type-mismatch', id, { 'a value', 'no value' })
         end
@@ -291,6 +311,9 @@ function expression(st, id)
                 ty = 'boolean'
             elseif ok_l and ok_r then
                 ty = st.ghost and 'Int' or 'int53'
+            end
+            if ok_l and ok_r and n.op == 'mod' then
+                st.out.ops[id] = { op = 'int.mod', callee = nil, trusted = false }
             end
         elseif n.op == 'eq' or n.op == 'ne' then
             if l ~= nil and r ~= nil and not fits(l, r) then
@@ -418,7 +441,7 @@ function statement(st, id)
         statement(st, n.body)
     elseif n.tag == 'Break' then -- luacheck: ignore 542
         -- nothing to type
-    elseif n.tag == 'Call' and st.res.decl[n.func] ~= nil then
+    elseif n.tag == 'Call' and (st.res.decl[n.func] ~= nil or st.res.library[id] ~= nil) then
         call(st, id)
     elseif n.tag == 'Call' then
         -- `assert`, `assume` or `error`; a message is a literal that is never used as a value
@@ -505,16 +528,48 @@ local function defined(st, statements, in_region, out)
     end
 end
 
+--- Types the functions that the resolved `---@meta` files of a run declare: their signatures and
+--- contracts.
+--- @param src SrcArena
+--- @param res Resolution
+--- @param fns NodeId[] the Function nodes
+--- @return TypeInfo info
+--- @return Diag[] diags
+function M.meta(src, res, fns)
+    --- @type TypesState
+    local st = { src = src, res = res, out = { types = {}, ops = {} }, diags = {}, result = nil, typed = {}, ghost = false }
+    -- a library or host function is an exec function with no body to type
+    for _, id in ipairs(fns) do
+        signature(st, src.nodes[id] --[[@as SrcFunction]], 'exec')
+    end
+    for _, id in ipairs(fns) do
+        func(st, {
+            fn = src.nodes[id] --[[@as SrcFunction]],
+            verified = false,
+            kind = 'exec',
+        })
+    end
+    return st.out, st.diags
+end
+
 --- Types the marked code of a resolved file: its regions, the functions in them and those marked
---- `---@clavius`, spec functions and lemmas, and the contracts of `---@unsafe` functions.
+--- `---@clavius`, spec functions and lemmas, and the contracts of `---@unsafe` functions. The result
+--- includes the types of the run's `---@meta` files, whose contracts calls lower.
 --- @param src SrcArena
 --- @param root NodeId
 --- @param res Resolution
+--- @param iface Interface|nil
 --- @return TypeInfo info
 --- @return Diag[] diags
-function M.run(src, root, res)
+function M.run(src, root, res, iface)
     --- @type TypesState
-    local st = { src = src, res = res, out = { types = {}, callees = {} }, diags = {}, result = nil, typed = {}, ghost = false }
+    local st = { src = src, res = res, out = { types = {}, ops = {} }, diags = {}, result = nil, typed = {}, ghost = false }
+    if iface ~= nil then
+        for id = 1, #src.nodes do
+            st.out.types[id] = iface.info.types[id]
+            st.out.ops[id] = iface.info.ops[id]
+        end
+    end
     local top = src.nodes[root] --[[@as SrcBlock]]
     --- @type TypesFunction[]
     local fns = {}

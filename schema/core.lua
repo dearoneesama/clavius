@@ -1,7 +1,7 @@
 -- Core node types. `schema/gen.lua` turns this into src/clavius/ir/core_nodes.lua and
 -- src/clavius/sexpr/schema.lua. The field format is described in schema/source.lua.
 
-local OPS = "'+' | '-' | '*' | 'mod' | '<' | '<=' | '>' | '>=' | '==' | '!=' | 'and' | 'or' | '=>'"
+local OPS = "'+' | '-' | '*' | 'div' | 'mod' | '<' | '<=' | '>' | '>=' | '==' | '!=' | 'and' | 'or' | '=>'"
 
 local DOC = [[
 A declaration is a SortDecl, FunDecl or Axiom node.
@@ -65,7 +65,8 @@ local NODES = {
     { tag = 'Bool', doc = 'A boolean literal.', fields = { { 'value', 'boolean' } } },
     {
         tag = 'BinOp',
-        doc = 'An integer or boolean operator. `=>` is implication, and `mod` the Euclidean remainder, which lies in [0, |rhs|) when rhs ~= 0.',
+        doc = 'An integer or boolean operator. `=>` is implication. `div` and `mod` are Euclidean: when rhs ~= 0, '
+            .. '`lhs == (lhs div rhs) * rhs + lhs mod rhs` with the remainder in [0, |rhs|).',
         fields = { { 'op', OPS }, { 'lhs', 'node', 'a term node' }, { 'rhs', 'node', 'a term node' } },
     },
     { tag = 'Not', doc = 'Boolean negation.', fields = { { 'arg', 'node', 'a term node' } } },

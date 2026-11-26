@@ -22,16 +22,25 @@ for _, stage in ipairs { 'parse', 'resolve', 'types', 'effects', 'elaborate' } d
     end)
 end
 
--- tests/snapshots/trust/<NAME>.lua gets its trust report in <NAME>.trust.txt
+-- tests/snapshots/trust/<NAME>.lua gets its trust report in <NAME>.trust.txt, with <NAME>.meta.lua as
+-- its `---@meta` file when there is one
 describe('trust report', function()
-    local inputs = dir.getfiles('tests/snapshots/trust', '*.lua')
+    local inputs = {}
+    for _, path in ipairs(dir.getfiles('tests/snapshots/trust', '*.lua')) do
+        if not path:match '%.meta%.lua$' then
+            inputs[#inputs + 1] = path
+        end
+    end
     table.sort(inputs)
     for _, input in ipairs(inputs) do
         it(input, function()
             local text = assert(utils.readfile(input, true))
-            local c = driver.run_until('validate', text, 1)
+            local meta_path = input:gsub('%.lua$', '.meta.lua')
+            local meta_text = utils.readfile(meta_path, true)
+            local metas = meta_text and { { name = (meta_path:match '[^/]+$'), text = meta_text } } or nil
+            local c = driver.run_until('validate', text, 1, metas, (input:match '[^/]+$'))
             assert.are.same({}, messages.diags(c.diags, c.spans, text))
-            local lines = trust.report(assert(c.prog), c.src, assert(c.index), text, (input:match '[^/]+$'))
+            local lines = trust.report(assert(c.prog), c.src, assert(c.index), c.files, c.file)
             snapshot.check((input:gsub('%.lua$', '.trust.txt')), table.concat(lines, '\n') .. '\n')
         end)
     end

@@ -44,7 +44,8 @@ describe('types', function()
         local res = assert(c.res)
         local found = {}
         for id, n in ipairs(c.src.nodes) do
-            if n.tag == 'Binder' then
+            -- the shipped specs follow the file in the run's arena
+            if n.tag == 'Binder' and c.src.spans[id].file == c.file then
                 found[#found + 1] = ('%s %s'):format(res.names[id], info.types[id])
             end
         end
@@ -82,9 +83,10 @@ describe('types', function()
         local binders = {}
         local sums = {}
         for id, n in ipairs(c.src.nodes) do
-            if n.tag == 'Binder' then
+            local mine = c.src.spans[id].file == c.file
+            if mine and n.tag == 'Binder' then
                 binders[#binders + 1] = ('%s %s'):format(n.name, info.types[id])
-            elseif n.tag == 'BinOp' and n.op == 'add' then
+            elseif mine and n.tag == 'BinOp' and n.op == 'add' then
                 sums[#sums + 1] = info.types[id]
             end
         end
@@ -232,7 +234,7 @@ describe('types', function()
         local found = {}
         for id, ty in pairs(assert(c.info).types) do
             local n = c.src.nodes[id]
-            if n.tag == 'Binder' or n.tag == 'ClvReturn' then
+            if (n.tag == 'Binder' or n.tag == 'ClvReturn') and c.src.spans[id].file == c.file then
                 found[#found + 1] = ('%s %s'):format(n.name, ty)
             end
         end
@@ -367,7 +369,7 @@ describe('types', function()
         local res = assert(c.res)
         local found = {}
         for id, n in ipairs(c.src.nodes) do
-            if n.tag == 'Binder' or (n.tag == 'BinOp' and n.op == 'add') then
+            if (n.tag == 'Binder' or (n.tag == 'BinOp' and n.op == 'add')) and c.src.spans[id].file == c.file then
                 found[#found + 1] = ('%s %s'):format(res.names[id] or n.tag, info.types[id])
             end
         end

@@ -80,7 +80,7 @@ describe('sexpr.dump', function()
             { '(Unit u linear [] [(Havoc)])', '1:20: Havoc takes 1 fields, found 0' },
             { '(Unit u linear [] [(Check x (Bool true))])', '1:27: expected an integer' },
             { '(Unit u linear [] [(Assign x (Bool yes))])', '1:36: expected true or false' },
-            { '(Unit u linear [] [(Assign x (BinOp ^ (Int 1) (Int 2)))])', '1:37: op must be one of + - * mod < <= > >= == != and or =>' },
+            { '(Unit u linear [] [(Assign x (BinOp ^ (Int 1) (Int 2)))])', '1:37: op must be one of + - * div mod < <= > >= == != and or =>' },
             { '(Unit u linear [] (Havoc x))', '1:19: expected a [ … ] list for body' },
             { '(Unit u linear [] [x])', '1:20: expected a core node' },
             { '(Unit u linear [] [(Havoc [x])])', '1:27: expected a symbol for target' },

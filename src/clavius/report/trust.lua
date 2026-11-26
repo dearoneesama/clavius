@@ -4,31 +4,48 @@
 --   Trust report: prog.lua
 --
 --     @unsafe functions
---       bump  prog.lua:8
+--       bump      prog.lua:8
+--
+--     @extern functions
+--       host.log  game.meta.lua:12  @no_callback
 --
 --     callers outside verification
---       inc   prog.lua:15
---       max   prog.lua:22
+--       inc       prog.lua:15
 --
 --     assumptions
---       n > 0  prog.lua:30
+--       n > 0     prog.lua:30
+--
+--     stdlib specs (clavius dev)
+--       math.min  clavius/meta/math.lua:14
+--
+--     stdlib unchanged
+--       nothing outside verification replaces a library function
 -- means:
 --
 -- - `bump`, defined on line 8, is `---@unsafe`. Its body isn't verified, yet verified code that calls it
 --   relies on its `---@post`s and its value's type.
--- - `inc` and `max` are verified, assuming their parameters' types and their `---@pre`s on entry. A
---   verified caller proves those at each call, but a caller in unmarked code doesn't, so they are trusted
---   to hold there.
--- - the `---@assume n > 0` on line 30 is a fact that nothing proves.
+-- - `host.log` is a host function that a `---@meta` file declares. Verified code relies on its contract
+--   and its flags.
+-- - `inc` is verified, assuming its parameters' types and its `---@pre`s on entry. A verified caller
+--   proves those at each call, but a caller in unmarked code doesn't, so they are trusted to hold there.
+-- - The `---@assume n > 0` on line 30 is a fact that nothing proves.
+-- - `math.min`'s shipped spec is trusted, as written by the Clavius version named.
+-- - Verified code that calls a library function, `math.floor(a / b)` included, relies on nothing outside
+--   verification replacing it, as `math.min = f` would.
 
 local arena = require 'clavius.ir.arena'
+local clavius = require 'clavius'
+local support = require 'clavius.ir.support'
 
 local M = {}
 
---- A function in the report, with the line of its `local function`, or an assumption's condition.
+--- A function in the report, with where it is defined and the flags it is trusted for, or an
+--- assumption's condition.
 --- @class TrustEntry
 --- @field name string
+--- @field file string
 --- @field line integer
+--- @field flags string
 
 --- Adds a section to `out`: a blank line, its heading indented by 2, and an entry per line indented by
 --- 4, with the names padded to `width` so the locations line up.
@@ -36,30 +53,59 @@ local M = {}
 --- @param heading string
 --- @param entries TrustEntry[]
 --- @param width integer
---- @param file string
 --- @mut out
-local function section(out, heading, entries, width, file)
+local function section(out, heading, entries, width)
     if #entries == 0 then
         return
     end
     out[#out + 1] = ''
     out[#out + 1] = ('  %s'):format(heading)
     for _, e in ipairs(entries) do
-        out[#out + 1] = ('    %s%s  %s:%d'):format(e.name, (' '):rep(width - #e.name), file, e.line)
+        local line = ('    %s%s  %s:%d'):format(e.name, (' '):rep(width - #e.name), e.file, e.line)
+        if e.flags ~= '' then
+            line = ('%s  %s'):format(line, e.flags)
+        end
+        out[#out + 1] = line
     end
 end
 
+--- Returns the name that a trusted Function is called by: the name of the local that a `local function f`
+--- or, after `local f`, a `function f` defines, or the name that a `---@meta` file declares it under, such
+--- as `math.min`.
+--- @param src SrcArena
+--- @param index NodeIndex
+--- @param id NodeId
+--- @return string
+local function name_of(src, index, id)
+    local def = src.nodes[index.parent[id]]
+    if def.tag == 'LocalFunction' then
+        return (src.nodes[def.binder] --[[@as SrcBinder]]).name
+    end
+    -- `function f(…) end` after `local f`, or `function a.b(…) end` in a `---@meta` file
+    local set = def --[[@as SrcSet]]
+    local _, path = support.global_path(src, set.targets[1])
+    return assert(path)
+end
+
 --- Returns the trust report of a run as lines, or no lines when it trusted nothing. The trusted
---- assumptions name their Functions: an `---@unsafe` one, whose contract its callers rely on, or a
---- verified one, whose callers outside verification are trusted to meet its boundary assumptions. The
+--- assumptions name their Functions: a trusted one, whose contract its callers rely on, or a verified
+--- one, whose callers outside verification are trusted to meet its boundary assumptions.
 --- assumed ones are `---@assume` lines and `assume` calls, each listed by its condition.
 --- @param prog CoreProgram
 --- @param src SrcArena
 --- @param index NodeIndex
---- @param text string
---- @param file string the file's name as the report shows it
+--- @param files table<FileId, SourceFile> every file of the run
+--- @param main FileId the Lua file that was verified
 --- @return string[]
-function M.report(prog, src, index, text, file)
+function M.report(prog, src, index, files, main)
+    -- `math.floor(a / b)` outside contracts relies on `math.floor`, and only there does its Call have a
+    -- `div_zero` check
+    local floor_idiom = false
+    for _, o in ipairs(prog.obligations) do
+        if o.kind == 'div_zero' and src.nodes[o.node].tag == 'Call' then
+            floor_idiom = true
+        end
+    end
     local seen, fns, assumes = {}, {}, {}
     for _, a in ipairs(prog.assumptions) do
         if a.kind == 'trusted' and a.decl ~= nil and not seen[a.decl] then
@@ -70,7 +116,7 @@ function M.report(prog, src, index, text, file)
             assumes[#assumes + 1] = a.node
         end
     end
-    if #fns == 0 and #assumes == 0 then
+    if #fns == 0 and #assumes == 0 and not floor_idiom then
         return {}
     end
 
@@ -78,47 +124,81 @@ function M.report(prog, src, index, text, file)
     --- @param b NodeId
     --- @return boolean
     local function before(a, b)
-        return src.spans[a].start < src.spans[b].start
+        local sa = src.spans[a]
+        local sb = src.spans[b]
+        if sa.file ~= sb.file then
+            return sa.file < sb.file
+        end
+        return sa.start < sb.start
     end
 
     table.sort(fns, before)
     table.sort(assumes, before)
-    local starts = arena.line_starts(text)
+    local starts = {}
     --- @type TrustEntry[]
     local unsafe = {}
     --- @type TrustEntry[]
+    local externs = {}
+    --- @type TrustEntry[]
     local callers = {}
-    -- the longest name, so the locations line up across both sections
+    --- @type TrustEntry[]
+    local stdlib = {}
+    -- the longest name, so the locations line up across the sections
     local width = 0
     for _, id in ipairs(fns) do
-        -- every trusted Function is defined by a `local function f`,
-        -- or, after `local f`, a `function f`
-        local def = src.nodes[index.parent[id]] --[[@as SrcLocalFunction|SrcSet]]
-        local named = def.tag == 'Set' and def.targets[1] or def.binder
-        local name = (src.nodes[named] --[[@as SrcBinder|SrcId]]).name
+        local def_span = src.spans[index.parent[id]]
+        local f = files[def_span.file]
+        starts[def_span.file] = starts[def_span.file] or arena.line_starts(f.text)
         local fn = src.nodes[id] --[[@as SrcFunction]]
-        local entry = { name = name, line = arena.line_col(text, starts, src.spans[index.parent[id]].start) }
-        if arena.has_directive(src, fn, 'ClvUnsafe') then
+        local flags = {}
+        for _, d in ipairs(fn.directives) do
+            local tag = src.nodes[d].tag
+            if support.TRUST_FLAGS[tag] then
+                flags[#flags + 1] = '@' .. support.DIRECTIVE_TAGS[tag]
+            end
+        end
+        local entry = {
+            name = name_of(src, index, id),
+            file = f.name,
+            line = (arena.line_col(f.text, starts[def_span.file], def_span.start)),
+            flags = table.concat(flags, ' '),
+        }
+        if f.kind == 'stdlib' then
+            stdlib[#stdlib + 1] = entry
+        elseif f.kind == 'extern' then
+            externs[#externs + 1] = entry
+        elseif arena.has_directive(src, fn, 'ClvUnsafe') then
             unsafe[#unsafe + 1] = entry
         else
             callers[#callers + 1] = entry
         end
-        width = math.max(width, #name)
+        width = math.max(width, #entry.name)
     end
     --- @type TrustEntry[]
     local assumed = {}
     for _, id in ipairs(assumes) do
         -- an `---@assume` line, or an `assume` call in proof code
         local n = src.nodes[id] --[[@as SrcClvAssume|SrcCall]]
+        local span = src.spans[id]
+        local f = files[span.file]
+        starts[span.file] = starts[span.file] or arena.line_starts(f.text)
         local cond = src.spans[n.tag == 'Call' and n.args[1] or n.cond]
-        local name = (text:sub(cond.start, cond.finish):gsub('%s+', ' '))
-        assumed[#assumed + 1] = { name = name, line = arena.line_col(text, starts, src.spans[id].start) }
+        local name = (f.text:sub(cond.start, cond.finish):gsub('%s+', ' '))
+        local line = (arena.line_col(f.text, starts[span.file], span.start))
+        assumed[#assumed + 1] = { name = name, file = f.name, line = line, flags = '' }
         width = math.max(width, #name)
     end
-    local out = { ('Trust report: %s'):format(file) }
-    section(out, '@unsafe functions', unsafe, width, file)
-    section(out, 'callers outside verification', callers, width, file)
-    section(out, 'assumptions', assumed, width, file)
+    local out = { ('Trust report: %s'):format(files[main].name) }
+    section(out, '@unsafe functions', unsafe, width)
+    section(out, '@extern functions', externs, width)
+    section(out, 'callers outside verification', callers, width)
+    section(out, 'assumptions', assumed, width)
+    section(out, ('stdlib specs (clavius %s)'):format(clavius.VERSION), stdlib, width)
+    if #stdlib > 0 or floor_idiom then
+        out[#out + 1] = ''
+        out[#out + 1] = '  stdlib unchanged'
+        out[#out + 1] = '    nothing outside verification replaces a library function'
+    end
     return out
 end
 

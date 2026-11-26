@@ -14,6 +14,8 @@ local support = require 'clavius.ir.support'
 --- @field defined table<NodeId, NodeId> the Binder that each top-level function definition defines
 --- @field constants table<NodeId, NodeId> the initializer of each constant: a top-level local whose initializer is a number or boolean literal, and which is never assigned
 --- @field assigned table<NodeId, boolean> the Binders that an assignment anywhere in the file targets
+--- @field library table<NodeId, NodeId> the `---@meta` Function that each library or host call calls
+--- @field floordiv table<NodeId, boolean> the calls that are `math.floor(a / b)`, integer division
 --- @field kinds table<NodeId, FunctionKind> the kind of each Function node
 --- @field fuel table<NodeId, NodeId> the spec function's Function that each `---@reveal_with_fuel` names
 
@@ -50,6 +52,12 @@ local support = require 'clavius.ir.support'
 --- @field proof_loops integer|nil the loops opened in the proof code being visited in exec code, or nil outside it
 --- @field outer_reads PendingUse[]
 --- @field calls PendingUse[]
+--- @field iface Interface|nil what the run's `---@meta` files declare
+--- @field meta_kind MetaKind|nil the kind of `---@meta` file being resolved, or nil for a Lua module
+--- @field meta_functions table<NodeId, boolean> the Function nodes that the run's `---@meta` files declare
+--- @field top_statements table<NodeId, boolean> the file's top-level statements, outside regions
+--- @field alias_path table<NodeId, string> the library name of each alias Binder, such as `math.floor`
+--- @field alias_calls PendingUse[] the calls in marked code through an alias
 
 local M = {}
 
@@ -118,17 +126,9 @@ end
 --- @return string|nil base
 --- @return string|nil path
 local function global_name(st, id, scope)
-    local n = st.src.nodes[id]
-    -- print
-    if n.tag == 'Id' and lookup(st, scope, n.name, true) == nil then
-        return n.name, n.name
-    -- math.floor
-    elseif n.tag == 'Index' then
-        local obj = st.src.nodes[n.obj]
-        local key = st.src.nodes[n.key]
-        if obj.tag == 'Id' and key.tag == 'Literal' and key.kind == 'string' and lookup(st, scope, obj.name, true) == nil then
-            return obj.name, ('%s.%s'):format(obj.name, key.text)
-        end
+    local base, path = support.global_path(st.src, id)
+    if base ~= nil and lookup(st, scope, base, true) == nil then
+        return base, path
     end
     return nil, nil
 end
@@ -141,7 +141,9 @@ end
 --- @mut st
 local function report_global(st, id, base, path)
     local use = support.global_use(base, path)
-    if use == 'supported' then
+    if st.iface ~= nil and st.iface.functions[path] ~= nil then
+        report(st, 'E-unsupported-feature', id, { 'library-value' })
+    elseif use == 'supported' then
         report(st, 'E-unsupported-feature', id, { 'call-value' })
     elseif use == 'banned' then
         report(st, 'E-banned-call', id, { path })
@@ -179,6 +181,24 @@ end
 
 --- Forward declaration.
 local visit
+
+--- Records the library aliases that a top-level `local` of unmarked code declares, such as
+--- `local floor = math.floor`. A host function can't be aliased, since the host may install it later.
+--- @param st ResolveState
+--- @param n SrcLocal
+--- @param scope integer
+--- @mut st
+local function record_aliases(st, n, scope)
+    for i, b in ipairs(n.names) do
+        local v = n.values[i]
+        local path = v and select(2, global_name(st, v, scope))
+        local fn = path and st.iface and st.iface.functions[path]
+        local stdlib = fn and st.iface.kinds[fn] == 'stdlib'
+        if path ~= nil and (path == support.FLOORDIV or stdlib) then
+            st.alias_path[b] = path
+        end
+    end
+end
 
 --- Checks the arguments of a statement call to `assert`, `assume` or `error`.
 --- @param st ResolveState
@@ -303,6 +323,41 @@ local function visit_call(st, id, scope, unit, is_statement)
     if n.method == nil then
         base, path = global_name(st, n.func, scope)
     end
+    -- a call through a library alias calls the function it names
+    local callee = st.src.nodes[n.func]
+    local alias = unit ~= 0 and path == nil and callee.tag == 'Id' and lookup(st, scope, callee.name, true) or nil
+    if alias ~= nil and st.alias_path[alias] ~= nil then
+        path = st.alias_path[alias]
+        base = path:match '^[^.]+'
+        st.out.decl[n.func] = alias
+        st.alias_calls[#st.alias_calls + 1] = { id = id, binder = alias }
+    end
+    -- `math.floor(a / b)` is an operation, so a contract and ghost code may use it too
+    local quotient = path == support.FLOORDIV and support.floordiv_arg(st.src, n)
+    if unit ~= 0 and quotient and not is_statement then
+        local q = st.src.nodes[quotient] --[[@as SrcBinOp]]
+        st.out.floordiv[id] = true
+        visit(st, q.lhs, scope, unit)
+        visit(st, q.rhs, scope, unit)
+        return
+    end
+    local declared = path ~= nil and st.iface and st.iface.functions[path]
+    if unit ~= 0 and declared and not st.in_clause then
+        local fn = st.src.nodes[declared] --[[@as SrcFunction]]
+        if st.mode ~= 'exec' then
+            -- a library or host function is exec code
+            report(st, 'E-mode', id, { 'ghost-exec-call' })
+            unit = 0
+        elseif fn.vararg or #n.args ~= #fn.params then
+            report(st, 'E-unsupported-feature', id, { 'call-args' })
+        else
+            st.out.library[id] = declared
+        end
+        for _, a in ipairs(n.args) do
+            visit(st, a, scope, unit)
+        end
+        return
+    end
     local marked = unit ~= 0
     local wrong, at = nil, id
     if unit ~= 0 and path == nil then
@@ -335,7 +390,6 @@ local function visit_call(st, id, scope, unit, is_statement)
     end
     -- a global callee has nothing to resolve, and a local one is read only by calling it. a plain name
     -- resolves as marked code sees it, so that a call of a lemma or spec function finds its declaration
-    local callee = st.src.nodes[n.func]
     if path == nil and callee.tag == 'Id' then
         st.out.decl[n.func] = lookup(st, scope, callee.name, marked)
     elseif path == nil then
@@ -485,7 +539,7 @@ end
 local function visit_function_directives(st, id, scope)
     local fn = st.src.nodes[id] --[[@as SrcFunction]]
     local kind = st.out.kinds[id]
-    local allowed = support.FUNCTION_DIRECTIVES
+    local allowed = st.meta_kind and support.META_DIRECTIVES or support.FUNCTION_DIRECTIVES
     if kind == 'spec' then
         allowed = support.SPEC_DIRECTIVES
     elseif kind == 'lemma' then
@@ -498,12 +552,21 @@ local function visit_function_directives(st, id, scope)
         ] = true
     end
     local typed, returns, clauses = {}, {}, {}
+    local unsafe = arena.has_directive(st.src, fn, 'ClvUnsafe')
+    if st.meta_kind == 'extern' and not arena.has_directive(st.src, fn, 'ClvExtern') then
+        report(st, 'E-misplaced-directive', id, { 'missing-extern' })
+    end
     local measures = {}
     local revealed = {}
     for _, d in ipairs(fn.directives) do
         local dn = st.src.nodes[d]
         if kind ~= 'exec' and not allowed[dn.tag] then
             report(st, 'E-misplaced-directive', d, { kind .. '-directive' })
+        elseif support.TRUST_FLAGS[dn.tag] and not st.meta_kind then
+            -- the flags describe trusted code, so they sit only on an `---@unsafe` function here
+            if not unsafe then
+                report(st, 'E-misplaced-directive', d, { 'untrusted-flag' })
+            end
         elseif not allowed[dn.tag] then
             report(st, 'E-unsupported-directive', d, { support.DIRECTIVE_TAGS[dn.tag] })
         elseif dn.tag == 'ClvRevealWithFuel' then
@@ -520,7 +583,7 @@ local function visit_function_directives(st, id, scope)
             returns[#returns + 1] = d
         elseif dn.tag == 'ClvPre' or dn.tag == 'ClvPost' then
             clauses[#clauses + 1] = d
-        elseif dn.tag == 'ClvDecrease' and arena.has_directive(st.src, fn, 'ClvUnsafe') then
+        elseif dn.tag == 'ClvDecrease' and unsafe then
             report(st, 'E-misplaced-directive', d, { 'unsafe-decrease' })
         elseif dn.tag == 'ClvDecrease' and #measures > 0 then
             report(st, 'E-misplaced-directive', d, { 'repeated-decrease' })
@@ -614,7 +677,8 @@ local function visit_function(st, id, scope, unit, binder)
     end
     local kind = st.out.kinds[id]
     local unsafe = arena.has_directive(st.src, fn, 'ClvUnsafe')
-    local root = (unit ~= 0 or unsafe) and id or 0
+    -- a function in a `---@meta` file is a contract with no body to verify, like an `---@unsafe` one
+    local root = (unit ~= 0 or unsafe or st.meta_functions[id]) and id or 0
     local outer_fn, outer_mode = st.fn, st.mode
     local outer_proof_loops = st.proof_loops
     st.mode = kind == 'spec' and 'spec' or (kind == 'lemma' and 'proof' or 'exec')
@@ -773,6 +837,9 @@ function visit(st, id, scope, unit)
 
     local child_scope = scope
     local child_unit = unit
+    if n.tag == 'Local' and unit == 0 and st.top_statements[id] then
+        record_aliases(st, n --[[@as SrcLocal]], scope)
+    end
     if n.tag == 'Block' or n.tag == 'Forin' then
         child_scope = open(st, scope)
     elseif n.tag == 'ClvRegion' then
@@ -956,16 +1023,22 @@ local function find_definitions(st, statements, kind)
     end
 end
 
---- Resolves a parsed file.
+--- Returns an empty Resolution.
+--- @return Resolution
+local function new_resolution()
+    return { decl = {}, names = {}, functions = {}, defined = {}, constants = {}, assigned = {}, kinds = {}, fuel = {}, library = {}, floordiv = {} }
+end
+
+--- Makes the state for resolving one file into `out`.
 --- @param src SrcArena
---- @param root NodeId
---- @return Resolution res
---- @return Diag[] diags
-function M.run(src, root)
-    --- @type ResolveState
-    local st = {
+--- @param iface Interface|nil
+--- @param meta_kind MetaKind|nil
+--- @param out Resolution
+--- @return ResolveState
+local function new_state(src, iface, meta_kind, out)
+    return {
         src = src,
-        out = { decl = {}, names = {}, functions = {}, defined = {}, constants = {}, assigned = {}, kinds = {}, fuel = {} },
+        out = out,
         diags = {},
         scope_parent = {},
         scope_names = {},
@@ -984,7 +1057,60 @@ function M.run(src, root)
         proof_loops = nil,
         outer_reads = {},
         calls = {},
+        iface = iface,
+        meta_kind = meta_kind,
+        meta_functions = {},
+        top_statements = {},
+        alias_path = {},
+        alias_calls = {},
     }
+end
+
+--- Resolves the `---@meta` files of a run: the parameters and contracts of `fns`, the functions they
+--- declare.
+--- @param src SrcArena
+--- @param metas MetaRoot[]
+--- @param fns NodeId[] the Function nodes
+--- @return Resolution res
+--- @return Diag[] diags
+function M.meta(src, metas, fns)
+    local out = new_resolution()
+    local declared = {}
+    for _, fn in ipairs(fns) do
+        declared[fn] = true
+    end
+    local diags = {}
+    for _, m in ipairs(metas) do
+        local st = new_state(src, nil, m.kind, out)
+        st.meta_functions = declared
+        visit(st, m.root, 0, 0)
+        for _, d in ipairs(st.diags) do
+            diags[#diags + 1] = d
+        end
+    end
+    return out, diags
+end
+
+--- Resolves a parsed file. The names that the run's `---@meta` files declare are callable from its
+--- marked code.
+--- @param src SrcArena
+--- @param root NodeId
+--- @param iface Interface|nil
+--- @return Resolution res
+--- @return Diag[] diags
+function M.run(src, root, iface)
+    local st = new_state(src, iface, nil, new_resolution())
+    -- the run's resolution covers the `---@meta` files too, since a call lowers its callee's contract
+    if iface ~= nil then
+        for id = 1, #src.nodes do
+            st.out.decl[id] = iface.res.decl[id]
+            st.out.names[id] = iface.res.names[id]
+        end
+    end
+    local top = src.nodes[root] --[[@as SrcBlock]]
+    for _, id in ipairs(top.statements) do
+        st.top_statements[id] = true
+    end
     local statements = top_level(src, root)
     find_definitions(st, statements, 'exec')
     -- the Binders of top-level locals with a literal initializer, and the initializers
@@ -1021,6 +1147,11 @@ function M.run(src, root)
             report(st, 'E-unsupported-feature', c.id, { 'reassigned-function' })
         elseif st.gapped[c.binder] then
             report(st, 'E-unsupported-feature', c.id, { 'forward-gap' })
+        end
+    end
+    for _, c in ipairs(st.alias_calls) do
+        if st.out.assigned[c.binder] then
+            report(st, 'E-unsupported-feature', c.id, { 'reassigned-alias' })
         end
     end
     return st.out, st.diags

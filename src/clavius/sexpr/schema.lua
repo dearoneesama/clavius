@@ -374,7 +374,7 @@ M.core = {
         { name = 'value', shape = 'bool' },
     },
     BinOp = {
-        { name = 'op', shape = 'enum', values = { '+', '-', '*', 'mod', '<', '<=', '>', '>=', '==', '!=', 'and', 'or', '=>' } },
+        { name = 'op', shape = 'enum', values = { '+', '-', '*', 'div', 'mod', '<', '<=', '>', '>=', '==', '!=', 'and', 'or', '=>' } },
         { name = 'lhs', shape = 'node' },
         { name = 'rhs', shape = 'node' },
     },

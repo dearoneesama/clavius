@@ -48,22 +48,36 @@ local M = {}
 -- 8. `splice.run` wraps statements 1 and 2 in a ClvRegion under the root Block, and reports the
 --    long-comment annotations that marked code may not have, such as `--[[@as T]]`.
 
---- Parses one file. Returns the arena and every syntax and annotation error.
+--- Parses one file into a new arena. Returns the arena and every syntax and annotation error.
 --- @param text string
 --- @param file FileId
 --- @return ParseResult
 --- @return Diag[] diags
 function M.run(text, file)
     local src = arena.new_src()
-    local chunk, diags = luacheck.convert(src, text, file)
+    local root, diags = M.append(src, text, file, false)
+    return { src = src, root = root }, diags
+end
+
+--- Parses one file of a run into the run's arena, after the files already in it. Returns the file's root
+--- Block, or 0 when the text doesn't parse, and every syntax and annotation error.
+--- @param src SrcArena
+--- @param text string
+--- @param file FileId
+--- @param meta boolean whether the file is a `---@meta` file
+--- @mut src
+--- @return NodeId root
+--- @return Diag[] diags
+function M.append(src, text, file, meta)
+    local chunk, diags = luacheck.convert(src, text, file, meta)
     if not chunk then
-        return { src = src, root = 0 }, diags
+        return 0, diags
     end
     local root, splice_diags = splice.run(src, chunk, arena.span(file, 1, #text))
     for _, d in ipairs(splice_diags) do
         diags[#diags + 1] = d
     end
-    return { src = src, root = root }, diags
+    return root, diags
 end
 
 return M

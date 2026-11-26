@@ -58,6 +58,7 @@ Clavius is being developed, so this table may change over time and may not refle
 |Arrays|-|
 |Maps|-|
 |Structures|-|
+|Function types|-|
 |LuaLS Unions, enums and casts|-|
 |LuaLS Generics|-|
 |Loops with invariants (`---@invariant`) and termination measures (`---@decrease`)|Yes|
@@ -65,8 +66,8 @@ Clavius is being developed, so this table may change over time and may not refle
 |Recursion with termination measures|Yes|
 |Varargs and multiple return values|-|
 |Module state and closures|-|
-|Standard library calls, including integer division (`math.floor(a / b)`) and modulo (`%`)|-|
-|Host functions|-|
+|Standard library calls, including integer division (`math.floor(a / b)`) and modulo (`%`)|Partial|
+|Host functions (`---@meta`, `---@extern`)|Yes|
 |Multiple files and modules|-|
 |OOP and classes|-|
 |Clavius ownership modes|-|
