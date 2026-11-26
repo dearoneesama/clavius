@@ -32,9 +32,18 @@ end
 
 ---@clavius end
 
--- a region's own statements are one unit, which the tag above its `begin` gives nonlinear arithmetic
+-- the tag above a region's `begin` gives nonlinear arithmetic to the unit of its own statements and
+-- to the functions it defines
 ---@proof_by nonlinear_arith
 ---@clavius begin
+---@param n integer
+---@pre 0 <= n and n <= 4096
+---@post result >= 0
+---@return integer
+local function square(n)
+    return n * n
+end
+
 local w = clip(4096)
 local h = clip(4096)
 local _ = w * h

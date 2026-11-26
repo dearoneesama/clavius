@@ -27,6 +27,7 @@ local arena = require 'clavius.ir.arena'
 
 --- @class Builder
 --- @field src SrcArena
+--- @field index NodeIndex
 --- @field res Resolution
 --- @field info TypeInfo
 --- @field effects Effects
@@ -56,14 +57,16 @@ local INT53_MIN = '-9007199254740992'
 local INT53_MAX = '9007199254740992'
 
 --- @param src SrcArena
+--- @param index NodeIndex
 --- @param res Resolution
 --- @param info TypeInfo
 --- @param effects Effects
 --- @param termination Termination
 --- @return Builder
-function M.new(src, res, info, effects, termination)
+function M.new(src, index, res, info, effects, termination)
     return {
         src = src,
+        index = index,
         res = res,
         info = info,
         effects = effects,

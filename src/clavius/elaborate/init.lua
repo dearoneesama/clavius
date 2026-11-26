@@ -536,7 +536,7 @@ end
 --- An exec function's callers are trusted to pass well-typed arguments that meet its `---@pre`s, since
 --- some may be outside verification; verified ones check the `---@pre`s. Only proof code calls a lemma,
 --- and it checks both. A spec function's unit checks its body without the definitions of its cycle. A
---- unit is nonlinear when its function is `---@proof_by nonlinear_arith`.
+--- unit is nonlinear when its function or the region it is in is `---@proof_by nonlinear_arith`.
 --- @param b Builder
 --- @param binder NodeId the Binder that the function's definition defines
 --- @mut b
@@ -598,7 +598,9 @@ local function function_unit(b, binder)
     end
     b.fn, b.ghost, b.fuel = nil, false, {}
     builder.emit(b, body, { tag = 'Block', label = 'body', body = inner }, fn_id)
-    local arith = arena.has_directive(b.src, fn, 'ClvProofBy') and 'nonlinear' or 'linear'
+    local region = b.index.region[fn_id]
+    local nonlinear_region = region ~= 0 and arena.has_directive(b.src, b.src.nodes[region] --[[@as SrcClvRegion]], 'ClvProofBy')
+    local arith = (nonlinear_region or arena.has_directive(b.src, fn, 'ClvProofBy')) and 'nonlinear' or 'linear'
     return builder.add(b, { tag = 'Unit', name = builder.name_of(b, binder), arith = arith, vars = b.vars, body = body }, fn_id)
 end
 
@@ -857,13 +859,14 @@ end
 --- `main$2` and so on. The declarations come first: the Funs and axioms of the spec functions.
 --- @param src SrcArena
 --- @param root NodeId
+--- @param index NodeIndex
 --- @param res Resolution
 --- @param info TypeInfo
 --- @param effects Effects
 --- @param termination Termination
 --- @return CoreProgram
-function M.run(src, root, res, info, effects, termination)
-    local b = builder.new(src, res, info, effects, termination)
+function M.run(src, root, index, res, info, effects, termination)
+    local b = builder.new(src, index, res, info, effects, termination)
     local fueled = false
     for _, block in ipairs(blocks(src, root)) do
         for _, s in ipairs(block.tag == 'ClvSpec' and block.statements or {}) do
