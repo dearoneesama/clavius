@@ -6,13 +6,13 @@
 
 local arena = require 'clavius.ir.arena'
 local builder = require 'clavius.elaborate.builder'
+local support = require 'clavius.ir.support'
 
 local M = {}
 
 -- the core operator of each source operator other than `and` and `or`
 --- @type table<string, '+' | '-' | '*' | '<' | '<=' | '>' | '>=' | '==' | '!='>
 local OPS = { add = '+', sub = '-', mul = '*', lt = '<', le = '<=', gt = '>', ge = '>=', eq = '==', ne = '!=' }
-local RANGE_CHECKED = { add = true, sub = true, mul = true }
 
 --- Returns the decimal digits of an int53 literal.
 --- @param text string a decimal or hexadecimal integer
@@ -256,7 +256,7 @@ function M.lower(b, id, out)
         local l = M.lower(b, n.lhs, out)
         local r = M.lower(b, n.rhs, out)
         local t = builder.add(b, { tag = 'BinOp', op = OPS[n.op], lhs = l, rhs = r }, id)
-        if RANGE_CHECKED[n.op] and not b.spec and not b.ghost then
+        if support.ARITH[n.op] and not b.spec and not b.ghost then
             builder.check(b, out, 'range', builder.is_int53(b, t, id), id)
         end
         return t

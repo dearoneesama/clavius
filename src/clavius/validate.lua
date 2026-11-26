@@ -15,6 +15,7 @@
 local arena = require 'clavius.ir.arena'
 local diag = require 'clavius.ir.diag'
 local obligation = require 'clavius.ir.obligation'
+local support = require 'clavius.ir.support'
 
 local M = {}
 
@@ -155,8 +156,6 @@ local function check_statements(core, ids, tables, checked, labels, diags)
     end
 end
 
-local RANGE_CHECKED = { add = true, sub = true, mul = true }
-
 --- Adds a key for each contract clause in `clauses`.
 --- @param keys NeededKey[]
 --- @param kind ObligationKind
@@ -181,7 +180,7 @@ local function needed(source, id)
     -- ghost code never runs, so its arithmetic is exact
     local ghost = source.index.ghost[id] ~= 0
     local keys = {}
-    if n.tag == 'BinOp' and RANGE_CHECKED[n.op] and not ghost then
+    if n.tag == 'BinOp' and support.ARITH[n.op] and not ghost then
         keys[1] = { kind = 'range', clause = 0 }
     elseif n.tag == 'Call' and source.callees[id] ~= nil then
         local callee = src.nodes[source.callees[id]] --[[@as SrcFunction]]

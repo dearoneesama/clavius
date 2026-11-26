@@ -393,9 +393,6 @@ local function visit_set(st, id, scope, unit)
     end
 end
 
--- the statements that a spec function's body may hold: its body is one term
-local SPEC_STATEMENTS = { If = true, Local = true, Return = true, Block = true }
-
 --- Visits the statements of a list. A call among them is a statement call. In a spec function's body,
 --- a statement other than `if`, `local` and `return` is reported and not visited.
 --- @param st ResolveState
@@ -406,7 +403,7 @@ local SPEC_STATEMENTS = { If = true, Local = true, Return = true, Block = true }
 local function visit_statements(st, statements, scope, unit)
     for _, statement in ipairs(statements) do
         local tag = st.src.nodes[statement].tag
-        if unit ~= 0 and st.mode == 'spec' and not SPEC_STATEMENTS[tag] then
+        if unit ~= 0 and st.mode == 'spec' and not support.SPEC_STATEMENTS[tag] then
             report(st, 'E-mode', statement, { 'spec-statement' })
         elseif tag == 'Call' then
             visit_call(st, statement, scope, unit, true)
@@ -885,9 +882,6 @@ local function top_level(src, root)
     return out
 end
 
--- ghost code, which runs no code at runtime
-local GHOST_CODE = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost = true, ClvAssert = true, ClvAssume = true }
-
 --- Finds the top-level function definitions. Besides `local function f`, mutual recursion needs a
 --- function declared by a top-level `local g` without values and defined by the first top-level
 --- `function g(…)` or `g = function(…)` that assigns that local. Its definition is gapped when code
@@ -933,7 +927,7 @@ local function find_definitions(st, statements, kind)
                 -- rejected too. telling those apart would need the callees that `types` finds
                 for k = declared_at[b] + 1, i - 1 do
                     local between = src.nodes[statements[k]]
-                    local runs = not (GHOST_CODE[between.tag] or (between.tag == 'Local' and #between.values == 0))
+                    local runs = not (support.GHOST_CODE[between.tag] or (between.tag == 'Local' and #between.values == 0))
                     if st.out.defined[statements[k]] == nil and runs then
                         st.gapped[b] = true
                     end

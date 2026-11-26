@@ -29,7 +29,6 @@ local M = {}
 local INT53_MAX = '9007199254740992'
 local INT53_MAX_HEX = '20000000000000'
 
-local ARITH = { add = true, sub = true, mul = true }
 local ORDER = { lt = true, le = true, gt = true, ge = true }
 
 local INTEGERS = { int53 = true, Int = true, Nat = true }
@@ -284,7 +283,7 @@ function expression(st, id)
     elseif n.tag == 'BinOp' then
         local l = expression(st, n.lhs)
         local r = expression(st, n.rhs)
-        if ARITH[n.op] or ORDER[n.op] then
+        if support.ARITH[n.op] or ORDER[n.op] then
             local ok_l = want_int(st, n.lhs, l)
             local ok_r = want_int(st, n.rhs, r)
             if ok_l and ok_r and ORDER[n.op] then

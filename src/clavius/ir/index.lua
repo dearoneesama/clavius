@@ -3,9 +3,7 @@
 
 local arena = require 'clavius.ir.arena'
 local source_nodes = require 'clavius.ir.source_nodes'
-
--- the nodes that hold ghost code
-local GHOST = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost = true, ClvAssert = true, ClvAssume = true }
+local support = require 'clavius.ir.support'
 
 --- @class NodeIndex
 --- @field by_tag table<string, NodeId[]> the ids of each kind's nodes in ascending order
@@ -76,7 +74,7 @@ function M.build(src)
         else
             region[id] = src.nodes[p].tag == 'ClvRegion' and p or region[p]
             unit[id] = child_unit(src, p, unit[p], id)
-            ghost[id] = GHOST[src.nodes[p].tag] and p or ghost[p]
+            ghost[id] = support.GHOST_CODE[src.nodes[p].tag] and p or ghost[p]
         end
     end
     return { by_tag = by_tag, parent = parent, region = region, unit = unit, ghost = ghost }

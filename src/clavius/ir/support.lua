@@ -60,6 +60,18 @@ M.BINOPS = {
 --- @type table<string, boolean>
 M.UNOPS = { unm = true, ['not'] = true }
 
+--- The arithmetic binary operators, which take and give integers.
+--- @type table<string, boolean>
+M.ARITH = { add = true, sub = true, mul = true }
+
+--- Source kinds that hold ghost code.
+--- @type table<string, boolean>
+M.GHOST_CODE = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost = true, ClvAssert = true, ClvAssume = true }
+
+--- Statement kinds that a spec function's body may hold, since the body is one term.
+--- @type table<string, boolean>
+M.SPEC_STATEMENTS = { If = true, Local = true, Return = true, Block = true }
+
 --- Types that marked code may use.
 --- @type table<string, boolean>
 M.TYPES = { int53 = true, boolean = true }
