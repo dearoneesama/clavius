@@ -400,6 +400,11 @@ M.core = {
         { name = 'triggers', shape = 'list' },
         { name = 'body', shape = 'node' },
     },
+    Exists = {
+        { name = 'vars', shape = 'list' },
+        { name = 'triggers', shape = 'list' },
+        { name = 'body', shape = 'node' },
+    },
     Trigger = {
         { name = 'terms', shape = 'list' },
     },

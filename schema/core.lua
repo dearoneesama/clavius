@@ -6,7 +6,7 @@ local OPS = "'+' | '-' | '*' | 'mod' | '<' | '<=' | '>' | '>=' | '==' | '!=' | '
 local DOC = [[
 A declaration is a SortDecl, FunDecl or Axiom node.
 A statement node is an Assign, Havoc, Assume, Check, Branch, Choice, Block or Exit node.
-A term node is a Var, Int, Bool, BinOp, Not, Ite, Let, App or Forall node.]]
+A term node is a Var, Int, Bool, BinOp, Not, Ite, Let, App, Forall or Exists node.]]
 
 --- @type NodeType[]
 local NODES = {
@@ -85,7 +85,12 @@ local NODES = {
         doc = 'A term that holds for every value of its variables. It is used where a Trigger matches.',
         fields = { { 'vars', 'node[]', 'VarDecl nodes' }, { 'triggers', 'node[]', 'Trigger nodes' }, { 'body', 'node', 'a term node' } },
     },
-    { tag = 'Trigger', doc = 'Terms that together instantiate a Forall.', fields = { { 'terms', 'node[]', 'term nodes' } } },
+    {
+        tag = 'Exists',
+        doc = 'A term that holds for some value of its variables. Its Triggers matter where it is checked.',
+        fields = { { 'vars', 'node[]', 'VarDecl nodes' }, { 'triggers', 'node[]', 'Trigger nodes' }, { 'body', 'node', 'a term node' } },
+    },
+    { tag = 'Trigger', doc = 'Terms that together instantiate a Forall or Exists.', fields = { { 'terms', 'node[]', 'term nodes' } } },
 }
 
 --- @type NodeSchema

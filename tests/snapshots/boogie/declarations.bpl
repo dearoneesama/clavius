@@ -11,4 +11,5 @@ procedure {:rlimit 10000000} sizes()
   assert {:msg "O1"} size(t, 3) >= 3;
   assert {:msg "O2"} size(empty(), 0) >= 0;
   assert {:msg "O3"} size(empty(), 0) > 0;
+  assert {:msg "O4"} (exists k: int :: { size(t, k) } size(t, k) >= k);
 }

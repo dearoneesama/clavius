@@ -1,6 +1,6 @@
 ; fails: O3
 ; Sorts, functions and axioms come before the units, and every unit may assume the axioms. A
-; constant is a function with no parameters.
+; constant is a function with no parameters. Foralls and Exists carry triggers.
 (SortDecl S)
 (FunDecl empty [] S)
 (FunDecl size [(VarDecl s S) (VarDecl k int)] int)
@@ -14,8 +14,14 @@
   [(Havoc t)
    (Check 1 (BinOp >= (App size [(Var t) (Int 3)]) (Int 3)))
    (Check 2 (BinOp >= (App size [(App empty []) (Int 0)]) (Int 0)))
-   (Check 3 (BinOp > (App size [(App empty []) (Int 0)]) (Int 0)))])
+   (Check 3 (BinOp > (App size [(App empty []) (Int 0)]) (Int 0)))
+   (Check 4
+     (Exists
+       [(VarDecl k int)]
+       [(Trigger [(App size [(Var t) (Var k)])])]
+       (BinOp >= (App size [(Var t) (Var k)]) (Var k))))])
 
 (obligation 1 :kind assert :node 0)
 (obligation 2 :kind assert :node 0)
 (obligation 3 :kind assert :node 0)
+(obligation 4 :kind assert :node 0)

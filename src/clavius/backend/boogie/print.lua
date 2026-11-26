@@ -86,7 +86,7 @@ local function term(core, id)
             args[i] = term(core, a)
         end
         return ('%s(%s)'):format(n.fn, table.concat(args, ', '))
-    elseif n.tag == 'Forall' then
+    elseif n.tag == 'Forall' or n.tag == 'Exists' then
         local triggers = {}
         for i, t in ipairs(n.triggers) do
             local terms = {}
@@ -97,7 +97,8 @@ local function term(core, id)
             end
             triggers[i] = ('{ %s } '):format(table.concat(terms, ', '))
         end
-        return ('(forall %s :: %s%s)'):format(bindings(core, n.vars), table.concat(triggers), term(core, n.body))
+        local quantifier = n.tag == 'Forall' and 'forall' or 'exists'
+        return ('(%s %s :: %s%s)'):format(quantifier, bindings(core, n.vars), table.concat(triggers), term(core, n.body))
     end
     error(('boogie.print: unhandled term %s'):format(n.tag))
 end

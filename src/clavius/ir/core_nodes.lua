@@ -2,7 +2,7 @@
 --
 -- A declaration is a SortDecl, FunDecl or Axiom node.
 -- A statement node is an Assign, Havoc, Assume, Check, Branch, Choice, Block or Exit node.
--- A term node is a Var, Int, Bool, BinOp, Not, Ite, Let, App or Forall node.
+-- A term node is a Var, Int, Bool, BinOp, Not, Ite, Let, App, Forall or Exists node.
 
 --- A sort with no values of its own but those of its functions.
 --- @class CoreSortDecl
@@ -136,7 +136,14 @@
 --- @field triggers NodeId[] Trigger nodes
 --- @field body NodeId a term node
 
---- Terms that together instantiate a Forall.
+--- A term that holds for some value of its variables. Its Triggers matter where it is checked.
+--- @class CoreExists
+--- @field tag 'Exists'
+--- @field vars NodeId[] VarDecl nodes
+--- @field triggers NodeId[] Trigger nodes
+--- @field body NodeId a term node
+
+--- Terms that together instantiate a Forall or Exists.
 --- @class CoreTrigger
 --- @field tag 'Trigger'
 --- @field terms NodeId[] term nodes
@@ -164,6 +171,7 @@
 --- | 'Let'
 --- | 'App'
 --- | 'Forall'
+--- | 'Exists'
 --- | 'Trigger'
 
 --- @alias CoreNode
@@ -189,6 +197,7 @@
 --- | CoreLet
 --- | CoreApp
 --- | CoreForall
+--- | CoreExists
 --- | CoreTrigger
 
 local M = {}
@@ -253,6 +262,14 @@ function M.children(n)
             kids[#kids + 1] = kid
         end
     elseif n.tag == 'Forall' then
+        for _, kid in ipairs(n.vars) do
+            kids[#kids + 1] = kid
+        end
+        for _, kid in ipairs(n.triggers) do
+            kids[#kids + 1] = kid
+        end
+        kids[#kids + 1] = n.body
+    elseif n.tag == 'Exists' then
         for _, kid in ipairs(n.vars) do
             kids[#kids + 1] = kid
         end

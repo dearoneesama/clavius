@@ -56,7 +56,7 @@ local function check_term(core, id, diags)
         for _, a in ipairs(n.args) do
             check_term(core, a, diags)
         end
-    elseif n.tag == 'Forall' then
+    elseif n.tag == 'Forall' or n.tag == 'Exists' then
         check_vars(core, n.vars, diags)
         for _, t in ipairs(n.triggers) do
             local trigger = core.nodes[t]
