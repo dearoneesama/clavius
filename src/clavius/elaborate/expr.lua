@@ -134,6 +134,58 @@ function M.spec_term(b, rest)
     error(('elaborate: unhandled spec statement %s'):format(n.tag))
 end
 
+--- Returns the term that applies the FunDecl of the spec function `fn_id` to `terms`, after the fuel
+--- when it is recursive. In the axiom that defines a function of its cycle, the fuel is one less than
+--- the axiom's.
+--- @param b Builder
+--- @param fn_id NodeId
+--- @param terms NodeId[] a term for each parameter
+--- @param origin NodeId
+--- @mut b
+--- @return NodeId
+local function apply(b, fn_id, terms, origin)
+    local spec = b.spec_of[fn_id]
+    local args = {}
+    if spec.recursive and b.axiom ~= nil and builder.same_cycle(b, b.axiom.fn, fn_id) then
+        args[1] = builder.add(b, { tag = 'Var', name = b.axiom.fuel }, origin)
+    elseif spec.recursive then
+        args[1] = builder.fuel(b, b.fuel[fn_id] or 1, origin)
+    end
+    for _, t in ipairs(terms) do
+        args[#args + 1] = t
+    end
+    return builder.add(b, { tag = 'App', fn = spec.name, args = args }, origin)
+end
+
+--- Lowers a quantifier over a spec function by name to a Forall or Exists over its parameters, whose
+--- body is its call, which is also the trigger. Each parameter's type fact guards the body: `n >= 0 =>`
+--- for a `Nat` under `forall`, and `n >= 0 and` under `exists`.
+--- @param b Builder
+--- @param id NodeId
+--- @param fn_id NodeId
+--- @mut b
+--- @return NodeId term
+local function named_quantifier(b, id, fn_id)
+    local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
+    local forall = b.res.prelude[id] == 'forall'
+    local vars, terms = {}, {}
+    for i, p in ipairs(fn.params) do
+        local name = builder.name_of(b, p)
+        vars[i] = builder.add(b, { tag = 'VarDecl', name = name, sort = builder.sort(b.info.types[p]) }, p)
+        terms[i] = builder.add(b, { tag = 'Var', name = name }, p)
+    end
+    local call = apply(b, fn_id, terms, id)
+    local body = call
+    for i = #fn.params, 1, -1 do
+        local fact = builder.type_fact(b, b.info.types[fn.params[i]], terms[i], id)
+        if fact ~= nil then
+            body = builder.add(b, { tag = 'BinOp', op = forall and '=>' or 'and', lhs = fact, rhs = body }, id)
+        end
+    end
+    local triggers = { builder.add(b, { tag = 'Trigger', terms = { call } }, id) }
+    return builder.add(b, { tag = forall and 'Forall' or 'Exists', vars = vars, triggers = triggers, body = body }, id)
+end
+
 --- Lowers a call of `forall` or `exists` to a Forall or Exists over its function's parameters, whose
 --- body is that function's, and whose trigger is the one `triggers` chose. A `local` of the body stands
 --- for its value in the trigger, which is outside the body.
@@ -143,6 +195,9 @@ end
 --- @return NodeId term
 function M.quantifier(b, id)
     local n = b.src.nodes[id] --[[@as SrcCall]]
+    if b.src.nodes[n.args[1]].tag == 'Id' then
+        return named_quantifier(b, id, b.res.functions[b.res.decl[n.args[1]]])
+    end
     local fn = b.src.nodes[n.args[1]] --[[@as SrcFunction]]
     local vars = {}
     for i, p in ipairs(fn.params) do
@@ -260,10 +315,9 @@ function M.call(b, id, out)
     return value
 end
 
---- Lowers a call of a spec function to the term that applies its FunDecl to the arguments, after the
---- fuel when the callee is recursive. In the axiom that defines a function of the callee's cycle, the
---- fuel is one less than the axiom's. A call that stays in the cycle of the spec function whose unit is
---- being built checks the measure, and then assumes the value's type, which that unit proves.
+--- Lowers a call of a spec function to the term that applies its FunDecl to the arguments. A call that
+--- stays in the cycle of the spec function whose unit is being built checks the measure, and then
+--- assumes the value's type, which that unit proves.
 --- @param b Builder
 --- @param id NodeId
 --- @param out NodeId[]
@@ -277,17 +331,11 @@ function M.spec_call(b, id, out)
     local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
     local subst = arguments(b, n, fn, out)
     local recursive = not b.spec and check_decrease(b, id, fn_id, subst, out)
-    local spec = b.spec_of[fn_id]
-    local args = {}
-    if spec.recursive and b.axiom ~= nil and builder.same_cycle(b, b.axiom.fn, fn_id) then
-        args[1] = builder.add(b, { tag = 'Var', name = b.axiom.fuel }, id)
-    elseif spec.recursive then
-        args[1] = builder.fuel(b, b.fuel[fn_id] or 1, id)
+    local terms = {}
+    for i, p in ipairs(fn.params) do
+        terms[i] = subst[p]
     end
-    for _, p in ipairs(fn.params) do
-        args[#args + 1] = subst[p]
-    end
-    local app = builder.add(b, { tag = 'App', fn = spec.name, args = args }, id)
+    local app = apply(b, fn_id, terms, id)
     local r = arena.directives(b.src, fn, 'ClvReturn')[1]
     local fact = recursive and builder.type_fact(b, b.info.types[r], app, id)
     if fact then

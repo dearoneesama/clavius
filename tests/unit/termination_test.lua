@@ -205,6 +205,14 @@ describe('termination', function()
             local function other(n)
                 return forall(function(i) return implies(0 <= i and i < n, all_below(i)) end)
             end
+
+            -- a quantifier over a spec function by name that calls itself
+            ---@param n Int
+            ---@return boolean
+            ---@decrease 0
+            local function itself(n)
+                return not forall(itself) --! E-unsupported-feature
+            end
             ]]
             ]=]
         )

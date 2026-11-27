@@ -12,6 +12,9 @@
 -- `trigger(e)` marks a term by hand. A quantifier's marks are its trigger, in place of the one this
 -- pass would choose, and each belongs to the innermost quantifier around it whose variables it
 -- mentions.
+--
+-- A quantifier over a spec function by name, as in `forall(p)`, gets no trigger here. Its body is
+-- the one call `p(x)`, which is already the best trigger, and `elaborate` makes it the trigger.
 
 local diag = require 'clavius.ir.diag'
 local source_nodes = require 'clavius.ir.source_nodes'
@@ -61,13 +64,19 @@ local function union(into, from)
     end
 end
 
---- Returns the function that a `forall` or `exists` call takes.
+--- Returns the function literal that a `forall` or `exists` call takes, or nil for any other node,
+--- including such a call over a spec function by name, whose trigger is its one call.
 --- @param src SrcArena
---- @param id NodeId the Call
---- @return SrcFunction
-local function body_of(src, id)
+--- @param res Resolution
+--- @param id NodeId
+--- @return SrcFunction|nil
+local function literal_of(src, res, id)
+    if res.prelude[id] ~= 'forall' and res.prelude[id] ~= 'exists' then
+        return nil
+    end
     local call = src.nodes[id] --[[@as SrcCall]]
-    return src.nodes[call.args[1]] --[[@as SrcFunction]]
+    local fn = src.nodes[call.args[1]]
+    return fn.tag == 'Function' and fn --[[@as SrcFunction]] or nil
 end
 
 --- Returns what a trigger can make of the expression `id`. A `local` of a quantifier's body stands
@@ -146,8 +155,9 @@ end
 --- @decrease id
 local function inner_binders(st, id, out)
     local n = st.src.nodes[id]
-    if n.tag == 'Call' and (st.res.prelude[id] == 'forall' or st.res.prelude[id] == 'exists') then
-        for _, p in ipairs(body_of(st.src, id).params) do
+    local fn = literal_of(st.src, st.res, id)
+    if fn ~= nil then
+        for _, p in ipairs(fn.params) do
             out[p] = true
         end
     end
@@ -299,8 +309,9 @@ local function owner(src, idx, res, id, t)
     local p = idx.parent[id]
     while p ~= 0 do
         local q = idx.parent[p]
-        if src.nodes[p].tag == 'Function' and q ~= 0 and (res.prelude[q] == 'forall' or res.prelude[q] == 'exists') then
-            local params = body_of(src, q).params
+        local fn = q ~= 0 and literal_of(src, res, q) or nil
+        if fn ~= nil and fn == src.nodes[p] then
+            local params = fn.params
             local both = {}
             union(both, t.mentions)
             union(both, params)
@@ -399,7 +410,7 @@ local function marks(st, idx, groups, bad, diags)
     end
 end
 
---- Chooses the trigger of every `forall` and `exists` call that `resolve` found.
+--- Chooses the trigger of every `forall` and `exists` call over a function literal that `resolve` found.
 --- @param src SrcArena
 --- @param idx NodeIndex
 --- @param res Resolution
@@ -411,9 +422,10 @@ function M.run(src, idx, res, info)
     local st = { src = src, res = res, info = info, binder = {}, locals = {} }
     local quantifiers = {}
     for _, id in ipairs(idx.by_tag.Call or {}) do
-        if res.prelude[id] == 'forall' or res.prelude[id] == 'exists' then
+        local fn = literal_of(src, res, id)
+        if fn ~= nil then
             quantifiers[#quantifiers + 1] = id
-            for _, p in ipairs(body_of(src, id).params) do
+            for _, p in ipairs(fn.params) do
                 st.binder[p] = true
             end
         end
@@ -442,7 +454,7 @@ function M.run(src, idx, res, info)
     marks(st, idx, found_marks, bad_marks, diags)
 
     for _, id in ipairs(quantifiers) do
-        local fn = body_of(src, id)
+        local fn = assert(literal_of(src, res, id))
         --- @type NodeId[]|nil
         local group
         local missing = 'no-trigger'

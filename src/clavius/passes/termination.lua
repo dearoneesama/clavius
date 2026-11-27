@@ -20,14 +20,29 @@ local diag = require 'clavius.ir.diag'
 
 local M = {}
 
+--- Returns the spec function that a `forall` or `exists` call takes by name, which it calls for each value
+--- of the bound variables, or nil.
+--- @param src SrcArena
+--- @param res Resolution
+--- @param id NodeId
+--- @return NodeId|nil
+local function quantified_spec(src, res, id)
+    if res.prelude[id] ~= 'forall' and res.prelude[id] ~= 'exists' then
+        return nil
+    end
+    local arg = (src.nodes[id] --[[@as SrcCall]]).args[1]
+    return src.nodes[arg].tag == 'Id' and res.functions[res.decl[arg]] or nil
+end
+
 --- Returns the verified functions by id, and the verified functions that each one calls, from the
---- callee table of `types`.
+--- callee table of `types`. A quantifier over a spec function by name calls it too.
 --- @param src SrcArena
 --- @param idx NodeIndex
+--- @param res Resolution
 --- @param info TypeInfo
 --- @return NodeId[] fns
 --- @return table<NodeId, NodeId[]> calls
-local function call_graph(src, idx, info)
+local function call_graph(src, idx, res, info)
     local fns = {}
     local calls = {}
     for _, id in ipairs(idx.by_tag.Function or {}) do
@@ -39,7 +54,7 @@ local function call_graph(src, idx, info)
     end
     for _, id in ipairs(idx.by_tag.Call or {}) do
         local caller = idx.unit[id]
-        local callee = info.callees[id]
+        local callee = info.callees[id] or quantified_spec(src, res, id)
         if calls[caller] ~= nil and callee ~= nil and calls[callee] ~= nil then
             calls[caller][#calls[caller] + 1] = callee
         end
@@ -89,10 +104,11 @@ end
 --- checked under the bound variables, where no check can go.
 --- @param src SrcArena
 --- @param idx NodeIndex
+--- @param res Resolution
 --- @param info TypeInfo
 --- @return Termination result
 --- @return Diag[] diags
-function M.run(src, idx, info)
+function M.run(src, idx, res, info)
     local diags = {}
     for _, tag in ipairs { 'While', 'Repeat' } do
         for _, id in ipairs(idx.by_tag[tag] or {}) do
@@ -103,7 +119,7 @@ function M.run(src, idx, info)
         end
     end
 
-    local fns, calls = call_graph(src, idx, info)
+    local fns, calls = call_graph(src, idx, res, info)
     --- @type table<NodeId, table<NodeId, boolean>>
     local reach = {}
     for _, f in ipairs(fns) do
@@ -150,7 +166,9 @@ function M.run(src, idx, info)
     end
     for _, id in ipairs(idx.by_tag.Call or {}) do
         local cycle = out.cycle[idx.unit[id]]
-        if cycle ~= nil and cycle == out.cycle[info.callees[id]] and in_quantifier(src, idx, id) then
+        local named = quantified_spec(src, res, id)
+        local callee = named or info.callees[id]
+        if cycle ~= nil and cycle == out.cycle[callee] and (named ~= nil or in_quantifier(src, idx, id)) then
             diags[#diags + 1] = diag.at_node('E-unsupported-feature', id, { 'quantifier-recursion' })
         end
     end

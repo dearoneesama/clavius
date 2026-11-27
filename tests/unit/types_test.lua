@@ -510,6 +510,7 @@ describe('types', function()
             -- `a == b` makes them one type, so `b`'s use as a boolean makes `a + 1` the error
             ---@assert forall(function(a, b) return implies(a == b and b, a + 1 > 0) end) --! E-type-mismatch
             ---@assert implies(1, true) --! E-unsupported-feature
+            ---@assert forall(f) --! E-type-mismatch
             ---@clavius end
             ]=]
         )

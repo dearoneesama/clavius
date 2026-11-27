@@ -18,6 +18,22 @@ local function p(i)
     return i > 0
 end
 
+---@param n Nat
+---@return boolean
+local function tri_ge(n)
+    return tri(n) >= n
+end
+
+---@param n Nat
+---@return boolean
+---@decrease n
+local function even(n)
+    if n == 0 then
+        return true
+    end
+    return not even(n - 1)
+end
+
 -- in a spec function's body, the quantifier is part of its definition axiom
 ---@param n Int
 ---@return boolean
@@ -49,8 +65,16 @@ local function at(n)
                 return implies(p(i) and i < j, p(j))
             end)
         end))
-        -- a marked term is the trigger, and the mark is the term itself
-        assert(forall(function(i) return implies(p(i), trigger(tri(i)) >= 0) end))
     ]]
+    -- the term `tri(n)` that the `---@post` needs, as its witness
+    ---@assert tri(n) >= 0
 end
+
+-- a marked term is the trigger, and the mark is the term itself
+---@assert forall(function(i) return implies(p(i), trigger(tri(i)) >= 0) end)
+-- by name, the spec function's call is the body and the trigger, and each `Nat` is guarded
+---@assert implies(forall(tri_ge), tri_ge(3))
+-- a recursive one's call, and so its trigger, takes the unit's fuel
+---@assert implies(even(2), exists(even))
+
 ---@clavius end

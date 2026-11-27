@@ -346,8 +346,24 @@ local function visit_quantifier(st, id, scope, unit)
     st.mode, st.fn, st.proof_loops = mode, outer_fn, proof_loops
 end
 
+--- Returns the spec function that the name `id` refers to in `scope`, or nil.
+--- @param st ResolveState
+--- @param id NodeId
+--- @param scope integer
+--- @return NodeId|nil binder
+local function spec_named(st, id, scope)
+    local n = st.src.nodes[id]
+    local b = n.tag == 'Id' and lookup(st, scope, n.name, true) or nil
+    local fn_id = b and st.out.functions[b]
+    if fn_id and st.out.kinds[fn_id] == 'spec' then
+        return b
+    end
+    return nil
+end
+
 --- Visits a call of a prelude function. Exec code can't call one, and a call is never a statement.
---- `forall` and `exists` take one function, `implies` two values and `trigger` one.
+--- `forall` and `exists` take one function, a literal or a spec function's name, `implies` two values
+--- and `trigger` one.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param name PreludeName
@@ -366,10 +382,11 @@ local function visit_prelude(st, id, name, scope, unit, is_statement)
             wrong = { 'E-mode', 'spec-call' }
         elseif is_statement then
             wrong = { 'E-unsupported-feature', 'prelude-statement' }
-        elseif quantifier and #n.args == 1 and first.tag == 'Id' then
-            wrong = { 'E-unsupported-feature', 'quantifier-named' }
-        elseif quantifier and not (#n.args == 1 and first.tag == 'Function') then
+        elseif quantifier and not (#n.args == 1 and (first.tag == 'Function' or spec_named(st, n.args[1], scope))) then
             wrong = { 'E-prelude-form', 'quantifier-args' }
+        elseif quantifier and first.tag == 'Id' and #st.src.nodes[st.out.functions[spec_named(st, n.args[1], scope)]].params == 0 then
+            -- a spec function of no parameters would give a quantifier over no variables
+            wrong = { 'E-prelude-form', 'quantifier-binders' }
         elseif name == 'implies' and #n.args ~= 2 then
             wrong = { 'E-prelude-form', 'implies-args' }
         elseif name == 'trigger' and #n.args ~= 1 then
@@ -383,7 +400,10 @@ local function visit_prelude(st, id, name, scope, unit, is_statement)
         end
     end
     for _, a in ipairs(n.args) do
-        if unit ~= 0 and quantifier then
+        if unit ~= 0 and quantifier and st.src.nodes[a].tag == 'Id' then
+            -- a spec function's name, which is read only as the quantifier's body
+            st.out.decl[a] = spec_named(st, a, scope)
+        elseif unit ~= 0 and quantifier then
             visit_quantifier(st, a, scope, unit)
         else
             visit(st, a, scope, unit)

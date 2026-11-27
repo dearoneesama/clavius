@@ -155,10 +155,10 @@ local PHRASES = {
     ['ghost-exec-call'] = "ghost code can't call an exec function, which runs only at runtime",
     ['quantifier-return'] = "every path through a quantifier's body should end in `return`",
     ['prelude-statement'] = 'a `forall`, `exists` or `implies` call as a statement',
-    ['quantifier-named'] = 'a quantifier over a spec function passed by name',
     ['quantifier-recursion'] = "a call in a quantifier's body that stays in its caller's cycle of recursive calls",
     ['prelude-value'] = '`forall`, `exists`, `implies` and `trigger` should only be called, as in `forall(function(i) return p(i) end)`',
-    ['quantifier-args'] = '`forall` and `exists` should take one function literal, whose parameters are the bound variables',
+    ['quantifier-args'] = '`forall` and `exists` should take one function literal or a spec function by name, '
+        .. 'whose parameters are the bound variables',
     ['quantifier-binders'] = "a quantifier's function should name its bound variables as parameters: at least one, and no `...`",
     ['implies-args'] = '`implies` should take two conditions: `implies(p, q)` says `q` holds wherever `p` does',
     ['trigger-args'] = '`trigger` should take one term: `trigger(f(i))`',

@@ -406,14 +406,25 @@ local statement
 
 --- Types a call of `forall` or `exists`. A bound variable is a `boolean` when its uses show one and an
 --- `Int` otherwise, and one with no such use is reported. The body is spec code whose value is a
---- `boolean`.
+--- `boolean`. A spec function passed by name must return a `boolean`, and its parameters' types are the
+--- bound variables'.
 --- @param st TypesState
 --- @param id NodeId
 --- @mut st
---- @return Type
+--- @return Type|nil
 local function quantifier(st, id)
     local n = st.src.nodes[id] --[[@as SrcCall]]
     local fn_id = n.args[1]
+    if st.src.nodes[fn_id].tag == 'Id' then
+        local spec = st.src.nodes[st.res.functions[st.res.decl[fn_id]]] --[[@as SrcFunction]]
+        local r = arena.directives(st.src, spec, 'ClvReturn')[1]
+        local ty = r and st.out.types[r]
+        if r == nil or (ty ~= nil and ty ~= 'boolean') then
+            report(st, 'E-type-mismatch', fn_id, { 'boolean', ty or 'no value' })
+            return nil
+        end
+        return ty
+    end
     local fn = st.src.nodes[fn_id] --[[@as SrcFunction]]
     --- @type BinderInference
     local inf = { unknown = {}, parent = {}, hint = {}, locals = {} }

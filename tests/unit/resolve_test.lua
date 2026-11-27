@@ -761,6 +761,9 @@ describe('resolve', function()
             ---@param i Int
             ---@return Int
             local function f(i) return i end
+
+            ---@return boolean
+            local function c() return true end
             ]]
             ---@param n integer
             ---@pre forall(function(i) return implies(i < n, f(i) < n) end)
@@ -771,7 +774,9 @@ describe('resolve', function()
                 ---@assert forall(function(i, j) local d = f(i) return d <= f(j) or d > f(j) end)
                 --[[@proof
                     forall(function(i) return f(i) == i end) --! E-unsupported-feature
-                    assert(forall(f)) --! E-unsupported-feature
+                    assert(forall(f))
+                    assert(forall(g)) --! E-prelude-form
+                    assert(forall(c)) --! E-prelude-form
                     assert(forall(function(i) return true end, 1)) --! E-prelude-form
                     assert(implies(true)) --! E-prelude-form
                     assert(forall(function(i) return trigger(f(i), 1) > 0 end)) --! E-prelude-form

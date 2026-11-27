@@ -75,7 +75,7 @@ end
 --- @param c CompilerContext
 --- @return Diag[]
 local function run_termination(c)
-    local result, diags = termination.run(c.src, assert(c.index), assert(c.info))
+    local result, diags = termination.run(c.src, assert(c.index), assert(c.res), assert(c.info))
     c.termination = result
     return diags
 end

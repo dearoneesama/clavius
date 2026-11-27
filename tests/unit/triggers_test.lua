@@ -153,6 +153,22 @@ describe('triggers', function()
             ]=])
     end)
 
+    it('chooses no trigger for a quantifier over a spec function by name', function()
+        local text = SPECS .. '---@clavius begin\n---@assert forall(p) and forall(function(i) return p(i) end)\n---@clavius end\n'
+        local c = driver.run_until('triggers', text, 1)
+        assert.are.same({}, c.diags)
+        local res = assert(c.res)
+        local groups = assert(c.triggers).groups
+        local has_group = {}
+        for id in ipairs(c.src.nodes) do
+            if res.prelude[id] == 'forall' then
+                has_group[#has_group + 1] = groups[id] ~= nil
+            end
+        end
+        -- elaborate makes the named one's call its trigger
+        assert.are.same({ false, true }, has_group)
+    end)
+
     it('takes the terms that `trigger(e)` marks, together, in place of its own choice', function()
         local found = chosen [[
             ---@assert forall(function(i) return implies(p(i), trigger(q(i))) end)
