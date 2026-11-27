@@ -321,6 +321,8 @@ function M.lower(b, id, out)
             return M.lower(b, b.res.constants[decl], out)
         end
         return builder.add(b, { tag = 'Var', name = builder.name_of(b, id) }, id)
+    elseif n.tag == 'Call' and b.res.prelude[id] == 'trigger' then
+        return M.lower(b, n.args[1], out)
     elseif n.tag == 'Call' and b.res.prelude[id] == 'implies' then
         return short_circuit(b, id, '=>', n.args[1], n.args[2], out)
     elseif n.tag == 'Call' and b.res.prelude[id] ~= nil then

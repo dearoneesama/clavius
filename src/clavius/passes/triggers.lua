@@ -8,6 +8,10 @@
 -- since the solver matches `f(i + 1)` only against a term written `f(x + 1)`. The trigger is the
 -- smallest candidate that mentions every bound variable. When none does, it is the smallest set of
 -- candidates that together mention them all.
+--
+-- `trigger(e)` marks a term by hand. A quantifier's marks are its trigger, in place of the one this
+-- pass would choose, and each belongs to the innermost quantifier around it whose variables it
+-- mentions.
 
 local diag = require 'clavius.ir.diag'
 local source_nodes = require 'clavius.ir.source_nodes'
@@ -55,6 +59,15 @@ local function union(into, from)
             into[#into + 1] = x
         end
     end
+end
+
+--- Returns the function that a `forall` or `exists` call takes.
+--- @param src SrcArena
+--- @param id NodeId the Call
+--- @return SrcFunction
+local function body_of(src, id)
+    local call = src.nodes[id] --[[@as SrcCall]]
+    return src.nodes[call.args[1]] --[[@as SrcFunction]]
 end
 
 --- Returns what a trigger can make of the expression `id`. A `local` of a quantifier's body stands
@@ -134,9 +147,7 @@ end
 local function inner_binders(st, id, out)
     local n = st.src.nodes[id]
     if n.tag == 'Call' and (st.res.prelude[id] == 'forall' or st.res.prelude[id] == 'exists') then
-        for _, p in
-            ipairs((st.src.nodes[n.args[1]] --[[@as SrcFunction]]).params)
-        do
+        for _, p in ipairs(body_of(st.src, id).params) do
             out[p] = true
         end
     end
@@ -276,6 +287,118 @@ local function choose(st, fn)
     return nil
 end
 
+--- Returns the `forall` or `exists` call whose body holds the node `id` most closely and whose bound
+--- variables `t` mentions, or nil.
+--- @param src SrcArena
+--- @param idx NodeIndex
+--- @param res Resolution
+--- @param id NodeId
+--- @param t TriggerTerm
+--- @return NodeId|nil
+local function owner(src, idx, res, id, t)
+    local p = idx.parent[id]
+    while p ~= 0 do
+        local q = idx.parent[p]
+        if src.nodes[p].tag == 'Function' and q ~= 0 and (res.prelude[q] == 'forall' or res.prelude[q] == 'exists') then
+            local params = body_of(src, q).params
+            local both = {}
+            union(both, t.mentions)
+            union(both, params)
+            -- some bound variable of q is among those that t mentions
+            if #both < #t.mentions + #params then
+                return q
+            end
+        end
+        p = idx.parent[p]
+    end
+    return nil
+end
+
+--- Adds the nodes under `id` that `wanted` holds to `out`, in source order.
+--- @param src SrcArena
+--- @param id NodeId
+--- @param wanted table<NodeId, boolean>
+--- @param out NodeId[]
+--- @mut out
+--- @decrease id
+local function in_order(src, id, wanted, out)
+    if wanted[id] then
+        out[#out + 1] = id
+    end
+    for _, kid in ipairs(source_nodes.children(src.nodes[id])) do
+        in_order(src, kid, wanted, out)
+    end
+end
+
+--- Returns the trigger that the `trigger(e)` marks `terms` in the quantifier `id`, whose function is
+--- `fn`, make: the terms in source order. Returns nil when they don't mention every bound variable.
+--- @param st TriggersState
+--- @param id NodeId
+--- @param fn SrcFunction
+--- @param terms NodeId[]
+--- @return NodeId[]|nil
+local function marked_trigger(st, id, fn, terms)
+    local wanted = {}
+    local covered = {}
+    for _, e in ipairs(terms) do
+        wanted[e] = true
+        union(covered, term(st, e).mentions)
+    end
+    if not covers_all(covered, fn.params) then
+        return nil
+    end
+    local ordered = {}
+    in_order(st.src, id, wanted, ordered)
+    return ordered
+end
+
+--- Adds each `trigger(e)` mark to the group of its quantifier, and reports one that isn't in a
+--- quantifier's body or whose term no trigger can use. A quantifier with such a mark is in `bad`.
+--- @param st TriggersState
+--- @param idx NodeIndex
+--- @param groups table<NodeId, NodeId[]>
+--- @param bad table<NodeId, boolean>
+--- @param diags Diag[]
+--- @mut groups
+--- @mut bad
+--- @mut diags
+local function marks(st, idx, groups, bad, diags)
+    for _, id in ipairs(idx.by_tag.Call or {}) do
+        if st.res.prelude[id] == 'trigger' then
+            local e = (st.src.nodes[id] --[[@as SrcCall]]).args[1]
+            local t = term(st, e)
+            local q = owner(st.src, idx, st.res, id, t)
+            local inside = false
+            local p = idx.parent[id]
+            while p ~= 0 and not inside do
+                inside = st.src.nodes[p].tag == 'Function' and st.res.prelude[idx.parent[p]] ~= nil
+                p = idx.parent[p]
+            end
+            -- through parentheses and a body's locals, as `term` reads them
+            local c = e
+            while st.src.nodes[c].tag == 'Paren' or st.locals[st.res.decl[c] or 0] ~= nil do
+                local cn = st.src.nodes[c]
+                c = cn.tag == 'Paren' and cn.expr or st.locals[st.res.decl[c]]
+            end
+
+            local spec_call = st.src.nodes[c].tag == 'Call' and st.res.kinds[st.info.callees[c]] == 'spec'
+            if not inside then
+                diags[#diags + 1] = diag.at_node('E-trigger', id, { 'trigger-outside' })
+            elseif q == nil or not (t.ok and spec_call) then
+                diags[#diags + 1] = diag.at_node('E-trigger', id, { 'trigger-term' })
+                if q ~= nil then
+                    bad[q] = true
+                end
+            else
+                -- arithmetic over a bound variable is allowed: the term fires only where the code
+                -- writes that arithmetic, which a step from `f(i)` to `f(i + 1)` needs
+                groups[q] = groups[q] or {}
+                groups[q][#groups[q] + 1] = e
+            end
+        end
+    end
+end
+
 --- Chooses the trigger of every `forall` and `exists` call that `resolve` found.
 --- @param src SrcArena
 --- @param idx NodeIndex
@@ -290,9 +413,7 @@ function M.run(src, idx, res, info)
     for _, id in ipairs(idx.by_tag.Call or {}) do
         if res.prelude[id] == 'forall' or res.prelude[id] == 'exists' then
             quantifiers[#quantifiers + 1] = id
-            local call = src.nodes[id] --[[@as SrcCall]]
-            local fn = src.nodes[call.args[1]] --[[@as SrcFunction]]
-            for _, p in ipairs(fn.params) do
+            for _, p in ipairs(body_of(src, id).params) do
                 st.binder[p] = true
             end
         end
@@ -315,14 +436,27 @@ function M.run(src, idx, res, info)
     --- @type Triggers
     local out = { groups = {}, locals = st.locals }
     local diags = {}
+    --- @type table<NodeId, NodeId[]>
+    local found_marks = {}
+    local bad_marks = {}
+    marks(st, idx, found_marks, bad_marks, diags)
+
     for _, id in ipairs(quantifiers) do
-        local call = src.nodes[id] --[[@as SrcCall]]
-        local fn = src.nodes[call.args[1]] --[[@as SrcFunction]]
-        local group = choose(st, fn)
-        if group == nil then
-            diags[#diags + 1] = diag.at_node('E-trigger', id, { 'no-trigger' })
+        local fn = body_of(src, id)
+        --- @type NodeId[]|nil
+        local group
+        local missing = 'no-trigger'
+        if found_marks[id] ~= nil then
+            group = marked_trigger(st, id, fn, found_marks[id])
+            missing = 'trigger-cover'
         else
+            group = choose(st, fn)
+        end
+        if group ~= nil then
             out.groups[id] = group
+        elseif not bad_marks[id] then
+            -- a quantifier with a bad mark has that reported already
+            diags[#diags + 1] = diag.at_node('E-trigger', id, { missing })
         end
     end
     return out, diags

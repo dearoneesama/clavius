@@ -87,7 +87,7 @@ M.CALLS = { assert = true, assume = true, error = true }
 --- The spec functions that Clavius provides, which spec and proof code may call where no local of the
 --- same name is in scope.
 --- @type table<string, boolean>
-M.PRELUDE = { forall = true, exists = true, implies = true }
+M.PRELUDE = { forall = true, exists = true, implies = true, trigger = true }
 
 --- Directive kinds that marked code may use above a function.
 --- @type table<string, boolean>

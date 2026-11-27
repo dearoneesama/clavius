@@ -766,6 +766,7 @@ describe('resolve', function()
             ---@pre forall(function(i) return implies(i < n, f(i) < n) end)
             local function g(n)
                 local p = exists(function(i) return f(i) == n end) --! E-mode
+                local t = trigger(f(n)) --! E-mode
                 ---@assert exists(function(i) return f(i) == n end)
                 ---@assert forall(function(i, j) local d = f(i) return d <= f(j) or d > f(j) end)
                 --[[@proof
@@ -773,6 +774,7 @@ describe('resolve', function()
                     assert(forall(f)) --! E-unsupported-feature
                     assert(forall(function(i) return true end, 1)) --! E-prelude-form
                     assert(implies(true)) --! E-prelude-form
+                    assert(forall(function(i) return trigger(f(i), 1) > 0 end)) --! E-prelude-form
                     assert(forall(function(...) return true end)) --! E-prelude-form
                     assert(forall(function() return true end)) --! E-prelude-form
                     assert(forall(function(i) if f(i) > 0 then return true end end)) --! E-mode

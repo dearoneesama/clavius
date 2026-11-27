@@ -49,6 +49,8 @@ local function at(n)
                 return implies(p(i) and i < j, p(j))
             end)
         end))
+        -- a marked term is the trigger, and the mark is the term itself
+        assert(forall(function(i) return implies(p(i), trigger(tri(i)) >= 0) end))
     ]]
 end
 ---@clavius end

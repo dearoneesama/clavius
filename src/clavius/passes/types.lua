@@ -355,6 +355,8 @@ local function infer(st, id, inf)
         local want = n.op == 'not' and 'boolean' or 'int'
         need(inf, infer(st, n.arg, inf), want)
         return want
+    elseif n.tag == 'Call' and st.res.prelude[id] == 'trigger' then
+        return infer(st, n.args[1], inf)
     elseif n.tag == 'Call' and st.res.prelude[id] == 'implies' then
         for _, a in ipairs(n.args) do
             need(inf, infer(st, a, inf), 'boolean')
@@ -477,6 +479,8 @@ function expression(st, id)
         if ok_p and ok_q then
             ty = 'boolean'
         end
+    elseif n.tag == 'Call' and st.res.prelude[id] == 'trigger' then
+        ty = expression(st, n.args[1])
     elseif n.tag == 'Call' and st.res.prelude[id] ~= nil then
         ty = quantifier(st, id)
     elseif n.tag == 'Call' then

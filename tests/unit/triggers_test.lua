@@ -152,4 +152,37 @@ describe('triggers', function()
             ---@clavius end
             ]=])
     end)
+
+    it('takes the terms that `trigger(e)` marks, together, in place of its own choice', function()
+        local found = chosen [[
+            ---@assert forall(function(i) return implies(p(i), trigger(q(i))) end)
+            -- without the marks, g(i, j) alone would be the trigger
+            ---@assert forall(function(i, j) return implies(i <= j, trigger(f(i)) <= trigger(f(j)) + g(i, j)) end)
+            ---@assert forall(function(i) return trigger(f(i + 1)) > f(i) end)
+            -- a mark sees through a body's locals and parentheses
+            ---@assert forall(function(i) local d = f(i) return trigger(d) > 0 or trigger((p(i))) end)
+        ]]
+        assert.are.same({ 'q(i)', 'f(i) f(j)', 'f(i + 1)', 'd (p(i))' }, found)
+    end)
+
+    it('gives a mark to the innermost quantifier around it whose bound variables it mentions', function()
+        local found = chosen [[
+            ---@assert forall(function(i) return forall(function(j) return implies(trigger(p(i)), g(i, j) >= 0) end) end)
+            ---@assert exists(function(i) return implies(p(i), forall(function(j) return trigger(g(i, j)) >= f(j) end)) end)
+        ]]
+        assert.are.same({ 'g(i, j)', 'p(i)', 'g(i, j)', 'p(i)' }, found)
+    end)
+
+    it("reports a mark outside a quantifier's body, one no trigger can use, and marks that miss a variable", function()
+        markers.expect_diags('triggers', SPECS .. stringx.dedent [=[
+            ---@clavius begin
+            ---@assert trigger(p(1)) --! E-trigger
+            ---@assert forall(function(i) return trigger(f(0)) <= f(i) end) --! E-trigger
+            ---@assert forall(function(i) return trigger(i) <= f(i) end) --! E-trigger
+            ---@assert forall(function(i, j) return trigger(f(i)) <= f(j) end) --! E-trigger
+            -- a bad mark is the one error, though the other mark misses i
+            ---@assert forall(function(i, j) return trigger(i) <= trigger(f(j)) end) --! E-trigger
+            ---@clavius end
+            ]=])
+    end)
 end)

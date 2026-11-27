@@ -19,7 +19,7 @@ local support = require 'clavius.ir.support'
 --- @field prelude table<NodeId, PreludeName> the prelude function that each call of one in marked code calls
 
 --- A spec function that Clavius provides.
---- @alias PreludeName 'forall' | 'exists' | 'implies'
+--- @alias PreludeName 'forall' | 'exists' | 'implies' | 'trigger'
 
 --- What a function is: a spec function, a lemma, or an exec function.
 --- @alias FunctionKind 'spec' | 'lemma' | 'exec'
@@ -347,7 +347,7 @@ local function visit_quantifier(st, id, scope, unit)
 end
 
 --- Visits a call of a prelude function. Exec code can't call one, and a call is never a statement.
---- `forall` and `exists` take one function, and `implies` two values.
+--- `forall` and `exists` take one function, `implies` two values and `trigger` one.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param name PreludeName
@@ -358,7 +358,7 @@ end
 --- @decrease id
 local function visit_prelude(st, id, name, scope, unit, is_statement)
     local n = st.src.nodes[id] --[[@as SrcCall]]
-    local quantifier = name ~= 'implies'
+    local quantifier = name == 'forall' or name == 'exists'
     if unit ~= 0 then
         local first = n.args[1] and st.src.nodes[n.args[1]]
         local wrong = nil
@@ -370,8 +370,10 @@ local function visit_prelude(st, id, name, scope, unit, is_statement)
             wrong = { 'E-unsupported-feature', 'quantifier-named' }
         elseif quantifier and not (#n.args == 1 and first.tag == 'Function') then
             wrong = { 'E-prelude-form', 'quantifier-args' }
-        elseif not quantifier and #n.args ~= 2 then
+        elseif name == 'implies' and #n.args ~= 2 then
             wrong = { 'E-prelude-form', 'implies-args' }
+        elseif name == 'trigger' and #n.args ~= 1 then
+            wrong = { 'E-prelude-form', 'trigger-args' }
         end
         if wrong ~= nil then
             report(st, wrong[1], id, { wrong[2] })

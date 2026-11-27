@@ -170,6 +170,13 @@
               (BinOp and (App p$4 [(Var i$20)]) (BinOp < (Var i$20) (Var j$21)))
               (App p$4 [(Var j$21)])))))
       (Check 14
+        (Forall
+          [(VarDecl i$22 int)]
+          [(Trigger [(App tri$1 [(App $succ [(App $zero [])]) (Var i$22)])])]
+          (BinOp =>
+            (App p$4 [(Var i$22)])
+            (BinOp >= (App tri$1 [(App $succ [(App $zero [])]) (Var i$22)]) (Int 0)))))
+      (Check 15
         (Exists
           [(VarDecl i$16 int)]
           [(Trigger [(App tri$1 [(App $succ [(App $zero [])]) (Var i$16)])])]
@@ -190,7 +197,8 @@
 (obligation 11 :kind nat :node 178)
 (obligation 12 :kind assert :node 183)
 (obligation 13 :kind assert :node 209)
-(obligation 14 :kind post :node 212 :clause 116)
+(obligation 14 :kind assert :node 229)
+(obligation 15 :kind post :node 232 :clause 116)
 
 (assumption 1 :kind definition :node 26)
 (assumption 2 :kind definition :node 26)
@@ -200,12 +208,12 @@
 (assumption 6 :kind definition :node 39)
 (assumption 7 :kind definition :node 67)
 (assumption 8 :kind definition :node 67)
-(assumption 9 :kind definition :node 212)
-(assumption 10 :kind definition :node 212)
-(assumption 11 :kind definition :node 212)
-(assumption 12 :kind trusted :node 118 :decl 212)
-(assumption 13 :kind trusted :node 79 :decl 212)
-(assumption 14 :kind trusted :node 102 :decl 212)
+(assumption 9 :kind definition :node 232)
+(assumption 10 :kind definition :node 232)
+(assumption 11 :kind definition :node 232)
+(assumption 12 :kind trusted :node 118 :decl 232)
+(assumption 13 :kind trusted :node 79 :decl 232)
+(assumption 14 :kind trusted :node 102 :decl 232)
 (assumption 15 :kind type_fact :node 166)
 (assumption 16 :kind invariant :node 129)
 (assumption 17 :kind invariant :node 148)
