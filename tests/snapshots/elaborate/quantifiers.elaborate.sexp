@@ -250,7 +250,7 @@
             (App tri$1 [(App $succ [(App $zero [])]) (Var i$22)])
             (App tri$1 [(App $succ [(App $zero [])]) (Var n$18)]))))])])
 (Unit main$1 linear
-  [(VarDecl $t1 bool)]
+  [(VarDecl $t1 bool) (VarDecl w$30 int) (VarDecl v$31 int)]
   [(Assume 38 (App $ok$tri$1 []))
    (Assume 39 (App $ok$p$4 []))
    (Assume 40 (App $ok$tri_ge$7 []))
@@ -280,7 +280,36 @@
          [(Trigger [(App even$10 [(App $succ [(App $zero [])]) (Var n$11)])])]
          (BinOp and
            (BinOp <= (Int 0) (Var n$11))
-           (App even$10 [(App $succ [(App $zero [])]) (Var n$11)])))))])
+           (App even$10 [(App $succ [(App $zero [])]) (Var n$11)])))))
+   (Havoc w$30)
+   (Assume 43
+     (BinOp =>
+       (Exists
+         [(VarDecl i$29 int)]
+         [(Trigger [(App p$4 [(Var i$29)])])]
+         (BinOp and
+           (App p$4 [(Var i$29)])
+           (BinOp > (App tri$1 [(App $succ [(App $zero [])]) (Var i$29)]) (Int 3))))
+       (BinOp and
+         (App p$4 [(Var w$30)])
+         (BinOp > (App tri$1 [(App $succ [(App $zero [])]) (Var w$30)]) (Int 3)))))
+   (Havoc v$31)
+   (Assume 44
+     (BinOp and
+       (BinOp <= (Int 0) (Var v$31))
+       (BinOp =>
+         (Exists
+           [(VarDecl n$11 int)]
+           [(Trigger [(App even$10 [(App $succ [(App $zero [])]) (Var n$11)])])]
+           (BinOp and
+             (BinOp <= (Int 0) (Var n$11))
+             (App even$10 [(App $succ [(App $zero [])]) (Var n$11)])))
+         (App even$10 [(App $succ [(App $zero [])]) (Var v$31)]))))
+   (Havoc w$30)
+   (Assume 45
+     (BinOp =>
+       (Exists [(VarDecl i$32 int)] [(Trigger [(App p$4 [(Var i$32)])])] (App p$4 [(Var i$32)]))
+       (App p$4 [(Var w$30)])))])
 
 (obligation 1 :kind nat :node 12)
 (obligation 2 :kind nat :node 20)
@@ -343,8 +372,11 @@
 (assumption 35 :kind invariant :node 189)
 (assumption 36 :kind assumed :node 200)
 (assumption 37 :kind back_edge :node 207)
-(assumption 38 :kind definition :node 298)
-(assumption 39 :kind definition :node 298)
-(assumption 40 :kind definition :node 298)
-(assumption 41 :kind definition :node 298)
-(assumption 42 :kind definition :node 298)
+(assumption 38 :kind definition :node 332)
+(assumption 39 :kind definition :node 332)
+(assumption 40 :kind definition :node 332)
+(assumption 41 :kind definition :node 332)
+(assumption 42 :kind definition :node 332)
+(assumption 43 :kind witness :node 312)
+(assumption 44 :kind witness :node 317)
+(assumption 45 :kind witness :node 329)

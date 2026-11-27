@@ -76,5 +76,13 @@ end
 ---@assert implies(forall(tri_ge), tri_ge(3))
 -- a recursive one's call, and so its trigger, takes the unit's fuel
 ---@assert implies(even(2), exists(even))
+--[[@proof
+    -- `w` satisfies the condition wherever some value does
+    local w = choose(function(i) return p(i) and tri(i) > 3 end)
+    -- by name, the assumption also says that `v` fits the parameter's type
+    local v = choose(even)
+    -- an assignment chooses again into the same variable
+    w = choose(function(i) return p(i) end)
+]]
 
 ---@clavius end

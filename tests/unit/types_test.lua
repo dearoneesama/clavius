@@ -492,6 +492,46 @@ describe('types', function()
         assert.are.same({ 'a Int', 'x Int', 'y Int', 'u boolean', 'v boolean' }, found)
     end)
 
+    it("gives `choose` its bound variable's type, which a ghost local of an integer widens to Int", function()
+        local c = driver.run_until(
+            'types',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param i Int
+            ---@return Int
+            local function f(i) return i end
+
+            ---@param n Nat
+            ---@return boolean
+            local function big(n) return n > 10 end
+            ]]
+            --[[@ghost
+                local w = choose(function(i) return f(i) > 0 end)
+                local b = choose(function(x) return x end)
+                local v = choose(big)
+            ]]
+            ---@clavius end
+            ]=],
+            1
+        )
+        assert.are.same({}, c.diags)
+        local info = assert(c.info)
+        local res = assert(c.res)
+        local calls = {}
+        local locals = {}
+        for id, n in ipairs(c.src.nodes) do
+            if res.prelude[id] == 'choose' then
+                calls[#calls + 1] = info.types[id]
+            elseif n.tag == 'Binder' and res.names[id]:match '^[wbv]%$' then
+                locals[#locals + 1] = ('%s %s'):format(res.names[id]:sub(1, 1), info.types[id])
+            end
+        end
+        assert.are.same({ 'Int', 'boolean', 'Nat' }, calls)
+        -- a ghost local with an integer value is always an `Int`, however v would carry the fact it >= 0
+        assert.are.same({ 'w Int', 'b boolean', 'v Int' }, locals)
+    end)
+
     it("reports a bound variable that its uses don't type, and a body that isn't a boolean", function()
         markers.expect_diags(
             'types',
@@ -511,6 +551,7 @@ describe('types', function()
             ---@assert forall(function(a, b) return implies(a == b and b, a + 1 > 0) end) --! E-type-mismatch
             ---@assert implies(1, true) --! E-unsupported-feature
             ---@assert forall(f) --! E-type-mismatch
+            --[[@proof local z = choose(f) ]] --! E-type-mismatch
             ---@clavius end
             ]=]
         )

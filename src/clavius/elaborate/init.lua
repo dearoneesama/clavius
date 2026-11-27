@@ -442,6 +442,8 @@ function statement(b, id, out)
             builder.assume(b, out, 'assumed', expr.lower(b, n.cond, out), id)
         end
         b.ghost = ghost
+    elseif (n.tag == 'Local' or n.tag == 'Set') and b.res.prelude[n.values[1]] == 'choose' then
+        expr.choose(b, id, out)
     elseif n.tag == 'Local' then
         local terms = {}
         for i, v in ipairs(n.values) do

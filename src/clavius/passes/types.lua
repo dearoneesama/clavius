@@ -404,10 +404,10 @@ end
 --- Forward declaration.
 local statement
 
---- Types a call of `forall` or `exists`. A bound variable is a `boolean` when its uses show one and an
---- `Int` otherwise, and one with no such use is reported. The body is spec code whose value is a
+--- Types a call of `forall`, `exists` or `choose`. A bound variable is a `boolean` when its uses show one
+--- and an `Int` otherwise, and one with no such use is reported. The body is spec code whose value is a
 --- `boolean`. A spec function passed by name must return a `boolean`, and its parameters' types are the
---- bound variables'.
+--- bound variables'. A `choose` has the type of its bound variable, and a quantifier is a `boolean`.
 --- @param st TypesState
 --- @param id NodeId
 --- @mut st
@@ -422,9 +422,12 @@ local function quantifier(st, id)
         if r == nil or (ty ~= nil and ty ~= 'boolean') then
             report(st, 'E-type-mismatch', fn_id, { 'boolean', ty or 'no value' })
             return nil
+        elseif st.res.prelude[id] == 'choose' then
+            return st.out.types[spec.params[1]]
         end
         return ty
     end
+
     local fn = st.src.nodes[fn_id] --[[@as SrcFunction]]
     --- @type BinderInference
     local inf = { unknown = {}, parent = {}, hint = {}, locals = {} }
@@ -446,6 +449,9 @@ local function quantifier(st, id)
     st.result, st.ghost = fn_id, true
     statement(st, fn.body)
     st.result, st.ghost = result, ghost
+    if st.res.prelude[id] == 'choose' then
+        return st.out.types[fn.params[1]]
+    end
     return 'boolean'
 end
 

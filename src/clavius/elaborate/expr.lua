@@ -213,8 +213,53 @@ function M.quantifier(b, id)
     end
     b.inline = inline
     local triggers = { builder.add(b, { tag = 'Trigger', terms = terms }, id) }
+    -- a `choose` assumes the `exists` of its condition
     local tag = b.res.prelude[id] == 'forall' and 'Forall' or 'Exists'
     return builder.add(b, { tag = tag, vars = vars, triggers = triggers, body = body }, id)
+end
+
+--- Lowers `local w = choose(function(i) return P(i) end)`, or `w = choose(...)`: `w` is arbitrary
+--- except that `(exists i :: P(i)) => P(w)`. Some value of `w` always satisfies that, whether or not
+--- some `i` satisfies `P`, so the assumption rules out no path. Over a spec function `p` by name, the
+--- assumption also says that `w` fits `p`'s parameter's type, which some value always does.
+--- @param b Builder
+--- @param id NodeId the Local, or the Set of an assignment to one name
+--- @param out NodeId[]
+--- @mut b
+--- @mut out
+function M.choose(b, id, out)
+    local n = b.src.nodes[id] --[[@as SrcLocal|SrcSet]]
+    local call = n.values[1]
+    local arg = (b.src.nodes[call] --[[@as SrcCall]]).args[1]
+    local target = n.tag == 'Local' and n.names[1] or n.targets[1]
+    local name = builder.name_of(b, target)
+    if n.tag == 'Local' then
+        builder.var(b, name, builder.sort(b.info.types[target]), target)
+    end
+    builder.emit(b, out, { tag = 'Havoc', target = name }, id)
+    local w = builder.add(b, { tag = 'Var', name = name }, id)
+    local some = M.quantifier(b, call)
+    local cond
+    if b.src.nodes[arg].tag == 'Id' then
+        -- named form builds `P(w)` directly
+        local fn_id = b.res.functions[b.res.decl[arg]]
+        local fn = b.src.nodes[fn_id] --[[@as SrcFunction]]
+        cond = builder.add(b, { tag = 'BinOp', op = '=>', lhs = some, rhs = apply(b, fn_id, { w }, call) }, call)
+        local fact = builder.type_fact(b, b.info.types[fn.params[1]], w, call)
+        if fact ~= nil then
+            cond = builder.add(b, { tag = 'BinOp', op = 'and', lhs = fact, rhs = cond }, call)
+        end
+    else
+        -- the body again, with `w` for the bound variable
+        local fn = b.src.nodes[arg] --[[@as SrcFunction]]
+        local binder = fn.params[1]
+        b.subst[binder] = w
+        local block = b.src.nodes[fn.body] --[[@as SrcBlock]]
+        local at_w = M.spec_term(b, { statements = block.statements, index = 1, next = nil })
+        b.subst[binder] = nil
+        cond = builder.add(b, { tag = 'BinOp', op = '=>', lhs = some, rhs = at_w }, call)
+    end
+    builder.assume(b, out, 'witness', cond, call)
 end
 
 --- Lowers the arguments of a call to `fn`, and in ghost code checks that each fits its parameter's type.

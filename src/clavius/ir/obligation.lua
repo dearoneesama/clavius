@@ -32,6 +32,7 @@
 --- | 'back_edge' # `false` at the end of an iteration that iterates again
 --- | 'definition' # the axioms that define a spec function
 --- | 'precondition' # a lemma's `---@pre`s and its parameters' types on entry, which every call proves, since only proof code calls it
+--- | 'witness' # that `choose`'s value satisfies its condition when some value does, which an arbitrary value can always be made to
 
 --- @class Obligation
 --- @field kind ObligationKind
@@ -74,6 +75,7 @@ M.JUSTIFICATIONS = {
     back_edge = true,
     definition = true,
     precondition = true,
+    witness = true,
 }
 
 return M

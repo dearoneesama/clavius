@@ -19,7 +19,7 @@ local support = require 'clavius.ir.support'
 --- @field prelude table<NodeId, PreludeName> the prelude function that each call of one in marked code calls
 
 --- A spec function that Clavius provides.
---- @alias PreludeName 'forall' | 'exists' | 'implies' | 'trigger'
+--- @alias PreludeName 'forall' | 'exists' | 'implies' | 'trigger' | 'choose'
 
 --- What a function is: a spec function, a lemma, or an exec function.
 --- @alias FunctionKind 'spec' | 'lemma' | 'exec'
@@ -52,6 +52,7 @@ local support = require 'clavius.ir.support'
 --- @field mode ResolveMode
 --- @field ghost table<NodeId, boolean> the declarations in ghost code, which exec code can't see
 --- @field proof_loops integer|nil the loops opened in the proof code being visited in exec code, or nil outside it
+--- @field local_value NodeId|nil the value of the `local` of one name, or the assignment to one, being visited: where `choose` may be
 --- @field outer_reads PendingUse[]
 --- @field calls PendingUse[]
 
@@ -330,7 +331,7 @@ end
 local function visit_quantifier(st, id, scope, unit)
     local fn = st.src.nodes[id] --[[@as SrcFunction]]
     st.out.kinds[id] = 'spec'
-    if fn.vararg or #fn.params == 0 then
+    if fn.vararg then
         report(st, 'E-prelude-form', id, { 'quantifier-binders' })
         unit = 0
     elseif not always_returns(st.src, fn.body) then
@@ -361,9 +362,25 @@ local function spec_named(st, id, scope)
     return nil
 end
 
+--- Returns the parameters of the function that the call `n` takes as its one argument: a function
+--- literal, or a spec function by name. Returns nil for anything else.
+--- @param st ResolveState
+--- @param n SrcCall
+--- @param scope integer
+--- @return NodeId[]|nil
+local function argument_params(st, n, scope)
+    local arg = #n.args == 1 and st.src.nodes[n.args[1]] or nil
+    if arg ~= nil and arg.tag == 'Function' then
+        return arg.params
+    end
+    local b = arg ~= nil and spec_named(st, n.args[1], scope) or nil
+    return b and (st.src.nodes[st.out.functions[b]] --[[@as SrcFunction]]).params or nil
+end
+
 --- Visits a call of a prelude function. Exec code can't call one, and a call is never a statement.
 --- `forall` and `exists` take one function, a literal or a spec function's name, `implies` two values
---- and `trigger` one.
+--- and `trigger` one. `choose` takes such a function of one parameter, and is the value of a `local` of
+--- one name in proof code, which gets its value.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param name PreludeName
@@ -374,18 +391,24 @@ end
 --- @decrease id
 local function visit_prelude(st, id, name, scope, unit, is_statement)
     local n = st.src.nodes[id] --[[@as SrcCall]]
-    local quantifier = name == 'forall' or name == 'exists'
+    local quantifier = name == 'forall' or name == 'exists' or name == 'choose'
+    local placed = st.local_value == id
     if unit ~= 0 then
         local first = n.args[1] and st.src.nodes[n.args[1]]
+        local params = argument_params(st, n, scope)
         local wrong = nil
         if st.mode == 'exec' and not st.in_clause then
             wrong = { 'E-mode', 'spec-call' }
         elseif is_statement then
             wrong = { 'E-unsupported-feature', 'prelude-statement' }
-        elseif quantifier and not (#n.args == 1 and (first.tag == 'Function' or spec_named(st, n.args[1], scope))) then
+        elseif name == 'choose' and (st.mode ~= 'proof' or st.in_clause or not placed) then
+            wrong = { 'E-mode', 'choose-place' }
+        elseif name == 'choose' and (params == nil or #params ~= 1 or first.vararg) then
+            wrong = { 'E-prelude-form', 'choose-args' }
+        elseif quantifier and params == nil then
             wrong = { 'E-prelude-form', 'quantifier-args' }
-        elseif quantifier and first.tag == 'Id' and #st.src.nodes[st.out.functions[spec_named(st, n.args[1], scope)]].params == 0 then
-            -- a spec function of no parameters would give a quantifier over no variables
+        elseif quantifier and #params == 0 then
+            -- a func of no parameters would give a quantifier over no variables
             wrong = { 'E-prelude-form', 'quantifier-binders' }
         elseif name == 'implies' and #n.args ~= 2 then
             wrong = { 'E-prelude-form', 'implies-args' }
@@ -517,9 +540,13 @@ local function visit_set(st, id, scope, unit)
             j = j + 1
         end
     end
+    -- `choose` may be the value of an assignment to one name, as of a `local` of one
+    local outer = st.local_value
+    st.local_value = (#n.values == 1 and #n.targets == 1) and n.values[1] or nil
     for _, v in ipairs(n.values) do
         visit(st, v, scope, unit)
     end
+    st.local_value = outer
 end
 
 --- Visits the statements of a list. A call among them is a statement call. In a spec function's body,
@@ -904,6 +931,18 @@ function visit(st, id, scope, unit)
     elseif n.tag == 'Function' then
         visit_function(st, id, scope, unit, st.binder_of[id])
         return
+    elseif n.tag == 'Local' then
+        -- a value can't see the names, and `choose` may be the value of a single one
+        local outer = st.local_value
+        st.local_value = (#n.values == 1 and #n.names == 1) and n.values[1] or nil
+        for _, v in ipairs(n.values) do
+            visit(st, v, scope, unit)
+        end
+        st.local_value = outer
+        for _, b in ipairs(n.names) do
+            visit(st, b, scope, unit)
+        end
+        return
     elseif n.tag == 'LocalFunction' then
         -- the function can see its own name
         visit(st, n.binder, scope, unit)
@@ -1081,6 +1120,7 @@ function M.run(src, root)
         mode = 'exec',
         ghost = {},
         proof_loops = nil,
+        local_value = nil,
         outer_reads = {},
         calls = {},
     }

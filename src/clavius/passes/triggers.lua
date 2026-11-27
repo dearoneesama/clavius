@@ -64,14 +64,15 @@ local function union(into, from)
     end
 end
 
---- Returns the function literal that a `forall` or `exists` call takes, or nil for any other node,
---- including such a call over a spec function by name, whose trigger is its one call.
+--- Returns the function literal that a `forall`, `exists` or `choose` call takes, or nil for any other
+--- node, including such a call over a spec function by name, whose trigger is its one call.
 --- @param src SrcArena
 --- @param res Resolution
 --- @param id NodeId
 --- @return SrcFunction|nil
 local function literal_of(src, res, id)
-    if res.prelude[id] ~= 'forall' and res.prelude[id] ~= 'exists' then
+    local name = res.prelude[id]
+    if name ~= 'forall' and name ~= 'exists' and name ~= 'choose' then
         return nil
     end
     local call = src.nodes[id] --[[@as SrcCall]]

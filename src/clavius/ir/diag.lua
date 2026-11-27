@@ -18,7 +18,7 @@
 --- | 'E-type-mismatch' # an operand or value of the wrong type, such as `1 + true`
 --- | 'E-mode' # exec code that uses ghost code, or ghost code that does what proof code can't
 --- | 'E-trigger' # a quantifier with no trigger, or with a trigger it can't use
---- | 'E-prelude-form' # `forall`, `exists`, `implies` or `trigger` in a form it doesn't take, such as `implies(p)` or not called
+--- | 'E-prelude-form' # `forall`, `exists`, `implies`, `trigger` or `choose` in a form it doesn't take, such as `implies(p)` or not called
 --- | 'E-internal-node' # a core node where its kind doesn't belong, such as a statement among terms
 --- | 'E-internal-check' # a `Check` with no obligation of a known kind
 --- | 'E-internal-assume' # an `Assume` with no allowed justification

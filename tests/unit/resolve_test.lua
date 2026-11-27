@@ -818,4 +818,45 @@ describe('resolve', function()
         end
         assert.are.same({ 'implies$1 nil' }, found)
     end)
+
+    it('lets `choose` give only the value of a `local` of one name, or of an assignment to one, in proof code', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param i Int
+            ---@return Int
+            local function f(i) return i end
+
+            ---@param n Int
+            ---@return Int
+            local function g(n)
+                local w = choose(function(i) return f(i) == n end) --! E-mode
+                return w
+            end
+
+            ---@param i Int
+            ---@param j Int
+            ---@return boolean
+            local function h(i, j) return i == j end
+            ]]
+            local x = choose(function(i) return f(i) == 0 end) --! E-mode
+            ---@assert choose(function(i) return f(i) == 0 end) == 0 --! E-mode
+            ---@ghost local y = choose(function(i) return f(i) == 0 end)
+            --[[@proof
+                local w = choose(function(i) return f(i) == 0 end)
+                w = choose(function(i) return f(i) == 1 end)
+                local a, b = choose(function(i) return f(i) == 0 end), 1 --! E-mode
+                a, b = choose(function(i) return f(i) == 0 end), 1 --! E-mode
+                local c = 1 + choose(function(i) return f(i) == 0 end) --! E-mode
+                local d = choose(function(i, j) return f(i) == j end) --! E-prelude-form
+                -- a spec function by name of one parameter, like a literal
+                local e = choose(f)
+                local k = choose(h) --! E-prelude-form
+            ]]
+            ---@clavius end
+            ]=]
+        )
+    end)
 end)
