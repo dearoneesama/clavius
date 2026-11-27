@@ -184,4 +184,29 @@ describe('termination', function()
         )
         assert.are.same({ 'f f', 'g f', 'h f' }, cycles(c))
     end)
+
+    it("rejects a recursive call in a quantifier's body, where its measure can't be checked", function()
+        markers.expect_diags(
+            'termination',
+            [=[
+            --[[@spec
+            ---@param n Nat
+            ---@return boolean
+            ---@decrease n
+            local function all_below(n)
+                if n == 0 then
+                    return true
+                end
+                return all_below(n - 1) and forall(function(i) return implies(0 <= i and i < n, all_below(i)) end) --! E-unsupported-feature
+            end
+
+            ---@param n Nat
+            ---@return boolean
+            local function other(n)
+                return forall(function(i) return implies(0 <= i and i < n, all_below(i)) end)
+            end
+            ]]
+            ]=]
+        )
+    end)
 end)

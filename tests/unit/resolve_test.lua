@@ -553,6 +553,27 @@ describe('resolve', function()
         )
     end)
 
+    it("uses a function's name only to call it", function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@return Int
+            local function f()
+                return 1
+            end
+            ]]
+            local function e() end
+            local a = e --! E-unsupported-feature
+            ---@ghost local b = f --! E-unsupported-feature
+            -- exec code can't name a spec function at all
+            local c = f --! E-mode
+            ---@clavius end
+            ]=]
+        )
+    end)
+
     it('lets unmarked code see past ghost declarations', function()
         local text = [=[
             --[[@spec
@@ -729,5 +750,65 @@ describe('resolve', function()
             ---@clavius end
             ]=]
         )
+    end)
+
+    it('calls the prelude functions from spec and proof code only, with their forms', function()
+        markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param i Int
+            ---@return Int
+            local function f(i) return i end
+            ]]
+            ---@param n integer
+            ---@pre forall(function(i) return implies(i < n, f(i) < n) end)
+            local function g(n)
+                local p = exists(function(i) return f(i) == n end) --! E-mode
+                ---@assert exists(function(i) return f(i) == n end)
+                ---@assert forall(function(i, j) local d = f(i) return d <= f(j) or d > f(j) end)
+                --[[@proof
+                    forall(function(i) return f(i) == i end) --! E-unsupported-feature
+                    assert(forall(f)) --! E-unsupported-feature
+                    assert(forall(function(i) return true end, 1)) --! E-prelude-form
+                    assert(implies(true)) --! E-prelude-form
+                    assert(forall(function(...) return true end)) --! E-prelude-form
+                    assert(forall(function() return true end)) --! E-prelude-form
+                    assert(forall(function(i) if f(i) > 0 then return true end end)) --! E-mode
+                    assert(forall(function(i) assert(f(i) > 0) return true end)) --! E-mode
+                    local q = forall --! E-prelude-form
+                ]]
+                implies = 1 --! E-prelude-form
+            end
+            ---@clavius end
+            local q = forall
+            ]=]
+        )
+    end)
+
+    it('lets a local hide a prelude function', function()
+        local c = markers.expect_diags(
+            'resolve',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param p boolean
+            ---@param q boolean
+            ---@return boolean
+            local function implies(p, q) return not p or q end
+            ]]
+            ---@assert implies(true, false)
+            ---@clavius end
+            ]=]
+        )
+        local res = assert(c.res)
+        local found = {}
+        for id, n in ipairs(c.src.nodes) do
+            if n.tag == 'Call' then
+                found[#found + 1] = ('%s %s'):format(res.names[res.decl[n.func]], tostring(res.prelude[id]))
+            end
+        end
+        assert.are.same({ 'implies$1 nil' }, found)
     end)
 end)

@@ -32,6 +32,7 @@ local arena = require 'clavius.ir.arena'
 --- @field info TypeInfo
 --- @field effects Effects
 --- @field termination Termination
+--- @field triggers Triggers
 --- @field core CoreArena
 --- @field decls NodeId[] the SortDecl, FunDecl and Axiom nodes
 --- @field obligations Obligation[]
@@ -49,6 +50,7 @@ local arena = require 'clavius.ir.arena'
 --- @field spec boolean whether a contract clause is being lowered: its arithmetic is exact and has no checks
 --- @field ghost boolean whether spec or proof code is being lowered: its arithmetic is exact
 --- @field subst table<NodeId, NodeId> the term that stands for each declaration in the clause being lowered
+--- @field inline table<NodeId, NodeId>|nil while a trigger is being lowered, the value that stands for each `local` of a quantifier's body
 
 local M = {}
 
@@ -62,8 +64,9 @@ local INT53_MAX = '9007199254740992'
 --- @param info TypeInfo
 --- @param effects Effects
 --- @param termination Termination
+--- @param triggers Triggers
 --- @return Builder
-function M.new(src, index, res, info, effects, termination)
+function M.new(src, index, res, info, effects, termination, triggers)
     return {
         src = src,
         index = index,
@@ -71,6 +74,7 @@ function M.new(src, index, res, info, effects, termination)
         info = info,
         effects = effects,
         termination = termination,
+        triggers = triggers,
         core = arena.new_core(),
         decls = {},
         obligations = {},
@@ -88,6 +92,7 @@ function M.new(src, index, res, info, effects, termination)
         spec = false,
         ghost = false,
         subst = {},
+        inline = nil,
     }
 end
 

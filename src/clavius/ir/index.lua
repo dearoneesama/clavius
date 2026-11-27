@@ -14,13 +14,15 @@ local support = require 'clavius.ir.support'
 
 local M = {}
 
---- Returns the unit root that the code of a child of `p` belongs to. `unit_of_p` is the one of `p`.
+--- Returns the unit root that the code of a child of `p` belongs to. `unit_of_p` is the one of `p`, and
+--- `above` is the parent of `p`.
 --- @param src SrcArena
 --- @param p NodeId
 --- @param unit_of_p NodeId
 --- @param child NodeId
+--- @param above NodeId
 --- @return NodeId
-local function child_unit(src, p, unit_of_p, child)
+local function child_unit(src, p, unit_of_p, child, above)
     local n = src.nodes[p]
     if n.tag == 'ClvRegion' or n.tag == 'While' or n.tag == 'Repeat' or n.tag == 'Fornum' or n.tag == 'Forin' or n.tag == 'Function' then
         -- keeps a function's contract, a loop's annotations and a region's directives out of the unit
@@ -33,7 +35,8 @@ local function child_unit(src, p, unit_of_p, child)
     -- spec functions and lemmas are checked wherever they sit
     if n.tag == 'ClvRegion' or n.tag == 'ClvSpec' or n.tag == 'ClvLemma' then
         return p
-    elseif n.tag ~= 'Function' then
+    elseif n.tag ~= 'Function' or (above ~= 0 and src.nodes[above].tag == 'Call') then
+        -- a function passed to a call, such as a quantifier's body, is code of the unit around it
         return unit_of_p
     end
     -- a function in marked code is verified unless it is `---@unsafe`
@@ -73,7 +76,7 @@ function M.build(src)
             region[id], unit[id], ghost[id] = 0, 0, 0
         else
             region[id] = src.nodes[p].tag == 'ClvRegion' and p or region[p]
-            unit[id] = child_unit(src, p, unit[p], id)
+            unit[id] = child_unit(src, p, unit[p], id, parent[p])
             ghost[id] = support.GHOST_CODE[src.nodes[p].tag] and p or ghost[p]
         end
     end

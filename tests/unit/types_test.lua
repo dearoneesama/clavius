@@ -395,4 +395,123 @@ describe('types', function()
             ]=]
         )
     end)
+
+    it("infers a quantifier's bound variables as booleans or Ints from their uses", function()
+        local c = driver.run_until(
+            'types',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param n Nat
+            ---@param b boolean
+            ---@return Int
+            local function s(n, b) return n end
+            ]]
+            ---@assert forall(function(i, b) return s(i, b) >= 0 end)
+            ---@assert forall(function(p, q) return implies(p, q) or (p == (1 < 2)) end)
+            ---@assert exists(function(i, j) return i + 1 == j end)
+            ---@assert forall(function(k) local d = k * 2 return d == k + k end)
+            ---@clavius end
+            ]=],
+            1
+        )
+        assert.are.same({}, c.diags)
+        local info = assert(c.info)
+        local res = assert(c.res)
+        local found = {}
+        for id, n in ipairs(c.src.nodes) do
+            if n.tag == 'Binder' and res.names[id]:match '^[ibpqjkd]%$' then
+                found[#found + 1] = ('%s %s'):format(res.names[id], info.types[id])
+            end
+        end
+        assert.are.same(
+            { 'b$3 boolean', 'i$5 Int', 'b$6 boolean', 'p$7 boolean', 'q$8 boolean', 'i$9 Int', 'j$10 Int', 'k$11 Int', 'd$12 Int' },
+            found
+        )
+    end)
+
+    it('types a bound variable compared with a boolean that its spelling alone does not show', function()
+        local c = driver.run_until(
+            'types',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param i Int
+            ---@return boolean
+            local function p(i) return i > 0 end
+            ]]
+            local t = true
+            ---@param flag boolean
+            ---@pre forall(function(z) return z == flag end)
+            local function g(flag) end
+            ---@assert forall(function(x) return x == p(1) end)
+            ---@assert forall(function(y) return y == (1 < 2) end)
+            ---@assert forall(function(w) return w ~= t end)
+            ---@clavius end
+            ]=],
+            1
+        )
+        assert.are.same({}, c.diags)
+        local info = assert(c.info)
+        local res = assert(c.res)
+        local found = {}
+        for id, n in ipairs(c.src.nodes) do
+            if n.tag == 'Binder' and res.names[id]:match '^[xyzw]%$' then
+                found[#found + 1] = ('%s %s'):format(res.names[id]:sub(1, 1), info.types[id])
+            end
+        end
+        assert.are.same({ 'z boolean', 'x boolean', 'y boolean', 'w boolean' }, found)
+    end)
+
+    it("infers through a body's locals and through `==` between bound variables", function()
+        local c = driver.run_until(
+            'types',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param i Int
+            ---@return Int
+            local function f(i) return i end
+            ]]
+            ---@assert forall(function(a) local d = a return f(d) >= f(d) end)
+            ---@assert forall(function(x, y) return implies(x == y and x > 0, y > 0) end)
+            ---@assert forall(function(u, v) return implies(u == v, v) end)
+            ---@clavius end
+            ]=],
+            1
+        )
+        assert.are.same({}, c.diags)
+        local info = assert(c.info)
+        local res = assert(c.res)
+        local found = {}
+        for id, n in ipairs(c.src.nodes) do
+            if n.tag == 'Binder' and res.names[id]:match '^[axyuv]%$' then
+                found[#found + 1] = ('%s %s'):format(res.names[id]:sub(1, 1), info.types[id])
+            end
+        end
+        assert.are.same({ 'a Int', 'x Int', 'y Int', 'u boolean', 'v boolean' }, found)
+    end)
+
+    it("reports a bound variable that its uses don't type, and a body that isn't a boolean", function()
+        markers.expect_diags(
+            'types',
+            [=[
+            ---@clavius begin
+            --[[@spec
+            ---@param i Int
+            ---@return Int
+            local function f(i) return i end
+            ]]
+            ---@assert forall(function(i, j) return f(i) > 0 end) --! E-unsupported-type
+            ---@assert forall(function(a, b) return a == b end) --! E-unsupported-type E-unsupported-type
+            ---@assert forall(function(i) return f(i) end) --! E-type-mismatch
+            -- a use as a boolean wins, so the use as an integer is the error
+            ---@assert forall(function(i) return f(i) > 0 and i end) --! E-type-mismatch
+            -- `a == b` makes them one type, so `b`'s use as a boolean makes `a + 1` the error
+            ---@assert forall(function(a, b) return implies(a == b and b, a + 1 > 0) end) --! E-type-mismatch
+            ---@assert implies(1, true) --! E-unsupported-feature
+            ---@clavius end
+            ]=]
+        )
+    end)
 end)

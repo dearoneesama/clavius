@@ -2,7 +2,7 @@
 -- in evaluation order, into the statement list before it. Contract clauses and ghost code never run,
 -- so their arithmetic is exact and gets no range checks. A ghost value passed to a parameter is still
 -- checked against the parameter's type. A call of a spec function lowers to its FunDecl applied to the
--- fuel and the arguments.
+-- fuel and the arguments, and a quantifier to a Forall or Exists whose body is spec code.
 
 local arena = require 'clavius.ir.arena'
 local builder = require 'clavius.elaborate.builder'
@@ -21,34 +21,35 @@ function M.int_text(text)
     return ('%.0f'):format(assert(tonumber(text)))
 end
 
---- Lowers `lhs and rhs` or `lhs or rhs`. The right operand's checks run only when it is evaluated, so
---- when it has any, the result goes through a temporary set in a Branch.
+--- Lowers `lhs and rhs`, `lhs or rhs` or `implies(lhs, rhs)`. The right operand's checks run only when
+--- it decides the value, so when it has any, the result goes through a temporary set in a Branch.
 --- @param b Builder
 --- @param id NodeId
---- @param n SrcBinOp
+--- @param op 'and' | 'or' | '=>'
+--- @param lhs NodeId
+--- @param rhs NodeId
 --- @param out NodeId[]
 --- @mut b
 --- @mut out
 --- @decrease id
 --- @return NodeId term
-local function short_circuit(b, id, n, out)
-    local op = n.op == 'and' and 'and' or 'or'
+local function short_circuit(b, id, op, lhs, rhs, out)
     -- lhs always runs so it is lowered into current statement list
-    local l = M.lower(b, n.lhs, out)
+    local l = M.lower(b, lhs, out)
     local rhs_statements = {}
-    local r = M.lower(b, n.rhs, rhs_statements)
+    local r = M.lower(b, rhs, rhs_statements)
     -- if rhs produced no checks, then core term is pure, evaluating it in every case is harmless
     if #rhs_statements == 0 then
         return builder.add(b, { tag = 'BinOp', op = op, lhs = l, rhs = r }, id)
     end
 
     -- in the case where rhs runs, rhs has checks, and t = rhs
-    -- else, lhs = false, t = true iff operator is `or`
+    -- else, t = false for `and`, and true for `or` and `=>`
     local t = builder.temp(b, 'bool', id)
     builder.emit(b, rhs_statements, { tag = 'Assign', target = t, value = r }, id)
     local short = {}
-    builder.emit(b, short, { tag = 'Assign', target = t, value = builder.add(b, { tag = 'Bool', value = op == 'or' }, id) }, id)
-    if op == 'and' then
+    builder.emit(b, short, { tag = 'Assign', target = t, value = builder.add(b, { tag = 'Bool', value = op ~= 'and' }, id) }, id)
+    if op ~= 'or' then
         builder.emit(b, out, { tag = 'Branch', cond = l, then_body = rhs_statements, else_body = short }, id)
     else
         -- short = true
@@ -57,8 +58,8 @@ local function short_circuit(b, id, n, out)
     return builder.add(b, { tag = 'Var', name = t }, id)
 end
 
---- Lowers a contract clause of a function to a term, with `subst` giving the term for each of its
---- parameters and its value that doesn't stand for itself.
+--- Lowers spec code, such as a contract clause, to a term, with `subst` giving the term for each
+--- declaration that doesn't stand for itself.
 --- @param b Builder
 --- @param cond NodeId
 --- @param subst table<NodeId, NodeId>
@@ -70,9 +71,95 @@ function M.clause(b, cond, subst)
     -- spec code has no checks and no calls, so nothing is hoisted
     local hoisted = {}
     local t = M.lower(b, cond, hoisted)
-    assert(#hoisted == 0, 'elaborate: a contract clause needs statements')
+    assert(#hoisted == 0, 'elaborate: spec code needs statements')
     b.spec, b.subst = spec, outer
     return t
+end
+
+--- What is left of a spec body to lower: a statement list from `index` on, and then what follows the
+--- block that the list is in.
+--- @class SpecRest
+--- @field statements NodeId[]
+--- @field index integer
+--- @field next SpecRest|nil
+
+--- Lowers what is left of a spec body, a spec function's or a quantifier's, to the term for its value.
+--- An `if` is an Ite whose arms each go on with the statements after it, and a `local` binds its names
+--- in a Let around the rest.
+--- @param b Builder
+--- @param rest SpecRest
+--- @mut b
+--- @return NodeId term
+function M.spec_term(b, rest)
+    while rest.index > #rest.statements do
+        -- every path returns, which resolve checks
+        rest = assert(rest.next, 'elaborate: a spec body may end without a value')
+    end
+    local id = rest.statements[rest.index]
+    local n = b.src.nodes[id]
+    --- @type SpecRest
+    local after = { statements = rest.statements, index = rest.index + 1, next = rest.next }
+    if n.tag == 'Return' then
+        return M.clause(b, n.values[1], b.subst)
+    elseif n.tag == 'Local' then
+        -- the names are fresh, so a value can't refer to the names bound before it
+        local values = {}
+        for i, v in ipairs(n.values) do
+            values[i] = M.clause(b, v, b.subst)
+        end
+        local value = M.spec_term(b, after)
+        for i = #n.names, 1, -1 do
+            value = builder.add(b, { tag = 'Let', name = builder.name_of(b, n.names[i]), value = values[i], body = value }, id)
+        end
+        return value
+    elseif n.tag == 'Block' then
+        return M.spec_term(b, { statements = n.statements, index = 1, next = after })
+    elseif n.tag == 'If' then
+        local value
+        if n.else_block ~= nil then
+            local else_block = b.src.nodes[n.else_block] --[[@as SrcBlock]]
+            value = M.spec_term(b, { statements = else_block.statements, index = 1, next = after })
+        else
+            value = M.spec_term(b, after)
+        end
+        for i = #n.arms, 1, -1 do
+            local arm = b.src.nodes[n.arms[i]] --[[@as SrcIfArm]]
+            local cond = M.clause(b, arm.cond, b.subst)
+            local body = b.src.nodes[arm.body] --[[@as SrcBlock]]
+            local if_true = M.spec_term(b, { statements = body.statements, index = 1, next = after })
+            value = builder.add(b, { tag = 'Ite', cond = cond, if_true = if_true, if_false = value }, n.arms[i])
+        end
+        return value
+    end
+    error(('elaborate: unhandled spec statement %s'):format(n.tag))
+end
+
+--- Lowers a call of `forall` or `exists` to a Forall or Exists over its function's parameters, whose
+--- body is that function's, and whose trigger is the one `triggers` chose. A `local` of the body stands
+--- for its value in the trigger, which is outside the body.
+--- @param b Builder
+--- @param id NodeId
+--- @mut b
+--- @return NodeId term
+function M.quantifier(b, id)
+    local n = b.src.nodes[id] --[[@as SrcCall]]
+    local fn = b.src.nodes[n.args[1]] --[[@as SrcFunction]]
+    local vars = {}
+    for i, p in ipairs(fn.params) do
+        vars[i] = builder.add(b, { tag = 'VarDecl', name = builder.name_of(b, p), sort = builder.sort(b.info.types[p]) }, p)
+    end
+    local block = b.src.nodes[fn.body] --[[@as SrcBlock]]
+    local body = M.spec_term(b, { statements = block.statements, index = 1, next = nil })
+    local terms = {}
+    local inline = b.inline
+    b.inline = b.triggers.locals
+    for i, t in ipairs(b.triggers.groups[id]) do
+        terms[i] = M.clause(b, t, b.subst)
+    end
+    b.inline = inline
+    local triggers = { builder.add(b, { tag = 'Trigger', terms = terms }, id) }
+    local tag = b.res.prelude[id] == 'forall' and 'Forall' or 'Exists'
+    return builder.add(b, { tag = tag, vars = vars, triggers = triggers, body = body }, id)
 end
 
 --- Lowers the arguments of a call to `fn`, and in ghost code checks that each fits its parameter's type.
@@ -227,11 +314,17 @@ function M.lower(b, id, out)
         local decl = b.res.decl[id]
         if b.subst[decl] ~= nil then
             return b.subst[decl]
+        elseif b.inline ~= nil and b.inline[decl] ~= nil then
+            return M.lower(b, b.inline[decl], out)
         elseif b.res.constants[decl] ~= nil and not b.declared[builder.name_of(b, id)] then
             -- a constant declared outside this unit
             return M.lower(b, b.res.constants[decl], out)
         end
         return builder.add(b, { tag = 'Var', name = builder.name_of(b, id) }, id)
+    elseif n.tag == 'Call' and b.res.prelude[id] == 'implies' then
+        return short_circuit(b, id, '=>', n.args[1], n.args[2], out)
+    elseif n.tag == 'Call' and b.res.prelude[id] ~= nil then
+        return M.quantifier(b, id)
     elseif n.tag == 'Call' and b.spec_of[b.info.callees[id]] ~= nil then
         return M.spec_call(b, id, out)
     elseif n.tag == 'Call' then
@@ -251,7 +344,8 @@ function M.lower(b, id, out)
         local zero = builder.add(b, { tag = 'Int', text = '0' }, id)
         return builder.add(b, { tag = 'BinOp', op = '-', lhs = zero, rhs = M.lower(b, n.arg, out) }, id)
     elseif n.tag == 'BinOp' and (n.op == 'and' or n.op == 'or') then
-        return short_circuit(b, id, n, out)
+        local op = n.op == 'and' and 'and' or 'or'
+        return short_circuit(b, id, op, n.lhs, n.rhs, out)
     elseif n.tag == 'BinOp' then
         local l = M.lower(b, n.lhs, out)
         local r = M.lower(b, n.rhs, out)

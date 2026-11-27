@@ -16,6 +16,10 @@ local support = require 'clavius.ir.support'
 --- @field assigned table<NodeId, boolean> the Binders that an assignment anywhere in the file targets
 --- @field kinds table<NodeId, FunctionKind> the kind of each Function node
 --- @field fuel table<NodeId, NodeId> the spec function's Function that each `---@reveal_with_fuel` names
+--- @field prelude table<NodeId, PreludeName> the prelude function that each call of one in marked code calls
+
+--- A spec function that Clavius provides.
+--- @alias PreludeName 'forall' | 'exists' | 'implies'
 
 --- What a function is: a spec function, a lemma, or an exec function.
 --- @alias FunctionKind 'spec' | 'lemma' | 'exec'
@@ -43,7 +47,7 @@ local support = require 'clavius.ir.support'
 --- @field gapped table<NodeId, boolean> forward-declared functions that may be called while still nil
 --- @field verified table<NodeId, boolean> the Function nodes whose bodies are marked code
 --- @field loop_vars table<NodeId, boolean> the Binders of numeric `for` loops, which marked code may not assign
---- @field fn NodeId|nil the Binder of the function definition whose body is being visited
+--- @field fn NodeId|nil the Binder of the function definition whose body is being visited, or the Function of a quantifier's body
 --- @field in_clause boolean whether a contract clause is being visited
 --- @field mode ResolveMode
 --- @field ghost table<NodeId, boolean> the declarations in ghost code, which exec code can't see
@@ -133,7 +137,8 @@ local function global_name(st, id, scope)
     return nil, nil
 end
 
---- Reports a use of a global in marked code other than a call to `assert`, `assume` or `error`.
+--- Reports a use of a global in marked code other than a call to `assert`, `assume`, `error` or a prelude
+--- function.
 --- @param st ResolveState
 --- @param id NodeId
 --- @param base string
@@ -141,7 +146,9 @@ end
 --- @mut st
 local function report_global(st, id, base, path)
     local use = support.global_use(base, path)
-    if use == 'supported' then
+    if base == path and support.PRELUDE[path] then
+        report(st, 'E-prelude-form', id, { 'prelude-value' })
+    elseif use == 'supported' then
         report(st, 'E-unsupported-feature', id, { 'call-value' })
     elseif use == 'banned' then
         report(st, 'E-banned-call', id, { path })
@@ -165,10 +172,10 @@ local function use(st, id, scope, unit)
     local b = lookup(st, scope, n.name, unit ~= 0)
     if b ~= nil then
         st.out.decl[id] = b
-        if unit ~= 0 and st.out.functions[b] then
-            report(st, 'E-unsupported-feature', id, { 'function-value' })
-        elseif unit ~= 0 and st.mode == 'exec' and not st.in_clause and st.ghost[b] then
+        if unit ~= 0 and st.mode == 'exec' and not st.in_clause and st.ghost[b] then
             report(st, 'E-mode', id, { 'ghost-name' })
+        elseif unit ~= 0 and st.out.functions[b] then
+            report(st, 'E-unsupported-feature', id, { 'function-name' })
         elseif unit ~= 0 and st.unit_of[b] ~= unit then
             st.outer_reads[#st.outer_reads + 1] = { id = id, binder = b }
         end
@@ -288,6 +295,100 @@ local function misplaced_call(st, kind)
     return nil
 end
 
+--- Returns whether every path through a block ends in `return`.
+--- @param src SrcArena
+--- @param id NodeId a Block
+--- @decrease id
+--- @return boolean
+local function always_returns(src, id)
+    local block = src.nodes[id] --[[@as SrcBlock]]
+    for _, s in ipairs(block.statements) do
+        local n = src.nodes[s]
+        if n.tag == 'Return' or (n.tag == 'Block' and always_returns(src, s)) then
+            return true
+        elseif n.tag == 'If' and n.else_block ~= nil then
+            local all = always_returns(src, n.else_block)
+            for _, arm in ipairs(n.arms) do
+                all = all and always_returns(src, (src.nodes[arm] --[[@as SrcIfArm]]).body)
+            end
+            if all then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--- Visits the function that a quantifier takes. Its parameters are the bound variables, and its body is
+--- spec code that holds what a spec function's body holds.
+--- @param st ResolveState
+--- @param id NodeId the Function
+--- @param scope integer
+--- @param unit NodeId
+--- @mut st
+--- @decrease id
+local function visit_quantifier(st, id, scope, unit)
+    local fn = st.src.nodes[id] --[[@as SrcFunction]]
+    st.out.kinds[id] = 'spec'
+    if fn.vararg or #fn.params == 0 then
+        report(st, 'E-prelude-form', id, { 'quantifier-binders' })
+        unit = 0
+    elseif not always_returns(st.src, fn.body) then
+        report(st, 'E-mode', id, { 'quantifier-return' })
+    end
+    local mode, outer_fn, proof_loops = st.mode, st.fn, st.proof_loops
+    st.mode, st.fn, st.proof_loops = 'spec', id, nil
+    local s = open(st, scope)
+    for _, p in ipairs(fn.params) do
+        declare(st, p, (st.src.nodes[p] --[[@as SrcBinder]]).name, s, unit)
+    end
+    visit(st, fn.body, s, unit)
+    st.mode, st.fn, st.proof_loops = mode, outer_fn, proof_loops
+end
+
+--- Visits a call of a prelude function. Exec code can't call one, and a call is never a statement.
+--- `forall` and `exists` take one function, and `implies` two values.
+--- @param st ResolveState
+--- @param id NodeId
+--- @param name PreludeName
+--- @param scope integer
+--- @param unit NodeId
+--- @param is_statement boolean
+--- @mut st
+--- @decrease id
+local function visit_prelude(st, id, name, scope, unit, is_statement)
+    local n = st.src.nodes[id] --[[@as SrcCall]]
+    local quantifier = name ~= 'implies'
+    if unit ~= 0 then
+        local first = n.args[1] and st.src.nodes[n.args[1]]
+        local wrong = nil
+        if st.mode == 'exec' and not st.in_clause then
+            wrong = { 'E-mode', 'spec-call' }
+        elseif is_statement then
+            wrong = { 'E-unsupported-feature', 'prelude-statement' }
+        elseif quantifier and #n.args == 1 and first.tag == 'Id' then
+            wrong = { 'E-unsupported-feature', 'quantifier-named' }
+        elseif quantifier and not (#n.args == 1 and first.tag == 'Function') then
+            wrong = { 'E-prelude-form', 'quantifier-args' }
+        elseif not quantifier and #n.args ~= 2 then
+            wrong = { 'E-prelude-form', 'implies-args' }
+        end
+        if wrong ~= nil then
+            report(st, wrong[1], id, { wrong[2] })
+            unit = 0
+        else
+            st.out.prelude[id] = name
+        end
+    end
+    for _, a in ipairs(n.args) do
+        if unit ~= 0 and quantifier then
+            visit_quantifier(st, a, scope, unit)
+        else
+            visit(st, a, scope, unit)
+        end
+    end
+end
+
 --- Visits a call. Marked code may call `assert` and `error` as statements, and verified and `---@unsafe`
 --- local functions anywhere but in a contract. Ghost code and contracts call spec functions and lemmas.
 --- @param st ResolveState
@@ -302,6 +403,10 @@ local function visit_call(st, id, scope, unit, is_statement)
     local base, path = nil, nil
     if n.method == nil then
         base, path = global_name(st, n.func, scope)
+    end
+    if path ~= nil and path == base and support.PRELUDE[path] then
+        visit_prelude(st, id, path --[[@as PreludeName]], scope, unit, is_statement)
+        return
     end
     local marked = unit ~= 0
     local wrong, at = nil, id
@@ -362,7 +467,9 @@ local function visit_set(st, id, scope, unit)
     for i, t in ipairs(n.targets) do
         local target = st.src.nodes[t]
         if target.tag == 'Id' and lookup(st, scope, target.name, unit ~= 0) == nil then
-            if unit ~= 0 then
+            if unit ~= 0 and support.PRELUDE[target.name] then
+                report(st, 'E-prelude-form', t, { 'prelude-value' })
+            elseif unit ~= 0 then
                 report(st, 'E-banned-global', t, { target.name })
             end
         else
@@ -411,30 +518,6 @@ local function visit_statements(st, statements, scope, unit)
             visit(st, statement, scope, unit)
         end
     end
-end
-
---- Returns whether every path through a block ends in `return`.
---- @param src SrcArena
---- @param id NodeId a Block
---- @decrease id
---- @return boolean
-local function always_returns(src, id)
-    local block = src.nodes[id] --[[@as SrcBlock]]
-    for _, s in ipairs(block.statements) do
-        local n = src.nodes[s]
-        if n.tag == 'Return' or (n.tag == 'Block' and always_returns(src, s)) then
-            return true
-        elseif n.tag == 'If' and n.else_block ~= nil then
-            local all = always_returns(src, n.else_block)
-            for _, arm in ipairs(n.arms) do
-                all = all and always_returns(src, (src.nodes[arm] --[[@as SrcIfArm]]).body)
-            end
-            if all then
-                return true
-            end
-        end
-    end
-    return false
 end
 
 --- Visits a contract clause in spec code, where calls aren't allowed.
@@ -959,7 +1042,7 @@ function M.run(src, root)
     --- @type ResolveState
     local st = {
         src = src,
-        out = { decl = {}, names = {}, functions = {}, defined = {}, constants = {}, assigned = {}, kinds = {}, fuel = {} },
+        out = { decl = {}, names = {}, functions = {}, defined = {}, constants = {}, assigned = {}, kinds = {}, fuel = {}, prelude = {} },
         diags = {},
         scope_parent = {},
         scope_names = {},

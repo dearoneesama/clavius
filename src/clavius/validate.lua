@@ -167,10 +167,22 @@ local function add_clauses(keys, kind, clauses)
     end
 end
 
+--- Returns the Function whose body holds the node `id`: its unit's, or a quantifier's in it.
+--- @param source ValidateSource
+--- @param id NodeId
+--- @return NodeId
+local function enclosing_function(source, id)
+    local p = source.index.parent[id]
+    while p ~= 0 and source.src.nodes[p].tag ~= 'Function' do
+        p = source.index.parent[p]
+    end
+    return p
+end
+
 --- Returns the obligations that the source node `id` in marked code needs. This follows from what
 --- `clavius.ir.support` lets marked code use: every `+`, `-` and `*` is on `int53`, every call is to
---- `assert`, `error`, a local function or, in proof code, `assume`, and every `return` is in a verified
---- function.
+--- `assert`, `error`, a local function, a prelude function or, in proof code, `assume`, and every
+--- `return` is in a verified function or a quantifier's body.
 --- @param source ValidateSource
 --- @param id NodeId
 --- @return NeededKey[]
@@ -193,11 +205,12 @@ local function needed(source, id)
     elseif n.tag == 'Call' then
         local callee = src.nodes[n.func]
         local name = callee.tag == 'Id' and callee.name
-        -- an `assume` proves nothing
-        if name ~= 'assume' then
+        -- an `assume` proves nothing, and a prelude function is part of a term
+        if name ~= 'assume' and not support.PRELUDE[name] then
             keys[1] = { kind = name == 'assert' and 'assert' or 'unreachable', clause = 0 }
         end
-    elseif n.tag == 'Return' then
+    elseif n.tag == 'Return' and enclosing_function(source, id) == source.index.unit[id] then
+        -- skip returns in func literals in quantifier calls, in fn
         local fn = src.nodes[source.index.unit[id]] --[[@as SrcFunction]]
         add_clauses(keys, 'post', arena.directives(src, fn, 'ClvPost'))
     elseif n.tag == 'ClvAssert' then

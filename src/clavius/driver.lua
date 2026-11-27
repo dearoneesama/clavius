@@ -10,6 +10,7 @@ local index = require 'clavius.ir.index'
 local parse = require 'clavius.syntax.parse'
 local resolve = require 'clavius.passes.resolve'
 local termination = require 'clavius.passes.termination'
+local triggers = require 'clavius.passes.triggers'
 local types = require 'clavius.passes.types'
 local validate = require 'clavius.validate'
 local write = require 'clavius.sexpr.write'
@@ -25,6 +26,7 @@ local write = require 'clavius.sexpr.write'
 --- @field info TypeInfo|nil
 --- @field effects Effects|nil
 --- @field termination Termination|nil
+--- @field triggers Triggers|nil
 --- @field prog CoreProgram|nil
 --- @field stage string the last stage that ran
 --- @field diags Diag[] the diagnostics of that stage
@@ -80,8 +82,17 @@ end
 
 --- @param c CompilerContext
 --- @return Diag[]
+local function run_triggers(c)
+    local result, diags = triggers.run(c.src, assert(c.index), assert(c.res), assert(c.info))
+    c.triggers = result
+    return diags
+end
+
+--- @param c CompilerContext
+--- @return Diag[]
 local function run_elaborate(c)
-    c.prog = elaborate.run(c.src, c.root, assert(c.index), assert(c.res), assert(c.info), assert(c.effects), assert(c.termination))
+    c.prog =
+        elaborate.run(c.src, c.root, assert(c.index), assert(c.res), assert(c.info), assert(c.effects), assert(c.termination), assert(c.triggers))
     return {}
 end
 
@@ -101,6 +112,7 @@ local STAGES = {
     { name = 'types', run = run_types },
     { name = 'effects', run = run_effects },
     { name = 'termination', run = run_termination },
+    { name = 'triggers', run = run_triggers },
     { name = 'elaborate', run = run_elaborate },
     { name = 'validate', run = run_validate },
 }

@@ -22,6 +22,8 @@ local TEMPLATES = {
     ['E-banned-goto'] = "`goto` and labels can't be used in verified code",
     ['E-type-mismatch'] = 'expected %s, found %s',
     ['E-mode'] = '%s',
+    ['E-trigger'] = '%s',
+    ['E-prelude-form'] = '%s',
     ['E-internal-node'] = '%s where a %s belongs',
     ['E-internal-check'] = 'Check O%s has no obligation of a known kind',
     ['E-internal-assume'] = 'Assume A%s has no allowed justification',
@@ -34,7 +36,14 @@ local TEMPLATES = {
 --- The codes whose arguments are keys of `PHRASES`. The arguments of other codes are names from the
 --- program and must never be read as keys.
 --- @type table<string, boolean>
-local KEYED = { ['E-syntax'] = true, ['E-misplaced-directive'] = true, ['E-unsupported-feature'] = true, ['E-mode'] = true }
+local KEYED = {
+    ['E-syntax'] = true,
+    ['E-misplaced-directive'] = true,
+    ['E-unsupported-feature'] = true,
+    ['E-mode'] = true,
+    ['E-trigger'] = true,
+    ['E-prelude-form'] = true,
+}
 
 --- What the keys in diagnostic arguments stand for. An argument that isn't a key, such as one of
 --- luacheck's syntax errors, is used as it is.
@@ -108,7 +117,8 @@ local PHRASES = {
     ['unmarked-callee'] = 'a call to a function that is neither `---@clavius` nor `---@unsafe`',
     ['reassigned-function'] = 'a call to a function that is assigned somewhere in the file',
     ['forward-gap'] = 'a call to a function whose `local` declaration and definition have other code between them',
-    ['function-value'] = 'a function other than a top-level `local function` or `function f` after `local f`, or one used as a value',
+    ['function-value'] = 'a function other than a top-level `local function` or `function f` after `local f`',
+    ['function-name'] = "a function's name used other than to call it",
     ['return-outside-function'] = '`return` outside a function',
     ['multiple-returns'] = 'more than one return value',
     ['call-value'] = '`assert`, `assume` or `error` used other than as a call statement',
@@ -143,6 +153,16 @@ local PHRASES = {
     ['assume-call'] = 'only proof code can call `assume`; elsewhere an `---@assume` line states it',
     ['lemma-call'] = 'only proof code can call a lemma in a `---@proof` line or block',
     ['ghost-exec-call'] = "ghost code can't call an exec function, which runs only at runtime",
+    ['quantifier-return'] = "every path through a quantifier's body should end in `return`",
+    ['prelude-statement'] = 'a `forall`, `exists` or `implies` call as a statement',
+    ['quantifier-named'] = 'a quantifier over a spec function passed by name',
+    ['quantifier-recursion'] = "a call in a quantifier's body that stays in its caller's cycle of recursive calls",
+    ['prelude-value'] = '`forall`, `exists` and `implies` should only be called, as in `forall(function(i) return p(i) end)`',
+    ['quantifier-args'] = '`forall` and `exists` should take one function literal, whose parameters are the bound variables',
+    ['quantifier-binders'] = "a quantifier's function should name its bound variables as parameters: at least one, and no `...`",
+    ['implies-args'] = '`implies` should take two conditions: `implies(p, q)` says `q` holds wherever `p` does',
+    ['no-trigger'] = 'this quantifier has no trigger: no spec function call in it mentions every bound variable without arithmetic over it; '
+        .. 'call one, or write nested quantifiers as one, `function(i, j)`',
 }
 
 --- What a failing obligation of each kind means. `%s` is the source text of its clause's condition or

@@ -64,6 +64,10 @@ M.UNOPS = { unm = true, ['not'] = true }
 --- @type table<string, boolean>
 M.ARITH = { add = true, sub = true, mul = true }
 
+--- The binary operators that give booleans: the comparisons, `and` and `or`.
+--- @type table<string, boolean>
+M.BOOLEAN_BINOPS = { eq = true, ne = true, lt = true, le = true, gt = true, ge = true, ['and'] = true, ['or'] = true }
+
 --- Source kinds that hold ghost code.
 --- @type table<string, boolean>
 M.GHOST_CODE = { ClvSpec = true, ClvLemma = true, ClvProof = true, ClvGhost = true, ClvAssert = true, ClvAssume = true }
@@ -79,6 +83,11 @@ M.TYPES = { int53 = true, boolean = true }
 --- Library functions that marked code may call, and `assume`, which only proof code may call.
 --- @type table<string, boolean>
 M.CALLS = { assert = true, assume = true, error = true }
+
+--- The spec functions that Clavius provides, which spec and proof code may call where no local of the
+--- same name is in scope.
+--- @type table<string, boolean>
+M.PRELUDE = { forall = true, exists = true, implies = true }
 
 --- Directive kinds that marked code may use above a function.
 --- @type table<string, boolean>

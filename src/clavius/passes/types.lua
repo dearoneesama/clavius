@@ -6,12 +6,13 @@
 
 local arena = require 'clavius.ir.arena'
 local diag = require 'clavius.ir.diag'
+local source_nodes = require 'clavius.ir.source_nodes'
 local support = require 'clavius.ir.support'
 
 --- @alias Type 'int53' | 'Int' | 'Nat' | 'boolean'
 
 --- @class TypeInfo
---- @field types table<NodeId, Type> the type of each expression and Binder in marked code and contracts, and of each function's ClvReturn
+--- @field types table<NodeId, Type> the type of each expression and Binder in marked code and contracts, of each function's ClvReturn, and of the value of each quantifier's Function
 --- @field callees table<NodeId, NodeId> the Function node that each call of a local function calls
 
 --- @class TypesState
@@ -230,6 +231,211 @@ local function call(st, id)
     return r and st.out.types[r]
 end
 
+--- The type that a use of a bound variable shows.
+--- @alias BinderTypeHint 'int' | 'boolean'
+
+--- The unknown type of a bound variable.
+--- @alias BinderTypeUnknown integer
+
+--- What an expression in a quantifier's body is known to be: a type, the unknown type of a bound
+--- variable, or nothing.
+--- @alias BinderInferredType BinderTypeHint | BinderTypeUnknown | nil
+
+--- The unknown types of a quantifier's bound variables, while its body is read. Unknowns that must be
+--- equal are merged, and each merged set has the type of its root. A root is the largest unknown of its
+--- set, so following `parent` only ever goes up.
+--- @class BinderInference
+--- @field unknown table<NodeId, BinderTypeUnknown> the unknown of each bound variable
+--- @field parent BinderTypeUnknown[] the unknown each one is merged into, itself at a root
+--- @field hint table<BinderTypeUnknown, BinderTypeHint> the type of each root that has one
+--- @field locals table<NodeId, BinderInferredType> what each `local` of the body is
+
+--- Returns the root of the unknown `k`, and points every unknown on the way straight at it.
+--- @param inf BinderInference
+--- @param k BinderTypeUnknown
+--- @mut inf
+--- @decrease #inf.parent - k
+--- @return BinderTypeUnknown
+local function find(inf, k)
+    if inf.parent[k] ~= k then
+        inf.parent[k] = find(inf, inf.parent[k])
+    end
+    return inf.parent[k]
+end
+
+--- Records that `t` must be a `want`. A boolean wins over an integer, so that the use as an integer is
+--- the one reported when the body is typed.
+--- @param inf BinderInference
+--- @param t BinderInferredType
+--- @param want BinderTypeHint
+--- @mut inf
+local function need(inf, t, want)
+    if type(t) == 'number' then
+        local r = find(inf, t)
+        if inf.hint[r] == nil or want == 'boolean' then
+            inf.hint[r] = want
+        end
+    end
+end
+
+--- Records that `a` and `b` must have one type.
+--- @param inf BinderInference
+--- @param a BinderInferredType
+--- @param b BinderInferredType
+--- @mut inf
+local function same(inf, a, b)
+    if type(a) == 'number' and type(b) == 'number' then
+        local ra = find(inf, a)
+        local rb = find(inf, b)
+        -- the smaller root goes under the larger
+        local lo = math.min(ra, rb)
+        local hi = math.max(ra, rb)
+        if lo ~= hi then
+            local merged = inf.hint[hi] or inf.hint[lo]
+            if inf.hint[lo] == 'boolean' then
+                merged = 'boolean'
+            end
+            inf.parent[lo] = hi
+            inf.hint[hi] = merged
+        end
+    elseif type(a) == 'number' and b ~= nil then
+        need(inf, a, b --[[@as BinderTypeHint]])
+    elseif type(b) == 'number' and a ~= nil then
+        need(inf, b, a --[[@as BinderTypeHint]])
+    end
+end
+
+--- Returns what a value of type `ty` is to the inference: an integer, a boolean or nothing.
+--- @param ty Type|nil
+--- @return BinderTypeHint|nil
+local function hint_of(ty)
+    if ty == 'boolean' then
+        return 'boolean'
+    elseif ty ~= nil and INTEGERS[ty] then
+        return 'int'
+    end
+    return nil
+end
+
+--- Reads the code under `id` in a quantifier's body, records what it needs of the bound variables'
+--- types, and returns what it is.
+--- @param st TypesState
+--- @param id NodeId
+--- @param inf BinderInference
+--- @mut inf
+--- @decrease id
+--- @return BinderInferredType
+local function infer(st, id, inf)
+    local n = st.src.nodes[id]
+    if n.tag == 'Paren' then
+        return infer(st, n.expr, inf)
+    elseif n.tag == 'Literal' and n.kind == 'number' then
+        return 'int'
+    elseif n.tag == 'Literal' then
+        return (n.kind == 'true' or n.kind == 'false') and 'boolean' or nil
+    elseif n.tag == 'Id' then
+        local decl = st.res.decl[id]
+        if decl == nil then
+            return nil
+        elseif inf.unknown[decl] ~= nil then
+            return inf.unknown[decl]
+        elseif inf.locals[decl] ~= nil then
+            return inf.locals[decl]
+        end
+        return hint_of(st.out.types[decl])
+    elseif n.tag == 'BinOp' and (n.op == 'eq' or n.op == 'ne') then
+        same(inf, infer(st, n.lhs, inf), infer(st, n.rhs, inf))
+        return 'boolean'
+    elseif n.tag == 'BinOp' then
+        local want = (support.ARITH[n.op] or ORDER[n.op]) and 'int' or 'boolean'
+        need(inf, infer(st, n.lhs, inf), want)
+        need(inf, infer(st, n.rhs, inf), want)
+        return support.ARITH[n.op] and 'int' or 'boolean'
+    elseif n.tag == 'UnOp' then
+        local want = n.op == 'not' and 'boolean' or 'int'
+        need(inf, infer(st, n.arg, inf), want)
+        return want
+    elseif n.tag == 'Call' and st.res.prelude[id] == 'implies' then
+        for _, a in ipairs(n.args) do
+            need(inf, infer(st, a, inf), 'boolean')
+        end
+        return 'boolean'
+    elseif n.tag == 'Call' and st.res.prelude[id] ~= nil then
+        -- an inner quantifier, whose own bound variables are typed when it is
+        for _, a in ipairs(n.args) do
+            infer(st, a, inf)
+        end
+        return 'boolean'
+    elseif n.tag == 'Call' and st.res.functions[st.res.decl[n.func] or 0] ~= nil then
+        local fn = st.src.nodes[st.res.functions[st.res.decl[n.func]]] --[[@as SrcFunction]]
+        for i, a in ipairs(n.args) do
+            local p = fn.params[i]
+            local want = p and hint_of(st.out.types[p])
+            local t = infer(st, a, inf)
+            if want ~= nil then
+                need(inf, t, want)
+            end
+        end
+        local r = arena.directives(st.src, fn, 'ClvReturn')[1]
+        return r and hint_of(st.out.types[r])
+    elseif n.tag == 'Local' then
+        for i, name in ipairs(n.names) do
+            inf.locals[name] = n.values[i] and infer(st, n.values[i], inf)
+        end
+        return nil
+    elseif n.tag == 'Return' then
+        for _, v in ipairs(n.values) do
+            need(inf, infer(st, v, inf), 'boolean')
+        end
+        return nil
+    elseif n.tag == 'IfArm' then
+        need(inf, infer(st, n.cond, inf), 'boolean')
+        infer(st, n.body, inf)
+        return nil
+    end
+    for _, kid in ipairs(source_nodes.children(n)) do
+        infer(st, kid, inf)
+    end
+    return nil
+end
+
+--- Forward declaration.
+local statement
+
+--- Types a call of `forall` or `exists`. A bound variable is a `boolean` when its uses show one and an
+--- `Int` otherwise, and one with no such use is reported. The body is spec code whose value is a
+--- `boolean`.
+--- @param st TypesState
+--- @param id NodeId
+--- @mut st
+--- @return Type
+local function quantifier(st, id)
+    local n = st.src.nodes[id] --[[@as SrcCall]]
+    local fn_id = n.args[1]
+    local fn = st.src.nodes[fn_id] --[[@as SrcFunction]]
+    --- @type BinderInference
+    local inf = { unknown = {}, parent = {}, hint = {}, locals = {} }
+    for k, p in ipairs(fn.params) do
+        inf.unknown[p] = k
+        inf.parent[k] = k
+    end
+    infer(st, fn.body, inf)
+    for k, p in ipairs(fn.params) do
+        local hint = inf.hint[find(inf, k)]
+        if hint == nil then
+            report(st, 'E-unsupported-type', p, { 'any' })
+        else
+            st.out.types[p] = hint == 'boolean' and 'boolean' or 'Int'
+        end
+    end
+    local result, ghost = st.result, st.ghost
+    st.out.types[fn_id] = 'boolean'
+    st.result, st.ghost = fn_id, true
+    statement(st, fn.body)
+    st.result, st.ghost = result, ghost
+    return 'boolean'
+end
+
 --- Returns the type of an expression. A type error is reported and gives nil.
 --- @param st TypesState
 --- @param id NodeId
@@ -265,6 +471,14 @@ function expression(st, id)
         else
             ty = st.out.types[constant or decl]
         end
+    elseif n.tag == 'Call' and st.res.prelude[id] == 'implies' then
+        local ok_p = want_bool(st, n.args[1], expression(st, n.args[1]))
+        local ok_q = want_bool(st, n.args[2], expression(st, n.args[2]))
+        if ok_p and ok_q then
+            ty = 'boolean'
+        end
+    elseif n.tag == 'Call' and st.res.prelude[id] ~= nil then
+        ty = quantifier(st, id)
     elseif n.tag == 'Call' then
         local fn = st.src.nodes[st.res.functions[st.res.decl[n.func]]] --[[@as SrcFunction]]
         ty = call(st, id)
@@ -342,9 +556,6 @@ local function loop_directives(st, loop)
         end
     end
 end
-
---- Forward declaration.
-local statement
 
 --- Types a statement of ghost code.
 --- @param st TypesState

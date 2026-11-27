@@ -628,63 +628,6 @@ local function is_verified(b, binder, in_region)
     return in_region and not arena.has_directive(b.src, fn, 'ClvUnsafe')
 end
 
---- What is left of a spec function's body to lower: a statement list from `index` on, and then what
---- follows the block that the list is in.
---- @class SpecRest
---- @field statements NodeId[]
---- @field index integer
---- @field next SpecRest|nil
-
---- Lowers what is left of a spec function's body to the term for its value. An `if` is an Ite whose arms
---- each go on with the statements after it, and a `local` binds its names in a Let around the rest.
---- @param b Builder
---- @param rest SpecRest
---- @mut b
---- @return NodeId term
-local function spec_term(b, rest)
-    while rest.index > #rest.statements do
-        -- every path returns, which resolve checks
-        rest = assert(rest.next, 'elaborate: a spec function may end without a value')
-    end
-    local id = rest.statements[rest.index]
-    local n = b.src.nodes[id]
-    --- @type SpecRest
-    local after = { statements = rest.statements, index = rest.index + 1, next = rest.next }
-    if n.tag == 'Return' then
-        return expr.clause(b, n.values[1], {})
-    elseif n.tag == 'Local' then
-        -- the names are fresh, so a value can't refer to the names bound before it
-        local values = {}
-        for i, v in ipairs(n.values) do
-            values[i] = expr.clause(b, v, {})
-        end
-        local value = spec_term(b, after)
-        for i = #n.names, 1, -1 do
-            value = builder.add(b, { tag = 'Let', name = builder.name_of(b, n.names[i]), value = values[i], body = value }, id)
-        end
-        return value
-    elseif n.tag == 'Block' then
-        return spec_term(b, { statements = n.statements, index = 1, next = after })
-    elseif n.tag == 'If' then
-        local value
-        if n.else_block ~= nil then
-            local else_block = b.src.nodes[n.else_block] --[[@as SrcBlock]]
-            value = spec_term(b, { statements = else_block.statements, index = 1, next = after })
-        else
-            value = spec_term(b, after)
-        end
-        for i = #n.arms, 1, -1 do
-            local arm = b.src.nodes[n.arms[i]] --[[@as SrcIfArm]]
-            local cond = expr.clause(b, arm.cond, {})
-            local body = b.src.nodes[arm.body] --[[@as SrcBlock]]
-            local if_true = spec_term(b, { statements = body.statements, index = 1, next = after })
-            value = builder.add(b, { tag = 'Ite', cond = cond, if_true = if_true, if_false = value }, n.arms[i])
-        end
-        return value
-    end
-    error(('elaborate: unhandled spec function statement %s'):format(n.tag))
-end
-
 --- Declares the sort of fuel and its two functions: `$zero`, and `$succ`, which adds one unfolding.
 --- @param b Builder
 --- @param origin NodeId
@@ -795,7 +738,7 @@ local function define_spec(b, spec)
     local more = apply(b, spec, succ, params)
     b.axiom = { fn = spec.id, fuel = '$fuel' }
     local body = b.src.nodes[fn.body] --[[@as SrcBlock]]
-    local value = spec_term(b, { statements = body.statements, index = 1, next = nil })
+    local value = expr.spec_term(b, { statements = body.statements, index = 1, next = nil })
     b.axiom = nil
     local defined = builder.add(b, { tag = 'BinOp', op = '==', lhs = more, rhs = value }, spec.id)
     -- only for arguments of the parameters' types
@@ -874,9 +817,10 @@ end
 --- @param info TypeInfo
 --- @param effects Effects
 --- @param termination Termination
+--- @param triggers Triggers
 --- @return CoreProgram
-function M.run(src, root, index, res, info, effects, termination)
-    local b = builder.new(src, index, res, info, effects, termination)
+function M.run(src, root, index, res, info, effects, termination, triggers)
+    local b = builder.new(src, index, res, info, effects, termination, triggers)
     local fueled = false
     for _, block in ipairs(blocks(src, root)) do
         for _, s in ipairs(block.tag == 'ClvSpec' and block.statements or {}) do

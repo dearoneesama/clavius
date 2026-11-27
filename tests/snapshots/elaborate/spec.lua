@@ -34,6 +34,31 @@ local function clamp(n)
 end
 ]]
 
+-- a spec function's parameter types are what it asks of its arguments: the caller's unit checks each
+-- argument, and the definition axiom holds only for well-typed ones
+--[[@spec
+---@param n Nat
+---@return Int
+local function pred(n)
+    return n - 1
+end
+
+---@param n Int
+---@return Int
+local function pred_abs(n)
+    if n < 0 then
+        return pred(-n)
+    end
+    return pred(n)
+end
+
+---@param n Nat
+---@return Int
+local function pred_nat(n)
+    return pred(n)
+end
+]]
+
 -- a call with an `Int` checks that it fits the `integer`
 --[[@lemma
 ---@param k integer

@@ -67,8 +67,26 @@ local function reached(calls, from)
     return seen
 end
 
+--- Returns whether the call `id` is in the body of a quantifier: a Function inside its unit's.
+--- @param src SrcArena
+--- @param idx NodeIndex
+--- @param id NodeId
+--- @return boolean
+local function in_quantifier(src, idx, id)
+    local p = idx.parent[id]
+    while p ~= 0 and p ~= idx.unit[id] do
+        if src.nodes[p].tag == 'Function' then
+            return true
+        end
+        p = idx.parent[p]
+    end
+    return false
+end
+
 --- Reports the loops in marked code that have no measure, and the recursive functions whose measure is
---- missing or has another number of expressions than the first one in its cycle.
+--- missing or has another number of expressions than the first one in its cycle. A call in a
+--- quantifier's body that stays in its caller's cycle is reported too: its measure would have to be
+--- checked under the bound variables, where no check can go.
 --- @param src SrcArena
 --- @param idx NodeIndex
 --- @param info TypeInfo
@@ -128,6 +146,12 @@ function M.run(src, idx, info)
                     diags[#diags + 1] = diag.at_node('E-misplaced-directive', d, { 'decrease-length' })
                 end
             end
+        end
+    end
+    for _, id in ipairs(idx.by_tag.Call or {}) do
+        local cycle = out.cycle[idx.unit[id]]
+        if cycle ~= nil and cycle == out.cycle[info.callees[id]] and in_quantifier(src, idx, id) then
+            diags[#diags + 1] = diag.at_node('E-unsupported-feature', id, { 'quantifier-recursion' })
         end
     end
     return out, diags
